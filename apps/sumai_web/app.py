@@ -67,69 +67,21 @@ def _check_backend_health() -> dict[str, Any] | None:
 _backend_health = _check_backend_health()
 
 
-def _get_mode_badge() -> str:
-    """Return visible mode badge text."""
+def _get_mode_badge_html() -> str:
+    """Return HTML for the mode badge with styling."""
     if _backend_health:
         is_mock = _backend_health.get("mock_mode", True)
         if is_mock:
-            return "🟢 MOCK MODE — デモ用の固定結果を表示しています"
+            return '<span class="badge badge-mock">🟢 MOCK MODE</span>'
         else:
-            return "🔴 GEMINI MODE — Gemini AIによるリアル分析"
+            return '<span class="badge badge-gemini">🔴 GEMINI MODE</span>'
     if FRONTEND_MOCK:
-        return "🟢 MOCK MODE — デモ用の固定結果を表示しています"
-    return "🟡 STATUS UNKNOWN — バックエンド接続確認中"
+        return '<span class="badge badge-mock">🟢 MOCK MODE</span>'
+    return '<span class="badge badge-unknown">🟡 BACKEND UNKNOWN</span>'
 
 
 def shooting_guidance(room_hint: str) -> str:
     return GUIDANCE.get(room_hint, GUIDANCE["auto"])
-
-
-def analyze_photo(image: Image.Image | None, room_hint: str) -> tuple[Any, ...]:
-    if image is None:
-        return (
-            "## 総合リスク\n画像を追加してください。",
-            None,
-            None,
-            "",
-            "",
-            "",
-            "",
-            DISCLAIMER,
-        )
-
-    image = image.convert("RGB")
-    fallback_warning = ""
-    try:
-        payload = _call_backend(image=image, room_hint=room_hint)
-        # Check mode from response
-        mode = payload.get("mode", "mock")
-        logger.info(f"Analysis complete: mode={mode}, findings={len(payload.get('findings', []))}")
-    except requests.RequestException as exc:
-        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
-        logger.warning(f"Backend request failed, using local mock: {exc}")
-        payload = _local_mock_payload(image=image, room_hint=room_hint, reason=str(exc))
-    except ValueError as exc:
-        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
-        logger.warning(f"Backend response invalid, using local mock: {exc}")
-        payload = _local_mock_payload(image=image, room_hint=room_hint, reason=str(exc))
-
-    annotated = _image_from_base64(payload["annotated_image_base64"])
-    improvement = _image_from_base64(payload["improvement_image_base64"])
-
-    overall_md = _overall_markdown(payload)
-    if fallback_warning:
-        overall_md = f"{fallback_warning}\n\n{overall_md}"
-
-    return (
-        overall_md,
-        annotated,
-        improvement,
-        payload["risk_summary_markdown"],
-        payload["family_actions_markdown"],
-        payload["care_manager_actions_markdown"],
-        payload["contractor_actions_markdown"],
-        payload["disclaimer_ja"],
-    )
 
 
 def _call_backend(image: Image.Image, room_hint: str) -> dict[str, Any]:
@@ -263,98 +215,322 @@ def _to_base64_png(image: Image.Image) -> str:
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
-def reset_results() -> tuple[Any, ...]:
-    return (None, "## 総合リスク", None, None, "", "", "", "", DISCLAIMER)
+def check_image(image: Image.Image | None) -> tuple[Any, ...]:
+    """Validate image exists and transition to analyzing state."""
+    if image is None:
+        return (
+            gr.update(visible=True),  # input_screen visible
+            gr.update(visible=False), # analyzing_screen hidden
+            gr.update(value="### ⚠️ 写真を追加してください。", visible=True),
+            None,
+            None
+        )
+    return (
+        gr.update(visible=False), # input_screen hidden
+        gr.update(visible=True),  # analyzing_screen visible
+        gr.update(value="", visible=False),
+        image,
+        image
+    )
 
 
+def run_analysis_and_transition(image: Image.Image | None, room_hint: str) -> tuple[Any, ...]:
+    """Perform backend call and transition to result screen."""
+    if image is None:
+        return (
+            gr.update(visible=False), # analyzing_screen hidden
+            gr.update(visible=True),  # input_screen visible
+            gr.update(visible=False), # result_screen hidden
+            "## 総合リスク\n画像を追加してください。",
+            None,
+            None,
+            "",
+            "",
+            "",
+            "",
+            DISCLAIMER,
+            "input",
+            None
+        )
+
+    image_rgb = image.convert("RGB")
+    fallback_warning = ""
+    try:
+        payload = _call_backend(image=image_rgb, room_hint=room_hint)
+        mode = payload.get("mode", "mock")
+        logger.info(f"Analysis complete: mode={mode}, findings={len(payload.get('findings', []))}")
+    except requests.RequestException as exc:
+        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
+        logger.warning(f"Backend request failed, using local mock: {exc}")
+        payload = _local_mock_payload(image=image_rgb, room_hint=room_hint, reason=str(exc))
+    except ValueError as exc:
+        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
+        logger.warning(f"Backend response invalid, using local mock: {exc}")
+        payload = _local_mock_payload(image=image_rgb, room_hint=room_hint, reason=str(exc))
+
+    annotated = _image_from_base64(payload["annotated_image_base64"])
+    improvement = _image_from_base64(payload["improvement_image_base64"])
+
+    overall_md = _overall_markdown(payload)
+    if fallback_warning:
+        overall_md = f"{fallback_warning}\n\n{overall_md}"
+
+    return (
+        gr.update(visible=False), # analyzing_screen hidden
+        gr.update(visible=False), # input_screen hidden
+        gr.update(visible=True),  # result_screen visible
+        overall_md,
+        annotated,
+        improvement,
+        payload["risk_summary_markdown"],
+        payload["family_actions_markdown"],
+        payload["care_manager_actions_markdown"],
+        payload["contractor_actions_markdown"],
+        payload["disclaimer_ja"],
+        "result",
+        payload
+    )
+
+
+def reset_to_input() -> tuple[Any, ...]:
+    """Reset the app state and inputs back to Screen 1."""
+    return (
+        None,                      # photo_input cleared
+        "auto",                    # room_hint reset
+        gr.update(value="", visible=False),  # error_output hidden/cleared
+        gr.update(visible=True),   # input_screen visible=True
+        gr.update(visible=False),  # analyzing_screen visible=False
+        gr.update(visible=False),  # result_screen visible=False
+        None,                      # annotated_output cleared
+        None,                      # improvement_output cleared
+        "",                        # risk_markdown cleared
+        "",                        # family_markdown cleared
+        "",                        # care_markdown cleared
+        "",                        # contractor_markdown cleared
+        "input"                    # current_screen_state
+    )
+
+
+# Gradio Block layout
 with gr.Blocks(
     title="親の家 安全チェックAI",
     theme=gr.themes.Soft(primary_hue="red", neutral_hue="slate"),
     css="""
-    .sumai-title h1 { font-size: 2.1rem; line-height: 1.2; }
-    .sumai-subtitle { color: #475569; font-size: 1.05rem; }
-    .disclaimer-box { color: #475569; font-size: 0.92rem; }
-    .mode-badge { padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 0.95rem; }
-    """,
+    #container { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .header-container { border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 24px; }
+    .header-main { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .app-title { font-size: 2.1rem; font-weight: 800; color: #0f172a; margin: 0; }
+    .app-subtitle { font-size: 1.05rem; color: #475569; margin: 6px 0 0 0; }
+    .badge { padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; display: inline-block; }
+    .badge-mock { background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+    .badge-gemini { background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+    .badge-unknown { background-color: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+    .sumai-card { background: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 20px; }
+    .hero-card { background: linear-gradient(135deg, #fef2f2 0%, #fff 100%); border-left: 6px solid #ef4444; }
+    .disclaimer-box { color: #64748b; font-size: 0.85rem; line-height: 1.5; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9; margin-top: 16px; }
+    .error-box { color: #dc2626; background: #fee2e2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin: 12px 0; font-weight: bold; }
+    .guidance-box { background: #f8fafc; border-left: 4px solid #64748b; padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 0.95rem; margin-top: 12px; }
+    .action-card { background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 12px; }
+    .family-card { border-top: 5px solid #10b981; background-color: #f0fdf4; }
+    .care-card { border-top: 5px solid #3b82f6; background-color: #eff6ff; }
+    .contractor-card { border-top: 5px solid #ef4444; background-color: #fef2f2; }
+    .result-hero-box { background: #f8fafc; padding: 16px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+    .section-title { font-size: 1.5rem; font-weight: bold; margin: 24px 0 12px 0; color: #0f172a; }
+    .details-accordion { border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; margin-top: 20px; }
+    #analyze-btn { background-color: #ef4444; color: white; font-size: 1.2rem; font-weight: bold; height: 50px; border-radius: 8px; }
+    """
 ) as demo:
-    gr.Markdown(
-        """
-        # 親の家 安全チェックAI
-        <div class="sumai-subtitle">写真1枚で、転倒・つまずき・滑りやすさを見える化。<br>
-        家族でできること、相談すべきことをAIが分けて提案します。</div>
-        """,
-        elem_classes=["sumai-title"],
-    )
+    # State management
+    current_screen_state = gr.State("input")
+    last_image_state = gr.State(None)
+    last_payload_state = gr.State(None)
 
-    # Mode badge
-    gr.Markdown(f"**{_get_mode_badge()}**", elem_classes=["mode-badge"])
+    with gr.Column(elem_id="container"):
+        # Global Header
+        gr.HTML(
+            f"""
+            <div class="header-container">
+                <div class="header-main">
+                    <h1 class="app-title">親の家 安全チェックAI</h1>
+                    {_get_mode_badge_html()}
+                </div>
+                <p class="app-subtitle">写真1枚で、転倒・つまずき・滑りやすさを見える化。</p>
+            </div>
+            """
+        )
 
-    with gr.Row():
-        with gr.Column(scale=1):
+        # ==========================================
+        # Screen 1: Input Screen
+        # ==========================================
+        with gr.Column(visible=True) as input_screen:
+            gr.HTML(
+                """
+                <div class="sumai-card hero-card">
+                    <h2 style="margin-top:0; color:#ef4444; font-size: 1.3rem;">親の家、危ない場所をAIで見える化</h2>
+                    <p style="margin: 0; color:#475569;">まずは写真を1枚撮影またはアップロードしてください。</p>
+                </div>
+                """
+            )
+
             photo_input = gr.Image(
-                label="写真をアップロード / 撮影",
+                label="写真を撮る / アップロード",
                 type="pil",
                 sources=["upload", "webcam"],
-                height=360,
+                height=430,
             )
+
+            error_output = gr.Markdown("", visible=False, elem_classes=["error-box"])
+
             room_hint = gr.Radio(
                 label="部屋のヒント",
                 choices=ROOM_OPTIONS,
                 value="auto",
             )
-            guidance = gr.Markdown(shooting_guidance("auto"))
-            analyze_button = gr.Button("AIで安全チェック", variant="primary", size="lg")
-        with gr.Column(scale=1):
-            overall_output = gr.Markdown("## 総合リスク")
+
+            guidance = gr.Markdown(shooting_guidance("auto"), elem_classes=["guidance-box"])
+
+            analyze_button = gr.Button("AIで安全チェック", variant="primary", size="lg", elem_id="analyze-btn")
+
+            gr.Markdown(DISCLAIMER, elem_classes=["disclaimer-box"])
+
+        # ==========================================
+        # Transient Screen: Analyzing State
+        # ==========================================
+        with gr.Column(visible=False) as analyzing_screen:
+            gr.HTML(
+                """
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #ef4444; font-size: 1.6rem;">AI分析中...</h2>
+                    <p style="color: #475569; font-size: 1.1rem; margin-top: 8px;">
+                        AIが写真の中の転倒・つまずき・滑りやすさを確認しています。
+                    </p>
+                </div>
+                """
+            )
+
+            analyzing_image_preview = gr.Image(label="アップロードされた写真", type="pil", height=300, interactive=False)
+
+            gr.HTML(
+                """
+                <div class="sumai-card" style="margin-top: 20px; text-align: center;">
+                    <div style="display: inline-block; text-align: left; font-size: 1.15rem; line-height: 2.2;">
+                        <div>🔄 <strong>1. 写真を確認</strong></div>
+                        <div>🔄 <strong>2. リスクを抽出</strong></div>
+                        <div>🔄 <strong>3. 行動を分類</strong></div>
+                        <div>🔄 <strong>4. 結果を作成</strong></div>
+                    </div>
+                </div>
+                """
+            )
+
+        # ==========================================
+        # Screen 2: Result Screen
+        # ==========================================
+        with gr.Column(visible=False) as result_screen:
+            overall_output = gr.Markdown("## 総合リスク", elem_classes=["result-hero-box"])
+
+            # Visual Display Section (Side-by-side or stacked on mobile)
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("### 現状写真：赤枠リスク表示")
+                    annotated_output = gr.Image(label="赤枠リスク表示", type="pil", height=420, show_label=False, interactive=False)
+                with gr.Column(scale=1):
+                    gr.Markdown("### 現状 vs 改善イメージ")
+                    improvement_output = gr.Image(label="現状 vs 改善イメージ", type="pil", height=420, show_label=False, interactive=False)
+
+            gr.Markdown("<p style='text-align: center; color: #475569; font-size: 0.9rem; margin-top: 8px;'>※コミュニケーション用イメージ｜施工図ではありません</p>")
+
+            # Action Cards Section
+            gr.Markdown("## 次にできること", elem_classes=["section-title"])
+
+            with gr.Row():
+                with gr.Column(elem_classes=["action-card", "family-card"]):
+                    family_markdown = gr.Markdown()
+                with gr.Column(elem_classes=["action-card", "care-card"]):
+                    care_markdown = gr.Markdown()
+                with gr.Column(elem_classes=["action-card", "contractor-card"]):
+                    contractor_markdown = gr.Markdown()
+
+            # Risk Details Accordion
+            with gr.Accordion("詳しいリスク根拠を見る", open=False, elem_classes=["details-accordion"]):
+                risk_markdown = gr.Markdown()
+
             disclaimer_output = gr.Markdown(DISCLAIMER, elem_classes=["disclaimer-box"])
 
-    room_hint.change(fn=shooting_guidance, inputs=room_hint, outputs=guidance)
+            # Navigation buttons
+            with gr.Row():
+                retry_button = gr.Button("対策後の写真でもう一度チェック", variant="secondary", size="lg")
+                another_photo_button = gr.Button("別の写真をチェック", variant="secondary", size="lg")
 
-    gr.Markdown("## 現状写真：赤枠リスク表示")
-    annotated_output = gr.Image(label="赤枠リスク表示", type="pil", height=420)
+        # ==========================================
+        # Event Handlers
+        # ==========================================
+        room_hint.change(fn=shooting_guidance, inputs=room_hint, outputs=guidance)
 
-    gr.Markdown("## 現状 vs 改善イメージ")
-    improvement_output = gr.Image(label="現状 vs 改善イメージ", type="pil", height=420)
+        # Sequence:
+        # 1. Validate image presence, if valid hide input and show loading screen
+        # 2. Run API analysis and update results screen, transition views
+        analyze_button.click(
+            fn=check_image,
+            inputs=[photo_input],
+            outputs=[input_screen, analyzing_screen, error_output, analyzing_image_preview, last_image_state]
+        ).then(
+            fn=run_analysis_and_transition,
+            inputs=[photo_input, room_hint],
+            outputs=[
+                analyzing_screen,
+                input_screen,
+                result_screen,
+                overall_output,
+                annotated_output,
+                improvement_output,
+                risk_markdown,
+                family_markdown,
+                care_markdown,
+                contractor_markdown,
+                disclaimer_output,
+                current_screen_state,
+                last_payload_state,
+            ]
+        )
 
-    with gr.Row():
-        with gr.Column():
-            risk_markdown = gr.Markdown(label="リスク詳細")
-        with gr.Column():
-            gr.Markdown("## 次にできること")
-            family_markdown = gr.Markdown()
-            care_markdown = gr.Markdown()
-            contractor_markdown = gr.Markdown()
+        retry_button.click(
+            fn=reset_to_input,
+            outputs=[
+                photo_input,
+                room_hint,
+                error_output,
+                input_screen,
+                analyzing_screen,
+                result_screen,
+                annotated_output,
+                improvement_output,
+                risk_markdown,
+                family_markdown,
+                care_markdown,
+                contractor_markdown,
+                current_screen_state
+            ]
+        )
 
-    retry_button = gr.Button("対策後の写真でもう一度チェック")
-
-    analyze_button.click(
-        fn=analyze_photo,
-        inputs=[photo_input, room_hint],
-        outputs=[
-            overall_output,
-            annotated_output,
-            improvement_output,
-            risk_markdown,
-            family_markdown,
-            care_markdown,
-            contractor_markdown,
-            disclaimer_output,
-        ],
-    )
-    retry_button.click(
-        fn=reset_results,
-        outputs=[
-            photo_input,
-            overall_output,
-            annotated_output,
-            improvement_output,
-            risk_markdown,
-            family_markdown,
-            care_markdown,
-            contractor_markdown,
-            disclaimer_output,
-        ],
-    )
+        another_photo_button.click(
+            fn=reset_to_input,
+            outputs=[
+                photo_input,
+                room_hint,
+                error_output,
+                input_screen,
+                analyzing_screen,
+                result_screen,
+                annotated_output,
+                improvement_output,
+                risk_markdown,
+                family_markdown,
+                care_markdown,
+                contractor_markdown,
+                current_screen_state
+            ]
+        )
 
 
 if __name__ == "__main__":

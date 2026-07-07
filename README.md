@@ -223,14 +223,12 @@ GEMINI_API_KEY=your-key ./scripts/smoke_gemini.sh
 
 ## Demo Flow
 
-1. Open `http://localhost:8081` (or Cloud Run web URL).
-2. Check the mode badge (MOCK or GEMINI).
-3. Upload a 玄関 or 浴室 photo (sample images in `assets/samples/`).
+1. Open the app (`http://localhost:8081` or the Cloud Run web URL).
+2. Upload or take a photo on the first screen (入力画面 / photo capture screen).
+3. Choose an optional room hint (such as 玄関 or 浴室).
 4. Click `AIで安全チェック`.
-5. Show red boxes with R1/R2/R3 labels.
-6. Show current vs improvement side-by-side.
-7. Show the three action tiers.
-8. Click `対策後の写真でもう一度チェック` to restart.
+5. The result screen (診断結果画面 / analysis result screen) appears, showing the visual risks and three action cards.
+6. Click the re-check button (`対策後の写真でもう一度チェック` or `別の写真をチェック`) to return to the first screen with a clean state.
 
 See [docs/demo_script.md](docs/demo_script.md) for the full 3-minute demo script.
 
