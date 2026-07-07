@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import os
 from typing import Any
 
@@ -12,6 +13,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 load_dotenv()
+
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper(), format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logger = logging.getLogger("sumai.web")
 
 SUMAI_AGENT_URL = os.getenv("SUMAI_AGENT_URL", "http://localhost:8080").rstrip("/")
 SUMAI_WEB_PORT = int(os.getenv("SUMAI_WEB_PORT", "8081"))
@@ -46,6 +50,36 @@ DISCLAIMER = (
 )
 
 
+def _check_backend_health() -> dict[str, Any] | None:
+    """Non-blocking backend health check."""
+    try:
+        response = requests.get(f"{SUMAI_AGENT_URL}/healthz", timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            logger.info(f"Backend connected: {data}")
+            return data
+    except Exception as exc:
+        logger.warning(f"Backend health check failed: {exc}")
+    return None
+
+
+# Check backend on startup
+_backend_health = _check_backend_health()
+
+
+def _get_mode_badge() -> str:
+    """Return visible mode badge text."""
+    if _backend_health:
+        is_mock = _backend_health.get("mock_mode", True)
+        if is_mock:
+            return "🟢 MOCK MODE — デモ用の固定結果を表示しています"
+        else:
+            return "🔴 GEMINI MODE — Gemini AIによるリアル分析"
+    if FRONTEND_MOCK:
+        return "🟢 MOCK MODE — デモ用の固定結果を表示しています"
+    return "🟡 STATUS UNKNOWN — バックエンド接続確認中"
+
+
 def shooting_guidance(room_hint: str) -> str:
     return GUIDANCE.get(room_hint, GUIDANCE["auto"])
 
@@ -64,17 +98,30 @@ def analyze_photo(image: Image.Image | None, room_hint: str) -> tuple[Any, ...]:
         )
 
     image = image.convert("RGB")
+    fallback_warning = ""
     try:
         payload = _call_backend(image=image, room_hint=room_hint)
+        # Check mode from response
+        mode = payload.get("mode", "mock")
+        logger.info(f"Analysis complete: mode={mode}, findings={len(payload.get('findings', []))}")
     except requests.RequestException as exc:
+        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
+        logger.warning(f"Backend request failed, using local mock: {exc}")
         payload = _local_mock_payload(image=image, room_hint=room_hint, reason=str(exc))
     except ValueError as exc:
+        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
+        logger.warning(f"Backend response invalid, using local mock: {exc}")
         payload = _local_mock_payload(image=image, room_hint=room_hint, reason=str(exc))
 
     annotated = _image_from_base64(payload["annotated_image_base64"])
     improvement = _image_from_base64(payload["improvement_image_base64"])
+
+    overall_md = _overall_markdown(payload)
+    if fallback_warning:
+        overall_md = f"{fallback_warning}\n\n{overall_md}"
+
     return (
-        _overall_markdown(payload),
+        overall_md,
         annotated,
         improvement,
         payload["risk_summary_markdown"],
@@ -112,7 +159,9 @@ def _overall_markdown(payload: dict[str, Any]) -> str:
     room = ROOM_LABELS.get(str(payload.get("room_type", "auto")), "おまかせ")
     risk = risk_map.get(str(payload.get("overall_risk_level", "medium")), "中")
     count = len(payload.get("findings") or [])
-    return f"## 総合リスク: {risk}\n- 部屋: {room}\n- 赤枠リスク: {count}件\n- 分析ID: `{payload.get('analysis_id', 'local_mock')}`"
+    mode = payload.get("mode", "mock")
+    mode_label = "MOCK" if mode == "mock" else "GEMINI"
+    return f"## 総合リスク: {risk}\n- 部屋: {room}\n- 赤枠リスク: {count}件\n- 分析ID: `{payload.get('analysis_id', 'local_mock')}`\n- 分析モード: {mode_label}"
 
 
 def _image_from_base64(encoded: str) -> Image.Image:
@@ -134,6 +183,7 @@ def _local_mock_payload(image: Image.Image, room_hint: str, reason: str) -> dict
         "analysis_id": "local_mock",
         "room_type": room_hint,
         "overall_risk_level": "medium",
+        "mode": "local_mock",
         "findings": [{"id": "R1"}],
         "annotated_image_base64": _to_base64_png(annotated),
         "improvement_image_base64": _to_base64_png(improvement),
@@ -224,6 +274,7 @@ with gr.Blocks(
     .sumai-title h1 { font-size: 2.1rem; line-height: 1.2; }
     .sumai-subtitle { color: #475569; font-size: 1.05rem; }
     .disclaimer-box { color: #475569; font-size: 0.92rem; }
+    .mode-badge { padding: 8px 16px; border-radius: 8px; font-weight: bold; font-size: 0.95rem; }
     """,
 ) as demo:
     gr.Markdown(
@@ -234,6 +285,9 @@ with gr.Blocks(
         """,
         elem_classes=["sumai-title"],
     )
+
+    # Mode badge
+    gr.Markdown(f"**{_get_mode_badge()}**", elem_classes=["mode-badge"])
 
     with gr.Row():
         with gr.Column(scale=1):

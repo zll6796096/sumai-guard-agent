@@ -11,4 +11,9 @@ def test_healthz_returns_ok() -> None:
     response = client.get("/healthz")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "mock_mode" in data
+    assert "gemini_model" in data
+    assert "version" in data
+

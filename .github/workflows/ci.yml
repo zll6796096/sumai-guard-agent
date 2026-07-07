@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        run: pip install -r apps/sumai_agent/requirements.txt
+
+      - name: Run backend tests
+        run: python -m pytest apps/sumai_agent/tests -v
+
+      - name: Install frontend dependencies
+        run: pip install -r apps/sumai_web/requirements.txt
+
+      - name: Frontend import check
+        run: |
+          python -c "
+          import importlib.util
+          from pathlib import Path
+          path = Path('apps/sumai_web/app.py')
+          spec = importlib.util.spec_from_file_location('sumai_web_app', path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec and spec.loader
+          spec.loader.exec_module(module)
+          print('frontend import ok')
+          "
+
+      - name: Validate docker compose config
+        run: docker compose config

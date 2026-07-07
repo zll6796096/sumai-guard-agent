@@ -1,0 +1,114 @@
+name: Deploy to Cloud Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_agent:
+        description: "Deploy sumai-agent"
+        required: true
+        default: "true"
+        type: boolean
+      deploy_web:
+        description: "Deploy sumai-web"
+        required: true
+        default: "true"
+        type: boolean
+
+# Required GitHub Secrets:
+#   GCP_PROJECT_ID       - Google Cloud project ID
+#   GCP_SA_KEY           - Service account JSON key (or use Workload Identity)
+#   GEMINI_API_KEY       - (Optional) Gemini API key for real analysis
+#
+# Alternative to GCP_SA_KEY: Workload Identity Federation
+#   GCP_WORKLOAD_IDENTITY_PROVIDER - Workload Identity Provider
+#   GCP_SERVICE_ACCOUNT            - Service Account email
+
+env:
+  REGION: asia-northeast1
+  GEMINI_MODEL: gemini-2.5-flash
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Option 1: Service Account Key authentication
+      - name: Authenticate to Google Cloud (SA Key)
+        if: ${{ secrets.GCP_SA_KEY != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # Option 2: Workload Identity Federation
+      - name: Authenticate to Google Cloud (Workload Identity)
+        if: ${{ secrets.GCP_SA_KEY == '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy sumai-agent
+        if: ${{ inputs.deploy_agent }}
+        run: |
+          ENV_VARS="MOCK_MODE=false,GEMINI_MODEL=${{ env.GEMINI_MODEL }},LOG_LEVEL=INFO"
+          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
+            ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
+          fi
+
+          gcloud run deploy sumai-agent \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --source apps/sumai_agent \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --set-env-vars "$ENV_VARS" \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 120
+
+      - name: Get agent URL
+        id: agent-url
+        run: |
+          AGENT_URL=$(gcloud run services describe sumai-agent \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --format='value(status.url)')
+          echo "url=$AGENT_URL" >> $GITHUB_OUTPUT
+          echo "Agent URL: $AGENT_URL"
+
+      - name: Deploy sumai-web
+        if: ${{ inputs.deploy_web }}
+        run: |
+          gcloud run deploy sumai-web \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --source apps/sumai_web \
+            --region ${{ env.REGION }} \
+            --allow-unauthenticated \
+            --set-env-vars "SUMAI_AGENT_URL=${{ steps.agent-url.outputs.url }},SUMAI_WEB_PORT=8080,MOCK_MODE=false,LOG_LEVEL=INFO" \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 120
+
+      - name: Print deployment URLs
+        run: |
+          echo "========================================="
+          echo "  Deployment Complete"
+          echo "========================================="
+          echo "Agent: ${{ steps.agent-url.outputs.url }}"
+          WEB_URL=$(gcloud run services describe sumai-web \
+            --project ${{ secrets.GCP_PROJECT_ID }} \
+            --region ${{ env.REGION }} \
+            --format='value(status.url)' 2>/dev/null || echo "Not deployed")
+          echo "Web:   $WEB_URL"
+          echo "========================================="
+
+      - name: Health check
+        run: |
+          curl -s --max-time 10 "${{ steps.agent-url.outputs.url }}/healthz" || echo "Health check failed"

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import time
 from typing import Any
 
 from app.config import settings
 from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
 
+
+logger = logging.getLogger("sumai.gemini_vision")
 
 VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
 
@@ -56,14 +61,88 @@ class GeminiVisionService:
         image_png: bytes,
         room_hint: str = "auto",
         force_mock: bool = False,
-    ) -> VisionResult:
+        analysis_id: str = "",
+    ) -> tuple[VisionResult, str]:
+        """Analyze image. Returns (VisionResult, mode) where mode is 'mock' or 'gemini'."""
         normalized_room = normalize_room_hint(room_hint)
+
         if force_mock or settings.mock_mode or not settings.gemini_api_key:
-            return mock_vision_result(normalized_room)
+            mode = "mock"
+            reason = ""
+            if not force_mock and not settings.mock_mode and not settings.gemini_api_key:
+                reason = "GEMINI_API_KEY not set"
+            logger.info(
+                "vision_start",
+                extra={
+                    "analysis_id": analysis_id,
+                    "mode": mode,
+                    "model": settings.gemini_model,
+                    "room_hint": normalized_room,
+                    "reason": reason,
+                },
+            )
+            return mock_vision_result(normalized_room), mode
 
-        return await self._analyze_with_gemini(image_png=image_png, room_hint=normalized_room)
+        return await self._analyze_with_gemini(
+            image_png=image_png,
+            room_hint=normalized_room,
+            analysis_id=analysis_id,
+        )
 
-    async def _analyze_with_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionResult:
+    async def _analyze_with_gemini(
+        self,
+        image_png: bytes,
+        room_hint: RoomType,
+        analysis_id: str,
+    ) -> tuple[VisionResult, str]:
+        logger.info(
+            "vision_start",
+            extra={
+                "analysis_id": analysis_id,
+                "mode": "gemini",
+                "model": settings.gemini_model,
+                "room_hint": room_hint,
+            },
+        )
+
+        start_time = time.monotonic()
+        fallback_reason = ""
+
+        try:
+            async with asyncio.timeout(settings.analysis_timeout):
+                result = await self._call_gemini(image_png, room_hint)
+
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.info(
+                "vision_complete",
+                extra={
+                    "analysis_id": analysis_id,
+                    "mode": "gemini",
+                    "model": settings.gemini_model,
+                    "finding_count": len(result.findings),
+                    "latency_ms": latency_ms,
+                },
+            )
+            return result, "gemini"
+
+        except TimeoutError:
+            fallback_reason = "gemini_timeout"
+        except Exception as exc:
+            fallback_reason = f"gemini_error: {type(exc).__name__}: {str(exc)[:200]}"
+
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+        logger.warning(
+            "vision_fallback_to_mock",
+            extra={
+                "analysis_id": analysis_id,
+                "mode": "gemini_fallback",
+                "fallback_reason": fallback_reason,
+                "latency_ms": latency_ms,
+            },
+        )
+        return mock_vision_result(room_hint), f"gemini_fallback({fallback_reason})"
+
+    async def _call_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionResult:
         from google import genai
         from google.genai import types
 
@@ -214,6 +293,11 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
     try:
         data = json.loads(raw_json)
     except json.JSONDecodeError:
+        logger.warning("gemini_json_decode_error", extra={"raw_length": len(raw_json)})
+        return mock_vision_result(fallback_room)
+
+    if not isinstance(data, dict):
+        logger.warning("gemini_unexpected_json_type", extra={"type": type(data).__name__})
         return mock_vision_result(fallback_room)
 
     room = normalize_room_hint(str(data.get("room_type") or fallback_room))
@@ -223,13 +307,21 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
             continue
         try:
             findings.append(_finding_from_raw(index, item))
-        except Exception:
+        except Exception as exc:
+            logger.warning("gemini_finding_parse_error", extra={"index": index, "error": str(exc)[:200]})
             continue
     return VisionResult(room_type=room, findings=findings)
 
 
 def _finding_from_raw(index: int, item: dict[str, Any]) -> RiskFinding:
-    bbox = item.get("bbox") if isinstance(item.get("bbox"), dict) else {}
+    raw_bbox = item.get("bbox") if isinstance(item.get("bbox"), dict) else {}
+    normalized_bbox = _normalize_bbox(raw_bbox)
+    needs_confirmation = bool(item.get("needs_human_confirmation", False))
+
+    # Mark for human confirmation if bbox was invalid/missing
+    if not raw_bbox or normalized_bbox.get("_was_clamped"):
+        needs_confirmation = True
+
     return RiskFinding(
         id=f"R{index}",
         risk_type=str(item.get("risk_type") or "visible_risk"),
@@ -238,16 +330,76 @@ def _finding_from_raw(index: int, item: dict[str, Any]) -> RiskFinding:
         severity=_clamp_int(item.get("severity"), 1, 5, default=3),
         confidence=_clamp_float(item.get("confidence"), 0.0, 1.0, default=0.6),
         bbox=BoundingBox(
-            x=_clamp_float(bbox.get("x"), 0.0, 1.0, default=0.1),
-            y=_clamp_float(bbox.get("y"), 0.0, 1.0, default=0.1),
-            w=_clamp_float(bbox.get("w"), 0.0, 1.0, default=0.4),
-            h=_clamp_float(bbox.get("h"), 0.0, 1.0, default=0.3),
+            x=normalized_bbox["x"],
+            y=normalized_bbox["y"],
+            w=normalized_bbox["w"],
+            h=normalized_bbox["h"],
         ),
         evidence_ja=str(item.get("evidence_ja") or "写真内で確認できる範囲の所見です。"),
         basis_label_ja="",
         basis_summary_ja="",
-        needs_human_confirmation=bool(item.get("needs_human_confirmation", False)),
+        needs_human_confirmation=needs_confirmation,
     )
+
+
+def _normalize_bbox(raw_bbox: dict[str, Any]) -> dict[str, Any]:
+    """Normalize bbox values to 0-1 range.
+
+    If values look like 0-1000 normalized coordinates (any value > 1.0),
+    convert them to 0-1 by dividing by 1000.
+    Invalid values are clamped to safe defaults.
+    """
+    if not raw_bbox:
+        return {"x": 0.1, "y": 0.1, "w": 0.4, "h": 0.3, "_was_clamped": True}
+
+    x = _to_float(raw_bbox.get("x"), 0.1)
+    y = _to_float(raw_bbox.get("y"), 0.1)
+    w = _to_float(raw_bbox.get("w"), 0.4)
+    h = _to_float(raw_bbox.get("h"), 0.3)
+
+    was_clamped = False
+
+    # Check if values look like 0-1000 range (any value > 1.0 but <= 1000)
+    values = [x, y, w, h]
+    if any(v > 1.0 for v in values) and all(0.0 <= v <= 1000.0 for v in values):
+        x /= 1000.0
+        y /= 1000.0
+        w /= 1000.0
+        h /= 1000.0
+        logger.info("bbox_normalized_from_1000_range", extra={"original": values})
+
+    # Clamp all values to valid 0-1 range
+    for name, val in [("x", x), ("y", y), ("w", w), ("h", h)]:
+        if val < 0.0 or val > 1.0:
+            was_clamped = True
+
+    x = max(0.0, min(1.0, x))
+    y = max(0.0, min(1.0, y))
+    w = max(0.0, min(1.0, w))
+    h = max(0.0, min(1.0, h))
+
+    # Ensure minimum visible size
+    if w < 0.01:
+        w = 0.4
+        was_clamped = True
+    if h < 0.01:
+        h = 0.3
+        was_clamped = True
+
+    # Ensure box doesn't extend past image
+    if x + w > 1.0:
+        w = 1.0 - x
+    if y + h > 1.0:
+        h = 1.0 - y
+
+    return {"x": x, "y": y, "w": w, "h": h, "_was_clamped": was_clamped}
+
+
+def _to_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _clamp_float(value: Any, minimum: float, maximum: float, default: float) -> float:

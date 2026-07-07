@@ -22,6 +22,8 @@ class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    analysis_timeout: int = int(os.getenv("ANALYSIS_TIMEOUT", "120"))
+    version: str = "0.2.0"
 
 
 settings = Settings()

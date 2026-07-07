@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 
 from fastapi import UploadFile
@@ -12,6 +14,8 @@ from app.services.report_renderer import ReportRenderer
 from app.services.rule_engine import RuleEngine
 from app.services.visual_renderer import VisualRenderer
 
+
+logger = logging.getLogger("sumai.orchestrator")
 
 DISCLAIMER_JA = (
     "POC版です。医療・介護・施工判断を代替しません。"
@@ -28,14 +32,26 @@ class AnalysisOrchestrator:
         self.report_renderer = ReportRenderer()
 
     async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
-        raw_bytes = await upload.read()
-        image, safe_png = read_and_sanitize_image(raw_bytes)
+        analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
+        start_time = time.monotonic()
         normalized_hint = normalize_room_hint(room_hint)
 
-        vision_result = await self.vision.analyze(
+        logger.info(
+            "analysis_start",
+            extra={
+                "analysis_id": analysis_id,
+                "room_hint": normalized_hint,
+            },
+        )
+
+        raw_bytes = await upload.read()
+        image, safe_png = read_and_sanitize_image(raw_bytes)
+
+        vision_result, mode = await self.vision.analyze(
             image_png=safe_png,
             room_hint=normalized_hint,
             force_mock=mock,
+            analysis_id=analysis_id,
         )
         findings, action_plan = self.rule_engine.apply(vision_result.findings)
         overall_risk = overall_risk_level(findings)
@@ -47,8 +63,21 @@ class AnalysisOrchestrator:
             action_plan=action_plan,
         )
 
+        latency_ms = int((time.monotonic() - start_time) * 1000)
+        logger.info(
+            "analysis_complete",
+            extra={
+                "analysis_id": analysis_id,
+                "room_hint": normalized_hint,
+                "mock_or_gemini": mode,
+                "model": "N/A" if mode == "mock" else __import__("app.config", fromlist=["settings"]).settings.gemini_model,
+                "number_of_findings": len(findings),
+                "latency_ms": latency_ms,
+            },
+        )
+
         return AnalysisResponse(
-            analysis_id=f"sumai_{uuid.uuid4().hex[:12]}",
+            analysis_id=analysis_id,
             room_type=vision_result.room_type,
             overall_risk_level=overall_risk,
             findings=findings,
@@ -56,6 +85,7 @@ class AnalysisOrchestrator:
             annotated_image_base64=annotated,
             improvement_image_base64=improvement,
             disclaimer_ja=DISCLAIMER_JA,
+            mode=mode,
             **reports,
         )
 

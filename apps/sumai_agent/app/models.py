@@ -67,6 +67,7 @@ class AnalysisResponse(BaseModel):
     care_manager_actions_markdown: str
     contractor_actions_markdown: str
     disclaimer_ja: str
+    mode: str = "mock"
 
 
 class VisionResult(BaseModel):
