@@ -1,0 +1,172 @@
+rules:
+  genkan_step:
+    basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+    basis_summary_ja: 玄関の段差や上がり框は、足を上げる動作と靴の着脱が重なり、つまずきやバランス崩れにつながりやすい場所です。
+    family_no_cost_actions:
+      - title_ja: 段差まわりを片づける
+        description_ja: 段差の前後に靴や荷物を置かず、足を置く場所を広くします。
+        why_ja: 段差そのものに加えて物があると、足元確認と踏み出しが難しくなるためです。
+      - title_ja: 声かけで使い方をそろえる
+        description_ja: 外出前後は急がず、壁や安定した場所を確認してから上がり下りするよう家族で共有します。
+        why_ja: 今日からできる行動をそろえることで、急ぎ動作による転倒を減らすためです。
+    care_manager_purchase_actions:
+      - title_ja: 玄関用踏み台や福祉用具の相談
+        description_ja: 置き型の補助段や福祉用具の選択肢をケアマネ・福祉用具専門相談員に相談します。
+        why_ja: 身体状況や玄関寸法に合う用具は写真だけで判断できないためです。
+    contractor_construction_actions:
+      - title_ja: 手すり位置の現地確認
+        description_ja: 壁下地や動作方向を現地で確認し、必要なら手すり施工の可否を検討します。
+        why_ja: 固定強度や高さは写真だけでは判断できないためです。
+
+  hallway_cord:
+    basis_label_ja: 高齢者住宅安全チェックの一般原則
+    basis_summary_ja: 通路を横切るコードは足に引っかかりやすく、夜間や急いだ移動時につまずき要因になります。
+    family_no_cost_actions:
+      - title_ja: コードを壁沿いに寄せる
+        description_ja: 通路を横切らないよう、コードを壁際や家具沿いに移動します。
+        why_ja: 足を出す位置から線状の障害物を外すことで、引っかかりを減らすためです。
+      - title_ja: 使わないコードを抜いてしまう
+        description_ja: 今使っていない延長コードや充電ケーブルを片づけます。
+        why_ja: 動線に残る細い物は見落としやすいためです。
+    care_manager_purchase_actions:
+      - title_ja: 配線カバーの相談
+        description_ja: どうしても通路を横切る場合は、段差が少ない配線カバーなどを相談します。
+        why_ja: 製品選択を誤ると逆に段差になるため、使う場所に合う確認が必要です。
+    contractor_construction_actions: []
+
+  cluttered_path:
+    basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+    basis_summary_ja: 床や動線上の物は、足元確認を妨げ、つまずきや回避動作によるバランス崩れにつながります。
+    family_no_cost_actions:
+      - title_ja: 通る場所だけ先に空ける
+        description_ja: 玄関、トイレ、寝室までの通り道を優先して床の物を移動します。
+        why_ja: 生活動線の障害物を減らすことが、今日できる転倒予防になるためです。
+      - title_ja: よく使う物の置き場を一つ決める
+        description_ja: 床に置きがちな物を、腰より低すぎない同じ場所に戻すよう家族で決めます。
+        why_ja: 置き場所が曖昧だと、床置きが戻りやすいためです。
+    care_manager_purchase_actions:
+      - title_ja: 収納補助用品の相談
+        description_ja: 床置きを減らすため、軽い収納用品や福祉用具の選択肢を相談します。
+        why_ja: 本人が無理なく戻せる高さや位置の確認が必要なためです。
+    contractor_construction_actions: []
+
+  loose_mat:
+    basis_label_ja: 高齢者住宅安全チェックの一般原則
+    basis_summary_ja: マットや敷物の端部、めくれ、滑りは、足先が引っかかる典型的なつまずき要因です。
+    family_no_cost_actions:
+      - title_ja: めくれやすい敷物を一時的に外す
+        description_ja: 通路上の敷物は、まず外せるものから外して足元を平らにします。
+        why_ja: 敷物端部が足先にかかる状況を今日から減らせるためです。
+      - title_ja: 端の浮きを毎日確認する
+        description_ja: 家族が訪問時に、めくれや浮きが戻っていないか確認します。
+        why_ja: 一度直しても日常使用でずれやすいためです。
+    care_manager_purchase_actions:
+      - title_ja: 滑りにくいマットの相談
+        description_ja: 必要な場所だけ、滑りにくく薄いタイプを福祉用具側に相談します。
+        why_ja: 厚みや素材によっては、かえってつまずきやすくなるためです。
+    contractor_construction_actions: []
+
+  bathroom_slip:
+    basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+    basis_summary_ja: 浴室は濡れた床と姿勢変化が重なり、滑りや転倒の影響が大きくなりやすい場所です。
+    family_no_cost_actions:
+      - title_ja: 石けんや水滴を残さない
+        description_ja: 入浴後に床の泡や水たまりを流し、乾かせる範囲で乾かします。
+        why_ja: 濡れや泡は滑りやすさを高めるためです。
+      - title_ja: 入浴前に床の物をどかす
+        description_ja: 洗面器やボトルなど、足元に置いた物を端に寄せます。
+        why_ja: 濡れた床で避ける動作が増えると、バランスを崩しやすいためです。
+    care_manager_purchase_actions:
+      - title_ja: 滑り止め用品を相談
+        description_ja: 浴室用の滑り止めマットやすのこ等の選択肢を、福祉用具側に相談します。
+        why_ja: 浴室素材や排水、清掃性に合うものを選ぶ必要があるためです。
+    contractor_construction_actions:
+      - title_ja: 床材・手すりの現地確認
+        description_ja: 滑りにくい床材や手すり施工が必要か、専門職が現地で確認します。
+        why_ja: 浴室は防水、固定、清掃性を写真だけで判断できないためです。
+
+  bathtub_stepover:
+    basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+    basis_summary_ja: 浴槽をまたぐ動作は片脚立ちに近く、濡れた環境ではバランスを崩しやすい動作です。
+    family_no_cost_actions:
+      - title_ja: またぐ前に手元と足元を確認する
+        description_ja: 入浴時は急がず、支えられる場所と足を置く場所を確認してから動きます。
+        why_ja: またぎ動作は一瞬のふらつきが転倒につながるためです。
+    care_manager_purchase_actions:
+      - title_ja: 浴槽台や入浴補助用具の相談
+        description_ja: 浴槽台、バスボード、入浴用いすなどの選択肢を相談します。
+        why_ja: 身体状況と浴槽形状に合う用具選定が必要なためです。
+    contractor_construction_actions:
+      - title_ja: 浴室手すりの現地確認
+        description_ja: またぐ向き、壁下地、固定位置を現地で確認します。
+        why_ja: 手すり固定は下地と動作確認が必要で、写真だけでは決められないためです。
+
+  toilet_transfer:
+    basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+    basis_summary_ja: トイレの立ち座りは重心移動が大きく、手をつく場所が不安定だと転倒リスクが高まります。
+    family_no_cost_actions:
+      - title_ja: 便器まわりの床を空ける
+        description_ja: 足を引く場所、方向転換する場所に物を置かないようにします。
+        why_ja: 立ち座り時に足を置き直す余裕を確保するためです。
+    care_manager_purchase_actions:
+      - title_ja: 立ち座り補助用具の相談
+        description_ja: 置き型手すりや補高便座などの候補を相談します。
+        why_ja: 体格、便器形状、使い方によって合う用具が異なるためです。
+    contractor_construction_actions:
+      - title_ja: トイレ手すりの現地確認
+        description_ja: 壁下地、便器位置、立ち座り動作を現地で確認します。
+        why_ja: 手すり位置は本人の動作と固定強度を見て決める必要があるためです。
+
+  missing_handrail:
+    basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+    basis_summary_ja: 段差、浴室、トイレなどの姿勢変化がある場所では、支えの不足がふらつきにつながることがあります。
+    family_no_cost_actions:
+      - title_ja: 不安定な家具を支えにしない
+        description_ja: 動く家具やタオル掛けを体重をかける支えとして使わないよう共有します。
+        why_ja: 固定されていない物は、かえって転倒につながるためです。
+    care_manager_purchase_actions:
+      - title_ja: 置き型手すりの相談
+        description_ja: 工事不要の支援用具が合うか、福祉用具側に相談します。
+        why_ja: 設置場所や本人の動作に合わないと安全に使えないためです。
+    contractor_construction_actions:
+      - title_ja: 固定手すりの施工可否確認
+        description_ja: 壁下地、取り付け位置、動作方向を現地で確認します。
+        why_ja: 固定強度と位置決めは写真だけでは判断できないためです。
+
+  poor_lighting:
+    basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+    basis_summary_ja: 足元が暗い場所では、段差、敷物、床の物に気づきにくくなります。
+    family_no_cost_actions:
+      - title_ja: 既存の照明を点ける習慣にする
+        description_ja: 夜間のトイレや玄関移動では、先に明かりを点けるよう家族で確認します。
+        why_ja: 見落としを減らすには、まず足元を見える状態にすることが重要なためです。
+      - title_ja: カーテンや物で光を遮らない
+        description_ja: 既存の照明や窓の光が床に届くよう、遮っている物を移動します。
+        why_ja: 追加費用なしで足元の見え方を改善できるためです。
+    care_manager_purchase_actions:
+      - title_ja: 夜間ライトの相談
+        description_ja: 人感ライトや足元灯が合うか相談します。
+        why_ja: まぶしさ、設置場所、電源位置を確認する必要があるためです。
+    contractor_construction_actions:
+      - title_ja: 照明・スイッチ位置の現地確認
+        description_ja: 暗さが強い場合は、照明やスイッチ位置の改善余地を現地で確認します。
+        why_ja: 電気工事の要否は写真だけでは判断できないためです。
+
+  kitchen_slip:
+    basis_label_ja: 高齢者住宅安全チェックの一般原則
+    basis_summary_ja: キッチン床は水や油が落ちやすく、調理中の移動や方向転換で滑りやすくなることがあります。
+    family_no_cost_actions:
+      - title_ja: 水滴や油をすぐ拭く
+        description_ja: シンクやコンロ前の床に水滴や油汚れが残らないよう、その場で拭きます。
+        why_ja: 滑りの原因を今日から減らせるためです。
+      - title_ja: 調理動線の床置きをなくす
+        description_ja: よく歩く場所に袋や調理道具を置かないようにします。
+        why_ja: 調理中は手がふさがり、つまずいた時に支えにくいためです。
+    care_manager_purchase_actions:
+      - title_ja: 滑りにくいキッチン用品の相談
+        description_ja: 必要なら薄く滑りにくい床用品を相談します。
+        why_ja: 厚い敷物はつまずき要因になるため、選び方に注意が必要です。
+    contractor_construction_actions:
+      - title_ja: 床材の現地確認
+        description_ja: 滑りやすさが続く場合、床材や段差の状態を専門職が現地で確認します。
+        why_ja: 床材変更や補修の必要性は写真だけで判断しないためです。

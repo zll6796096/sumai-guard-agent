@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import uuid
+
+from fastapi import UploadFile
+from PIL import Image
+
+from app.models import AnalysisResponse, RiskFinding, RiskLevel, RoomType
+from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
+from app.services.image_intake import read_and_sanitize_image
+from app.services.report_renderer import ReportRenderer
+from app.services.rule_engine import RuleEngine
+from app.services.visual_renderer import VisualRenderer
+
+
+DISCLAIMER_JA = (
+    "POC版です。医療・介護・施工判断を代替しません。"
+    "改善イメージはコミュニケーション用であり施工図ではありません。"
+    "写真から正確な寸法や適用制度を判断するものではありません。"
+)
+
+
+class AnalysisOrchestrator:
+    def __init__(self) -> None:
+        self.vision = GeminiVisionService()
+        self.rule_engine = RuleEngine()
+        self.visual_renderer = VisualRenderer()
+        self.report_renderer = ReportRenderer()
+
+    async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
+        raw_bytes = await upload.read()
+        image, safe_png = read_and_sanitize_image(raw_bytes)
+        normalized_hint = normalize_room_hint(room_hint)
+
+        vision_result = await self.vision.analyze(
+            image_png=safe_png,
+            room_hint=normalized_hint,
+            force_mock=mock,
+        )
+        findings, action_plan = self.rule_engine.apply(vision_result.findings)
+        overall_risk = overall_risk_level(findings)
+        annotated, improvement = self.visual_renderer.render(image, findings)
+        reports = self.report_renderer.render(
+            room_type=vision_result.room_type,
+            overall_risk_level=overall_risk,
+            findings=findings,
+            action_plan=action_plan,
+        )
+
+        return AnalysisResponse(
+            analysis_id=f"sumai_{uuid.uuid4().hex[:12]}",
+            room_type=vision_result.room_type,
+            overall_risk_level=overall_risk,
+            findings=findings,
+            action_plan=action_plan,
+            annotated_image_base64=annotated,
+            improvement_image_base64=improvement,
+            disclaimer_ja=DISCLAIMER_JA,
+            **reports,
+        )
+
+
+def overall_risk_level(findings: list[RiskFinding]) -> RiskLevel:
+    if not findings:
+        return "low"
+    max_severity = max(finding.severity for finding in findings)
+    if max_severity >= 4:
+        return "high"
+    if max_severity >= 2:
+        return "medium"
+    return "low"
+
+
+def image_from_png_bytes(image_bytes: bytes) -> Image.Image:
+    image, _ = read_and_sanitize_image(image_bytes)
+    return image
