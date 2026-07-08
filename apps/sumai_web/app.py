@@ -6,8 +6,9 @@ import logging
 import os
 from typing import Any
 
-import gradio as gr
 import requests
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
 
@@ -21,27 +22,7 @@ SUMAI_AGENT_URL = os.getenv("SUMAI_AGENT_URL", "http://localhost:8080").rstrip("
 SUMAI_WEB_PORT = int(os.getenv("SUMAI_WEB_PORT", "8081"))
 FRONTEND_MOCK = os.getenv("MOCK_MODE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
-ROOM_OPTIONS = [
-    ("おまかせ", "auto"),
-    ("玄関", "genkan"),
-    ("廊下", "hallway"),
-    ("浴室", "bathroom"),
-    ("トイレ", "toilet"),
-    ("寝室", "bedroom"),
-    ("キッチン", "kitchen"),
-]
-
-ROOM_LABELS = dict((value, label) for label, value in ROOM_OPTIONS)
-
-GUIDANCE = {
-    "genkan": "玄関: 床、上がり框、靴の置き場、手すりの有無が入るように撮影してください。",
-    "hallway": "廊下: 床面、壁沿い、コード、敷物、段差が見えるように撮影してください。",
-    "bathroom": "浴室: 入口、床、浴槽のまたぎ部分、手すりの有無が入るように撮影してください。",
-    "toilet": "トイレ: 便器の周辺、立ち座りスペース、手すりの有無が分かるように撮影してください。",
-    "bedroom": "寝室: ベッド横、床、夜間トイレまでの動線が見えるように撮影してください。",
-    "kitchen": "キッチン: 床、マット、よく歩く動線、コンロ周辺が見えるように撮影してください。",
-    "auto": "おまかせ: 床・段差・手すり・通路が見えるように撮影してください。",
-}
+app = FastAPI(title="SumaiGuard Web")
 
 DISCLAIMER = (
     "POC版です。医療・介護・施工判断を代替しません。\n"
@@ -53,74 +34,1047 @@ DISCLAIMER = (
 def _check_backend_health() -> dict[str, Any] | None:
     """Non-blocking backend health check."""
     try:
-        response = requests.get(f"{SUMAI_AGENT_URL}/healthz", timeout=5)
+        response = requests.get(f"{SUMAI_AGENT_URL}/healthz", timeout=3)
         if response.status_code == 200:
-            data = response.json()
-            logger.info(f"Backend connected: {data}")
-            return data
+            return response.json()
     except Exception as exc:
         logger.warning(f"Backend health check failed: {exc}")
     return None
 
 
-# Check backend on startup
 _backend_health = _check_backend_health()
 
 
-def _get_mode_badge_html() -> str:
-    """Return HTML for the mode badge with styling."""
-    if _backend_health:
-        is_mock = _backend_health.get("mock_mode", True)
-        if is_mock:
-            return '<span class="badge badge-mock">🟢 MOCK MODE</span>'
-        else:
-            return '<span class="badge badge-gemini">🔴 GEMINI MODE</span>'
-    if FRONTEND_MOCK:
-        return '<span class="badge badge-mock">🟢 MOCK MODE</span>'
-    return '<span class="badge badge-unknown">🟡 BACKEND UNKNOWN</span>'
+# HTML Template with mobile-first CSS and vanilla JS
+INDEX_HTML = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>親の家 安全チェックAI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(180deg, #0F1020 0%, #14172A 100%);
+            --card-bg: #1B2033;
+            --text-color: #F7F8FA;
+            --text-muted: #A8AFBF;
+            --primary-color: #6C5CE7;
+            --secondary-color: #4C7DFF;
+            --border-color: rgba(255,255,255,0.12);
+            --danger-color: #EF4444;
+            --success-color: #10B981;
+            --warning-color: #F59E0B;
+            --accent-green: #10B981;
+            --accent-blue: #3B82F6;
+            --accent-red: #EF4444;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background-color: #0F1020;
+            font-family: 'Noto Sans JP', sans-serif;
+            color: var(--text-color);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #app-container {
+            width: 100%;
+            max-width: 480px;
+            height: 100vh;
+            max-height: 844px;
+            background: var(--bg-gradient);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            position: relative;
+            overflow: hidden;
+            border-radius: 0;
+        }
+
+        @media (min-width: 481px) {
+            #app-container {
+                border-radius: 20px;
+                border: 1px solid var(--border-color);
+            }
+        }
+
+        .screen {
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            padding: 24px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        /* Screen 1: Home */
+        #screen-home {
+            overflow-y: hidden;
+            justify-content: space-between;
+        }
+
+        .home-header {
+            text-align: center;
+            margin-top: 40px;
+        }
+
+        .home-icon {
+            width: 64px;
+            height: 64px;
+            background-color: rgba(108, 92, 231, 0.15);
+            color: var(--primary-color);
+            border-radius: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 16px auto;
+            border: 1px solid rgba(108, 92, 231, 0.3);
+        }
+
+        .home-icon svg {
+            width: 32px;
+            height: 32px;
+        }
+
+        .home-title {
+            font-size: 1.8rem;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+
+        .home-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
+
+        .home-controls {
+            margin: 24px 0;
+        }
+
+        .control-group {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .control-label {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-muted);
+        }
+
+        .room-dropdown {
+            background: transparent;
+            border: none;
+            color: var(--text-color);
+            font-size: 0.95rem;
+            font-weight: 700;
+            outline: none;
+            text-align: right;
+            cursor: pointer;
+            width: 150px;
+            direction: rtl;
+        }
+
+        .room-dropdown option {
+            background-color: #14172A;
+            color: var(--text-color);
+            direction: ltr;
+        }
+
+        .guidance-text {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.5;
+            background-color: rgba(255,255,255,0.03);
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px dashed rgba(255,255,255,0.06);
+        }
+
+        .error-message {
+            background-color: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--danger-color);
+            color: #FFA4A4;
+            border-radius: 8px;
+            padding: 10px;
+            font-size: 0.85rem;
+            text-align: center;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+
+        .home-footer {
+            margin-bottom: 24px;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 54px;
+            border-radius: 14px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-sizing: border-box;
+            margin-bottom: 12px;
+            text-decoration: none;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background-color: var(--primary-color);
+            color: white;
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+        }
+
+        .btn-primary:active {
+            background-color: #5b4bc4;
+        }
+
+        .btn-secondary {
+            background-color: var(--secondary-color);
+            color: white;
+            box-shadow: 0 4px 12px rgba(76, 125, 255, 0.25);
+        }
+
+        .btn-secondary:active {
+            background-color: #3b6adc;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+        }
+
+        .btn-outline:active {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .btn-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+        }
+
+        .disclaimer-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        /* Screen: Analyzing */
+        #screen-analyzing {
+            justify-content: center;
+            align-items: center;
+            background: var(--bg-gradient);
+        }
+
+        .analyzing-content {
+            text-align: center;
+            width: 100%;
+        }
+
+        .analyzing-title {
+            font-size: 1.5rem;
+            font-weight: 900;
+            color: var(--primary-color);
+            margin-bottom: 8px;
+        }
+
+        .analyzing-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        .preview-container {
+            width: 200px;
+            height: 150px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 0 auto 32px auto;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .preview-container img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .steps-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 24px auto 0 auto;
+            position: relative;
+            max-width: 320px;
+            padding: 0 10px;
+        }
+
+        .steps-container::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 20px;
+            right: 20px;
+            height: 2px;
+            background-color: var(--border-color);
+            z-index: 1;
+        }
+
+        .step-item {
+            position: relative;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+        }
+
+        .step-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background-color: #14172A;
+            border: 2px solid var(--border-color);
+            margin-bottom: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .step-item.active .step-dot {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 10px var(--primary-color);
+        }
+
+        .step-item.completed .step-dot {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+        }
+
+        .step-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .step-item.active .step-label {
+            color: var(--text-color);
+            font-weight: 700;
+        }
+
+        /* Screen: Result & Suggestions */
+        .screen-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+
+        .nav-back {
+            background: transparent;
+            border: none;
+            color: var(--secondary-color);
+            font-size: 0.95rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .nav-back svg {
+            width: 20px;
+            height: 20px;
+            margin-right: 4px;
+        }
+
+        .nav-title {
+            font-size: 1.1rem;
+            font-weight: 900;
+        }
+
+        .result-summary {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 16px;
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+
+        .summary-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .summary-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+
+        .summary-value {
+            font-size: 1.15rem;
+            font-weight: 900;
+        }
+
+        .badge {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-weight: 900;
+            font-size: 0.85rem;
+        }
+
+        .badge-low {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--success-color);
+            border: 1px solid var(--success-color);
+        }
+
+        .badge-medium {
+            background-color: rgba(245, 158, 11, 0.15);
+            color: var(--warning-color);
+            border: 1px solid var(--warning-color);
+        }
+
+        .badge-high {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--danger-color);
+            border: 1px solid var(--danger-color);
+        }
+
+        .result-images-list {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .result-image-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+            padding: 16px;
+        }
+
+        .image-card-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            display: block;
+        }
+
+        .image-wrapper {
+            width: 100%;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.06);
+            background-color: #0F1020;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .image-wrapper img {
+            width: 100%;
+            height: auto;
+            display: block;
+            object-fit: contain;
+        }
+
+        .result-actions, .suggestions-actions {
+            margin-top: auto;
+            padding-top: 16px;
+            flex-shrink: 0;
+        }
+
+        /* Screen 3: Action Suggestions */
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 900;
+            margin-bottom: 16px;
+        }
+
+        .action-cards-container {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .action-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .family-card {
+            border-left: 5px solid var(--accent-green);
+        }
+
+        .care-card {
+            border-left: 5px solid var(--accent-blue);
+        }
+
+        .contractor-card {
+            border-left: 5px solid var(--accent-red);
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .card-badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-right: 8px;
+        }
+
+        .family-card .card-badge {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+        }
+
+        .care-card .card-badge {
+            background-color: rgba(59, 130, 246, 0.15);
+            color: var(--accent-blue);
+        }
+
+        .contractor-card .card-badge {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--accent-red);
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 900;
+        }
+
+        .card-body {
+            font-size: 0.9rem;
+            line-height: 1.6;
+            color: var(--text-color);
+        }
+
+        /* Markdown rendering styles */
+        .markdown-body h2, .markdown-body h3 {
+            font-size: 0.95rem;
+            margin-top: 12px;
+            margin-bottom: 6px;
+            font-weight: bold;
+            color: var(--text-color);
+        }
+        
+        .markdown-body p {
+            margin-bottom: 8px;
+        }
+
+        .markdown-body ul, .markdown-body ol {
+            padding-left: 18px;
+            margin-bottom: 10px;
+        }
+
+        .markdown-body li {
+            margin-bottom: 4px;
+        }
+
+        /* Accordion Details */
+        .details-accordion {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .accordion-header {
+            padding: 16px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            outline: none;
+            user-select: none;
+            color: var(--secondary-color);
+        }
+
+        .accordion-content {
+            padding: 16px;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: var(--text-muted);
+            background-color: rgba(0, 0, 0, 0.15);
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <!-- Hidden Inputs for Files -->
+        <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
+        <input type="file" id="library-input" accept="image/*" style="display: none;">
+
+        <!-- SCREEN 1: Home / Photo Input -->
+        <div id="screen-home" class="screen active">
+            <div class="home-header">
+                <div class="home-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 13.586V20a1 1 0 0 1-1 1h-4v-6h-4v6H6a1 1 0 0 1-1-1v-6.414l7-7 7 7zM12 2.69l-9 9V13h2v7a2 2 0 0 0 2 2h6v-6h2v6h6a2 2 0 0 0 2-2v-7h2v-1.31l-9-9z"/>
+                    </svg>
+                </div>
+                <h1 class="home-title">親の家 安全チェックAI</h1>
+                <p class="home-subtitle">写真1枚で、転倒リスクを見える化</p>
+            </div>
+
+            <div class="home-controls">
+                <div class="control-group">
+                    <span class="control-label">診断する部屋</span>
+                    <select id="room-select" class="room-dropdown">
+                        <option value="auto" selected>おまかせ</option>
+                        <option value="genkan">玄関</option>
+                        <option value="hallway">廊下</option>
+                        <option value="bathroom">浴室</option>
+                        <option value="toilet">トイレ</option>
+                        <option value="bedroom">寝室</option>
+                        <option value="kitchen">キッチン</option>
+                    </select>
+                </div>
+                <p id="guidance-text" class="guidance-text">床・段差・手すり・通路が見えるように撮影してください。</p>
+                <div id="error-message" class="error-message" style="display: none;"></div>
+            </div>
+
+            <div class="home-footer">
+                <button id="btn-camera" class="btn btn-primary">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M4 4h3l2-2h6l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
+                    </svg>
+                    カメラで撮影
+                </button>
+                <button id="btn-library" class="btn btn-secondary">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-9 14l-4-4 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                    ライブラリから選択
+                </button>
+                <p class="disclaimer-text">POC版です。専門判断を代替しません。</p>
+            </div>
+        </div>
+
+        <!-- SCREEN 1.5: Analyzing -->
+        <div id="screen-analyzing" class="screen">
+            <div class="analyzing-content">
+                <h2 class="analyzing-title">AI分析中...</h2>
+                <p class="analyzing-subtitle">AIが写真を確認しています</p>
+                
+                <div class="preview-container">
+                    <img id="analyzing-preview" src="" alt="Preview">
+                </div>
+                
+                <div class="steps-container">
+                    <div class="step-item active">
+                        <span class="step-dot"></span>
+                        <span class="step-label">写真を確認</span>
+                    </div>
+                    <div class="step-item">
+                        <span class="step-dot"></span>
+                        <span class="step-label">リスク抽出</span>
+                    </div>
+                    <div class="step-item">
+                        <span class="step-dot"></span>
+                        <span class="step-label">結果作成</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SCREEN 2: Visual Diagnosis Result -->
+        <div id="screen-result" class="screen">
+            <div class="screen-nav">
+                <button class="nav-back btn-back-home">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M10.828 12l4.95 4.95-1.414 1.414-6.364-6.364 6.364-6.364 1.414 1.414z"/>
+                    </svg>
+                    ホーム
+                </button>
+                <span class="nav-title">診断結果</span>
+                <div style="width: 60px;"></div>
+            </div>
+
+            <div class="result-summary">
+                <div class="summary-item">
+                    <span class="summary-label">総合リスク</span>
+                    <span id="risk-badge" class="badge">--</span>
+                </div>
+                <div class="summary-item">
+                    <span class="summary-label">赤枠リスク</span>
+                    <span id="risk-count" class="summary-value">--件</span>
+                </div>
+            </div>
+
+            <div class="result-images-list">
+                <div class="result-image-card">
+                    <span class="image-card-title">現状写真（赤枠）</span>
+                    <div class="image-wrapper">
+                        <img id="result-annotated-img" src="" alt="現状写真">
+                    </div>
+                </div>
+                <div class="result-image-card">
+                    <span class="image-card-title">改善イメージ</span>
+                    <div class="image-wrapper">
+                        <img id="result-improvement-img" src="" alt="改善イメージ">
+                    </div>
+                </div>
+            </div>
+
+            <div class="result-actions">
+                <button id="btn-show-suggestions" class="btn btn-primary">次にできることを見る</button>
+                <button class="btn btn-outline btn-back-home">ホームに戻る</button>
+            </div>
+        </div>
+
+        <!-- SCREEN 3: Action Suggestions -->
+        <div id="screen-suggestions" class="screen">
+            <div class="screen-nav">
+                <button id="btn-back-to-result" class="nav-back">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M10.828 12l4.95 4.95-1.414 1.414-6.364-6.364 6.364-6.364 1.414 1.414z"/>
+                    </svg>
+                    戻る
+                </button>
+                <span class="nav-title">対策の提案</span>
+                <div style="width: 60px;"></div>
+            </div>
+
+            <h2 class="section-title">次にできること</h2>
+
+            <div class="action-cards-container">
+                <div class="action-card family-card">
+                    <div class="card-header">
+                        <span class="card-badge">今日できる</span>
+                        <h3 class="card-title">家族で今日できること</h3>
+                    </div>
+                    <div id="action-family-content" class="card-body markdown-body"></div>
+                </div>
+
+                <div class="action-card care-card">
+                    <div class="card-header">
+                        <span class="card-badge">相談・レンタル</span>
+                        <h3 class="card-title">ケアマネ・福祉用具に相談</h3>
+                    </div>
+                    <div id="action-care-content" class="card-body markdown-body"></div>
+                </div>
+
+                <div class="action-card contractor-card">
+                    <div class="card-header">
+                        <span class="card-badge">専門工事</span>
+                        <h3 class="card-title">専門施工・現地確認</h3>
+                    </div>
+                    <div id="action-contractor-content" class="card-body markdown-body"></div>
+                </div>
+            </div>
+
+            <details class="details-accordion">
+                <summary class="accordion-header">詳しいリスク根拠を見る</summary>
+                <div id="risk-details-content" class="accordion-content markdown-body"></div>
+            </details>
+
+            <p class="disclaimer-text" style="color: var(--text-muted); text-align: left; margin: 24px 0 16px 0;">
+                ※POC版です。医療・介護・施工判断を代替しません。<br>
+                ※改善イメージはコミュニケーション用であり施工図ではありません。
+            </p>
+
+            <div class="suggestions-actions">
+                <button class="btn btn-outline btn-back-home">ホームに戻る</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const GUIDANCE = {
+            genkan: "玄関: 床、上がり框、靴の置き場、手すりの有無が入るように撮影してください。",
+            hallway: "廊下: 床面、壁沿い、コード、敷物、段差が見えるように撮影してください。",
+            bathroom: "浴室: 入口、床、浴槽のまたぎ部分、手すりの有無が入るように撮影してください。",
+            toilet: "トイレ: 便器の周辺、立ち座りスペース、手すりの有無が分かるように撮影してください。",
+            bedroom: "寝室: ベッド横、床、夜間トイレまでの動線が見えるように撮影してください。",
+            kitchen: "キッチン: 床、マット、よく歩く動線、コンロ周辺が見えるように撮影してください。",
+            auto: "床・段差・手すり・通路が見えるように撮影してください。"
+        };
+
+        const cameraInput = document.getElementById('camera-input');
+        const libraryInput = document.getElementById('library-input');
+        const btnCamera = document.getElementById('btn-camera');
+        const btnLibrary = document.getElementById('btn-library');
+        const roomSelect = document.getElementById('room-select');
+        const guidanceText = document.getElementById('guidance-text');
+        const errorDiv = document.getElementById('error-message');
+        const btnShowSuggestions = document.getElementById('btn-show-suggestions');
+        const btnBackToResult = document.getElementById('btn-back-to-result');
+        const btnBackHomes = document.querySelectorAll('.btn-back-home');
+
+        // Nav functions
+        function showScreen(screenId) {
+            const screens = document.querySelectorAll('.screen');
+            screens.forEach(screen => {
+                screen.classList.remove('active');
+            });
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // Room Select guidance changer
+        function updateGuidance() {
+            const val = roomSelect.value;
+            guidanceText.textContent = GUIDANCE[val] || GUIDANCE.auto;
+        }
+
+        roomSelect.addEventListener('change', updateGuidance);
+
+        // Bind camera/library triggers
+        btnCamera.addEventListener('click', () => {
+            errorDiv.style.display = 'none';
+            cameraInput.click();
+        });
+
+        btnLibrary.addEventListener('click', () => {
+            errorDiv.style.display = 'none';
+            libraryInput.click();
+        });
+
+        cameraInput.addEventListener('change', handleFileSelect);
+        libraryInput.addEventListener('change', handleFileSelect);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            errorDiv.style.display = 'none';
+
+            // Show preview image instantly
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('analyzing-preview').src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+
+            // Go to Screen 1.5 (Analyzing state)
+            showScreen('screen-analyzing');
+            startStepAnimation();
+
+            // Run backend fetch
+            uploadAndAnalyze(file);
+        }
+
+        // Simulated Step animations
+        let step1, step2;
+        function startStepAnimation() {
+            const steps = document.querySelectorAll('.step-item');
+            steps.forEach((step, idx) => {
+                step.className = 'step-item';
+                if (idx === 0) step.classList.add('active');
+            });
+
+            step1 = setTimeout(() => {
+                steps[0].classList.add('completed');
+                steps[0].classList.remove('active');
+                steps[1].classList.add('active');
+            }, 1200);
+
+            step2 = setTimeout(() => {
+                steps[1].classList.add('completed');
+                steps[1].classList.remove('active');
+                steps[2].classList.add('active');
+            }, 2600);
+        }
+
+        function clearStepAnimation() {
+            clearTimeout(step1);
+            clearTimeout(step2);
+        }
+
+        async function uploadAndAnalyze(file) {
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('room_hint', roomSelect.value);
+
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('分析サービスとの通信に失敗しました。');
+                }
+
+                const data = await response.json();
+                renderResults(data);
+
+            } catch (err) {
+                console.error(err);
+                clearStepAnimation();
+                showScreen('screen-home');
+                errorDiv.textContent = err.message || '分析エラーが発生しました。';
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function renderResults(payload) {
+            // Set risk badge
+            const riskBadge = document.getElementById('risk-badge');
+            const overallRisk = payload.overall_risk_level || 'medium';
+            riskBadge.textContent = getRiskLabel(overallRisk);
+            riskBadge.className = 'badge badge-' + overallRisk;
+
+            // Set findings count
+            const count = payload.findings ? payload.findings.length : 0;
+            document.getElementById('risk-count').textContent = count + '件';
+
+            // Set Images
+            document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
+            document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
+
+            // Render Markdown using marked.js
+            document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
+            document.getElementById('action-care-content').innerHTML = marked.parse(payload.care_manager_actions_markdown || '');
+            document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
+            document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
+
+            clearStepAnimation();
+            showScreen('screen-result');
+        }
+
+        function getRiskLabel(risk) {
+            if (risk === 'low') return '低';
+            if (risk === 'medium') return '中';
+            if (risk === 'high') return '高';
+            return '中';
+        }
+
+        // Navigate between result and action cards
+        btnShowSuggestions.addEventListener('click', () => {
+            showScreen('screen-suggestions');
+        });
+
+        btnBackToResult.addEventListener('click', () => {
+            showScreen('screen-result');
+        });
+
+        // Reset flow
+        function resetApp() {
+            cameraInput.value = '';
+            libraryInput.value = '';
+            roomSelect.value = 'auto';
+            updateGuidance();
+            errorDiv.style.display = 'none';
+            showScreen('screen-home');
+        }
+
+        btnBackHomes.forEach(btn => {
+            btn.addEventListener('click', resetApp);
+        });
+    </script>
+</body>
+</html>
+"""
 
 
-def shooting_guidance(room_hint: str) -> str:
-    return GUIDANCE.get(room_hint, GUIDANCE["auto"])
+@app.get("/", response_class=HTMLResponse)
+def get_home():
+    return HTMLResponse(content=INDEX_HTML)
 
 
-def _call_backend(image: Image.Image, room_hint: str) -> dict[str, Any]:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    files = {"image": ("sumai-photo.png", buffer.getvalue(), "image/png")}
-    data = {"room_hint": room_hint, "mock": "true" if FRONTEND_MOCK else "false"}
-    response = requests.post(f"{SUMAI_AGENT_URL}/analyze", data=data, files=files, timeout=60)
-    response.raise_for_status()
-    payload = response.json()
-    required = [
-        "annotated_image_base64",
-        "improvement_image_base64",
-        "risk_summary_markdown",
-        "family_actions_markdown",
-        "care_manager_actions_markdown",
-        "contractor_actions_markdown",
-        "disclaimer_ja",
-    ]
-    if not all(key in payload for key in required):
-        raise ValueError("backend response missing required fields")
-    return payload
+@app.post("/analyze")
+async def analyze(
+    image: UploadFile = File(...),
+    room_hint: str = Form("auto"),
+):
+    """Proxy requests to sumai-agent backend with a local mock fallback if unreachable."""
+    image_bytes = await image.read()
+
+    # Call sumai-agent backend
+    try:
+        files = {"image": (image.filename or "photo.png", image_bytes, image.content_type or "image/png")}
+        data = {"room_hint": room_hint, "mock": "true" if FRONTEND_MOCK else "false"}
+        response = requests.post(f"{SUMAI_AGENT_URL}/analyze", data=data, files=files, timeout=60)
+
+        if response.status_code == 200:
+            return JSONResponse(content=response.json())
+
+        logger.warning(f"Backend returned non-200: {response.status_code}, using fallback mock.")
+        payload = _build_local_mock(image_bytes, room_hint, f"Backend HTTP {response.status_code}")
+        return JSONResponse(content=payload)
+
+    except Exception as exc:
+        logger.warning(f"Backend call failed: {exc}, using fallback mock.")
+        payload = _build_local_mock(image_bytes, room_hint, str(exc))
+        return JSONResponse(content=payload)
 
 
-def _overall_markdown(payload: dict[str, Any]) -> str:
-    risk_map = {"low": "低", "medium": "中", "high": "高"}
-    room = ROOM_LABELS.get(str(payload.get("room_type", "auto")), "おまかせ")
-    risk = risk_map.get(str(payload.get("overall_risk_level", "medium")), "中")
-    count = len(payload.get("findings") or [])
-    mode = payload.get("mode", "mock")
-    mode_label = "MOCK" if mode == "mock" else "GEMINI"
-    return f"## 総合リスク: {risk}\n- 部屋: {room}\n- 赤枠リスク: {count}件\n- 分析ID: `{payload.get('analysis_id', 'local_mock')}`\n- 分析モード: {mode_label}"
+@app.get("/healthz")
+def healthz() -> dict[str, str]:
+    return {"status": "ok"}
 
 
-def _image_from_base64(encoded: str) -> Image.Image:
-    return Image.open(io.BytesIO(base64.b64decode(encoded))).convert("RGB")
+def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[str, Any]:
+    """Generates the local mock payload internally using PIL if the backend is unreachable."""
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception:
+        # Generate raw placeholder if corrupt
+        image = Image.new("RGB", (800, 600), (15, 16, 32))
 
-
-def _local_mock_payload(image: Image.Image, room_hint: str, reason: str) -> dict[str, Any]:
     annotated = image.copy()
     draw = ImageDraw.Draw(annotated)
     width, height = annotated.size
@@ -132,7 +1086,7 @@ def _local_mock_payload(image: Image.Image, room_hint: str, reason: str) -> dict
     improvement = _local_improvement_image(image, annotated)
     room_label = ROOM_LABELS.get(room_hint, "おまかせ")
     return {
-        "analysis_id": "local_mock",
+        "analysis_id": "local_fallback",
         "room_type": room_hint,
         "overall_risk_level": "medium",
         "mode": "local_mock",
@@ -146,8 +1100,8 @@ def _local_mock_payload(image: Image.Image, room_hint: str, reason: str) -> dict
             "### R1: 動線上の注意箇所\n"
             "- 危険な理由: 写真上の床・通路まわりに、つまずきや滑りにつながる可能性があります。\n"
             "- 参考根拠: 高齢者住宅安全チェックの一般原則\n"
-            "- 信頼度: ローカルモック\n"
-            f"- 備考: バックエンド未接続のためローカルモックで表示しています。`{reason[:120]}`"
+            "- 信頼度: ローカルフォールバック\n"
+            f"- 備考: バックエンド未接続のためローカルフォールバック表示しています。`{reason[:120]}`"
         ),
         "family_actions_markdown": (
             "## 家族で今日できること\n\n"
@@ -215,323 +1169,17 @@ def _to_base64_png(image: Image.Image) -> str:
     return base64.b64encode(output.getvalue()).decode("ascii")
 
 
-def check_image(image: Image.Image | None) -> tuple[Any, ...]:
-    """Validate image exists and transition to analyzing state."""
-    if image is None:
-        return (
-            gr.update(visible=True),  # input_screen visible
-            gr.update(visible=False), # analyzing_screen hidden
-            gr.update(value="### ⚠️ 写真を追加してください。", visible=True),
-            None,
-            None
-        )
-    return (
-        gr.update(visible=False), # input_screen hidden
-        gr.update(visible=True),  # analyzing_screen visible
-        gr.update(value="", visible=False),
-        image,
-        image
-    )
-
-
-def run_analysis_and_transition(image: Image.Image | None, room_hint: str) -> tuple[Any, ...]:
-    """Perform backend call and transition to result screen."""
-    if image is None:
-        return (
-            gr.update(visible=False), # analyzing_screen hidden
-            gr.update(visible=True),  # input_screen visible
-            gr.update(visible=False), # result_screen hidden
-            "## 総合リスク\n画像を追加してください。",
-            None,
-            None,
-            "",
-            "",
-            "",
-            "",
-            DISCLAIMER,
-            "input",
-            None
-        )
-
-    image_rgb = image.convert("RGB")
-    fallback_warning = ""
-    try:
-        payload = _call_backend(image=image_rgb, room_hint=room_hint)
-        mode = payload.get("mode", "mock")
-        logger.info(f"Analysis complete: mode={mode}, findings={len(payload.get('findings', []))}")
-    except requests.RequestException as exc:
-        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
-        logger.warning(f"Backend request failed, using local mock: {exc}")
-        payload = _local_mock_payload(image=image_rgb, room_hint=room_hint, reason=str(exc))
-    except ValueError as exc:
-        fallback_warning = "⚠️ バックエンドに接続できなかったため、ローカルデモ結果を表示しています。"
-        logger.warning(f"Backend response invalid, using local mock: {exc}")
-        payload = _local_mock_payload(image=image_rgb, room_hint=room_hint, reason=str(exc))
-
-    annotated = _image_from_base64(payload["annotated_image_base64"])
-    improvement = _image_from_base64(payload["improvement_image_base64"])
-
-    overall_md = _overall_markdown(payload)
-    if fallback_warning:
-        overall_md = f"{fallback_warning}\n\n{overall_md}"
-
-    return (
-        gr.update(visible=False), # analyzing_screen hidden
-        gr.update(visible=False), # input_screen hidden
-        gr.update(visible=True),  # result_screen visible
-        overall_md,
-        annotated,
-        improvement,
-        payload["risk_summary_markdown"],
-        payload["family_actions_markdown"],
-        payload["care_manager_actions_markdown"],
-        payload["contractor_actions_markdown"],
-        payload["disclaimer_ja"],
-        "result",
-        payload
-    )
-
-
-def reset_to_input() -> tuple[Any, ...]:
-    """Reset the app state and inputs back to Screen 1."""
-    return (
-        None,                      # photo_input cleared
-        "auto",                    # room_hint reset
-        gr.update(value="", visible=False),  # error_output hidden/cleared
-        gr.update(visible=True),   # input_screen visible=True
-        gr.update(visible=False),  # analyzing_screen visible=False
-        gr.update(visible=False),  # result_screen visible=False
-        None,                      # annotated_output cleared
-        None,                      # improvement_output cleared
-        "",                        # risk_markdown cleared
-        "",                        # family_markdown cleared
-        "",                        # care_markdown cleared
-        "",                        # contractor_markdown cleared
-        "input"                    # current_screen_state
-    )
-
-
-# Gradio Block layout
-with gr.Blocks(
-    title="親の家 安全チェックAI",
-    theme=gr.themes.Soft(primary_hue="red", neutral_hue="slate"),
-    css="""
-    #container { max-width: 1100px; margin: 0 auto; padding: 20px; }
-    .header-container { border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 24px; }
-    .header-main { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
-    .app-title { font-size: 2.1rem; font-weight: 800; color: #0f172a; margin: 0; }
-    .app-subtitle { font-size: 1.05rem; color: #475569; margin: 6px 0 0 0; }
-    .badge { padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 0.9rem; display: inline-block; }
-    .badge-mock { background-color: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
-    .badge-gemini { background-color: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
-    .badge-unknown { background-color: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
-    .sumai-card { background: #ffffff; padding: 24px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 20px; }
-    .hero-card { background: linear-gradient(135deg, #fef2f2 0%, #fff 100%); border-left: 6px solid #ef4444; }
-    .disclaimer-box { color: #64748b; font-size: 0.85rem; line-height: 1.5; padding: 12px; background: #f8fafc; border-radius: 8px; border: 1px solid #f1f5f9; margin-top: 16px; }
-    .error-box { color: #dc2626; background: #fee2e2; border: 1px solid #fecaca; padding: 12px; border-radius: 8px; margin: 12px 0; font-weight: bold; }
-    .guidance-box { background: #f8fafc; border-left: 4px solid #64748b; padding: 12px 16px; border-radius: 0 8px 8px 0; font-size: 0.95rem; margin-top: 12px; }
-    .action-card { background: #ffffff; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); margin-bottom: 12px; }
-    .family-card { border-top: 5px solid #10b981; background-color: #f0fdf4; }
-    .care-card { border-top: 5px solid #3b82f6; background-color: #eff6ff; }
-    .contractor-card { border-top: 5px solid #ef4444; background-color: #fef2f2; }
-    .result-hero-box { background: #f8fafc; padding: 16px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
-    .section-title { font-size: 1.5rem; font-weight: bold; margin: 24px 0 12px 0; color: #0f172a; }
-    .details-accordion { border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff; margin-top: 20px; }
-    #analyze-btn { background-color: #ef4444; color: white; font-size: 1.2rem; font-weight: bold; height: 50px; border-radius: 8px; }
-    """
-) as demo:
-    # State management
-    current_screen_state = gr.State("input")
-    last_image_state = gr.State(None)
-    last_payload_state = gr.State(None)
-
-    with gr.Column(elem_id="container"):
-        # Global Header
-        gr.HTML(
-            f"""
-            <div class="header-container">
-                <div class="header-main">
-                    <h1 class="app-title">親の家 安全チェックAI</h1>
-                    {_get_mode_badge_html()}
-                </div>
-                <p class="app-subtitle">写真1枚で、転倒・つまずき・滑りやすさを見える化。</p>
-            </div>
-            """
-        )
-
-        # ==========================================
-        # Screen 1: Input Screen
-        # ==========================================
-        with gr.Column(visible=True) as input_screen:
-            gr.HTML(
-                """
-                <div class="sumai-card hero-card">
-                    <h2 style="margin-top:0; color:#ef4444; font-size: 1.3rem;">親の家、危ない場所をAIで見える化</h2>
-                    <p style="margin: 0; color:#475569;">まずは写真を1枚撮影またはアップロードしてください。</p>
-                </div>
-                """
-            )
-
-            photo_input = gr.Image(
-                label="写真を撮る / アップロード",
-                type="pil",
-                sources=["upload", "webcam"],
-                height=430,
-            )
-
-            error_output = gr.Markdown("", visible=False, elem_classes=["error-box"])
-
-            room_hint = gr.Radio(
-                label="部屋のヒント",
-                choices=ROOM_OPTIONS,
-                value="auto",
-            )
-
-            guidance = gr.Markdown(shooting_guidance("auto"), elem_classes=["guidance-box"])
-
-            analyze_button = gr.Button("AIで安全チェック", variant="primary", size="lg", elem_id="analyze-btn")
-
-            gr.Markdown(DISCLAIMER, elem_classes=["disclaimer-box"])
-
-        # ==========================================
-        # Transient Screen: Analyzing State
-        # ==========================================
-        with gr.Column(visible=False) as analyzing_screen:
-            gr.HTML(
-                """
-                <div style="text-align: center; margin-bottom: 20px;">
-                    <h2 style="color: #ef4444; font-size: 1.6rem;">AI分析中...</h2>
-                    <p style="color: #475569; font-size: 1.1rem; margin-top: 8px;">
-                        AIが写真の中の転倒・つまずき・滑りやすさを確認しています。
-                    </p>
-                </div>
-                """
-            )
-
-            analyzing_image_preview = gr.Image(label="アップロードされた写真", type="pil", height=300, interactive=False)
-
-            gr.HTML(
-                """
-                <div class="sumai-card" style="margin-top: 20px; text-align: center;">
-                    <div style="display: inline-block; text-align: left; font-size: 1.15rem; line-height: 2.2;">
-                        <div>🔄 <strong>1. 写真を確認</strong></div>
-                        <div>🔄 <strong>2. リスクを抽出</strong></div>
-                        <div>🔄 <strong>3. 行動を分類</strong></div>
-                        <div>🔄 <strong>4. 結果を作成</strong></div>
-                    </div>
-                </div>
-                """
-            )
-
-        # ==========================================
-        # Screen 2: Result Screen
-        # ==========================================
-        with gr.Column(visible=False) as result_screen:
-            overall_output = gr.Markdown("## 総合リスク", elem_classes=["result-hero-box"])
-
-            # Visual Display Section (Side-by-side or stacked on mobile)
-            with gr.Row():
-                with gr.Column(scale=1):
-                    gr.Markdown("### 現状写真：赤枠リスク表示")
-                    annotated_output = gr.Image(label="赤枠リスク表示", type="pil", height=420, show_label=False, interactive=False)
-                with gr.Column(scale=1):
-                    gr.Markdown("### 現状 vs 改善イメージ")
-                    improvement_output = gr.Image(label="現状 vs 改善イメージ", type="pil", height=420, show_label=False, interactive=False)
-
-            gr.Markdown("<p style='text-align: center; color: #475569; font-size: 0.9rem; margin-top: 8px;'>※コミュニケーション用イメージ｜施工図ではありません</p>")
-
-            # Action Cards Section
-            gr.Markdown("## 次にできること", elem_classes=["section-title"])
-
-            with gr.Row():
-                with gr.Column(elem_classes=["action-card", "family-card"]):
-                    family_markdown = gr.Markdown()
-                with gr.Column(elem_classes=["action-card", "care-card"]):
-                    care_markdown = gr.Markdown()
-                with gr.Column(elem_classes=["action-card", "contractor-card"]):
-                    contractor_markdown = gr.Markdown()
-
-            # Risk Details Accordion
-            with gr.Accordion("詳しいリスク根拠を見る", open=False, elem_classes=["details-accordion"]):
-                risk_markdown = gr.Markdown()
-
-            disclaimer_output = gr.Markdown(DISCLAIMER, elem_classes=["disclaimer-box"])
-
-            # Navigation buttons
-            with gr.Row():
-                retry_button = gr.Button("対策後の写真でもう一度チェック", variant="secondary", size="lg")
-                another_photo_button = gr.Button("別の写真をチェック", variant="secondary", size="lg")
-
-        # ==========================================
-        # Event Handlers
-        # ==========================================
-        room_hint.change(fn=shooting_guidance, inputs=room_hint, outputs=guidance)
-
-        # Sequence:
-        # 1. Validate image presence, if valid hide input and show loading screen
-        # 2. Run API analysis and update results screen, transition views
-        analyze_button.click(
-            fn=check_image,
-            inputs=[photo_input],
-            outputs=[input_screen, analyzing_screen, error_output, analyzing_image_preview, last_image_state]
-        ).then(
-            fn=run_analysis_and_transition,
-            inputs=[photo_input, room_hint],
-            outputs=[
-                analyzing_screen,
-                input_screen,
-                result_screen,
-                overall_output,
-                annotated_output,
-                improvement_output,
-                risk_markdown,
-                family_markdown,
-                care_markdown,
-                contractor_markdown,
-                disclaimer_output,
-                current_screen_state,
-                last_payload_state,
-            ]
-        )
-
-        retry_button.click(
-            fn=reset_to_input,
-            outputs=[
-                photo_input,
-                room_hint,
-                error_output,
-                input_screen,
-                analyzing_screen,
-                result_screen,
-                annotated_output,
-                improvement_output,
-                risk_markdown,
-                family_markdown,
-                care_markdown,
-                contractor_markdown,
-                current_screen_state
-            ]
-        )
-
-        another_photo_button.click(
-            fn=reset_to_input,
-            outputs=[
-                photo_input,
-                room_hint,
-                error_output,
-                input_screen,
-                analyzing_screen,
-                result_screen,
-                annotated_output,
-                improvement_output,
-                risk_markdown,
-                family_markdown,
-                care_markdown,
-                contractor_markdown,
-                current_screen_state
-            ]
-        )
+ROOM_LABELS = {
+    "auto": "おまかせ",
+    "genkan": "玄関",
+    "hallway": "廊下",
+    "bathroom": "浴室",
+    "toilet": "トイレ",
+    "bedroom": "寝室",
+    "kitchen": "キッチン",
+}
 
 
 if __name__ == "__main__":
-    demo.launch(server_name="0.0.0.0", server_port=SUMAI_WEB_PORT)
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=SUMAI_WEB_PORT, reload=True)
