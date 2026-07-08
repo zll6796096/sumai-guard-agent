@@ -224,11 +224,12 @@ GEMINI_API_KEY=your-key ./scripts/smoke_gemini.sh
 ## Demo Flow
 
 1. Open the app (`http://localhost:8081` or the Cloud Run web URL).
-2. Upload or take a photo on the first screen (入力画面 / photo capture screen).
-3. Choose an optional room hint (such as 玄関 or 浴室).
-4. Click `AIで安全チェック`.
-5. The result screen (診断結果画面 / analysis result screen) appears, showing the visual risks and three action cards.
-6. Click the re-check button (`対策後の写真でもう一度チェック` or `別の写真をチェック`) to return to the first screen with a clean state.
+2. Choose an optional room hint (such as 玄関 or 浴室).
+3. Click **カメラで撮影** (Camera) or **ライブラリから選択** (Library) to take/upload a photo on Screen 1 (Home).
+4. The app transitions immediately to the **Analyzing State** displaying a loading preview and step indicators.
+5. **Screen 2: Visual Diagnosis Result** appears. Review the annotated photo (現状写真) and improvement photo (改善イメージ) vertically stacked.
+6. Click **次にできることを見る** to transition to **Screen 3: Action Suggestions**. Review the three colored action cards and detailed risk basis.
+7. Click **ホームに戻る** to return to Screen 1 with a clean state.
 
 See [docs/demo_script.md](docs/demo_script.md) for the full 3-minute demo script.
 
