@@ -13,6 +13,7 @@ Open `http://localhost:8081` (local) or the Cloud Run web URL.
 Point out that we are on **Screen 1 (Home / Photo Input)**:
 - Background is a dark navy gradient, looking like a native mobile app.
 - Compact design containing icon, title, subtitle.
+- A compact horizontal 3-step instruction row (1. 写真を撮る -> 2. AIリスク確認 -> 3. 修繕提案を見る).
 - A compact room hint dropdown (defaults to "おまかせ").
 - One line of guidance and a tiny POC disclaimer at the bottom.
 - No debug badges or Gradio visual clutter.
@@ -22,7 +23,9 @@ Point out that we are on **Screen 1 (Home / Photo Input)**:
 Select an optional room hint and click **ライブラリから選択** or **カメラで撮影**.
 
 Mention:
-- Selects the image using native controls.
+- Selects the image using native controls (separate camera capture vs library).
+- The app shows a compact visual preview on Screen 1.
+- Click the primary **AIで安全チェック** button.
 - The app transitions immediately to the **Analyzing State** displaying a loading preview and step indicators.
 - In a few seconds, it transitions to **Screen 2: Visual Diagnosis Result**.
 
@@ -31,19 +34,22 @@ Mention:
 On Screen 2, point out:
 - Simple header showing "診断結果" and a Back button (ホーム).
 - Compact summary at the top showing Overall Risk and number of findings.
-- Images are stacked vertically for mobile viewports:
+- Exactly two images are stacked vertically:
   - First: 現状写真 (with red boxes and R1/R2/R3 labels).
-  - Second: 改善イメージ.
-- Click the primary CTA: **次にできることを見る** to navigate to Screen 3.
+  - Second: 改善イメージ (improvement-only image, NOT side-by-side).
+- Click the primary CTA: **点検・修繕提案を見る** to navigate to Screen 3.
 
 ## 4. Screen 3: Show Action Suggestions
 
 On Screen 3, point out:
-- Header title "次にできること".
-- The three action cards:
-  - **家族で今日できること** (no-cost, green theme).
-  - **ケアマネ・福祉用具に相談** (blue theme).
-  - **専門施工・現地確認** (red theme).
+- Header title "点検・修繕提案".
+- Subtitle: "できることから順に確認してください。"
+- The three collapsed action cards:
+  - **家族で今日できること** (0円・すぐできる, green theme).
+  - **ケアマネ・福祉用具に相談** (購入・レンタル, blue theme).
+  - **専門施工・現地確認** (工事・専門確認, red theme).
+- Point out that clicking any header toggles the accordion smoothly.
+- Each header shows the estimated count dynamically (e.g. `(1件)`).
 - Expand the accordion **詳しいリスク根拠を見る** to see why the area is dangerous and photo evidence.
 - Small disclaimer at the bottom.
 - Click **ホームに戻る** to clear the state and return to Screen 1.

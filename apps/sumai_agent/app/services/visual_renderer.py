@@ -52,29 +52,21 @@ class VisualRenderer:
         findings: list[RiskFinding],
         annotated: Image.Image,
     ) -> Image.Image:
-        left = annotated.convert("RGB")
-        right = image.convert("RGB").copy()
-        width, height = left.size
-        header_h = max(58, height // 10)
-        footer_h = max(46, height // 14)
-        output = Image.new("RGB", (width * 2, height + header_h + footer_h), (248, 250, 252))
-        output.paste(left, (0, header_h))
-        output.paste(right, (width, header_h))
+        canvas = image.convert("RGB").copy()
+        width, height = canvas.size
+        footer_h = max(36, height // 16)
+        output = Image.new("RGB", (width, height + footer_h), (248, 250, 252))
+        output.paste(canvas, (0, 0))
 
         draw = ImageDraw.Draw(output, "RGBA")
-        title_font = _load_font(max(22, width // 28), bold=True)
         label_font = _load_font(max(16, width // 42), bold=True)
-        small_font = _load_font(max(14, width // 54))
+        small_font = _load_font(max(12, width // 54))
 
-        draw.rectangle((0, 0, width * 2, header_h), fill=(255, 255, 255, 255))
-        _safe_text(draw, (24, 16), "現状", fill=BLACK, font=title_font)
-        _safe_text(draw, (width + 24, 16), "改善イメージ", fill=BLACK, font=title_font)
+        self._draw_improvement_overlays(draw, findings, width, height, 0, label_font)
 
-        self._draw_improvement_overlays(draw, findings, width, height, header_h, label_font)
-
-        footer_y = header_h + height
-        draw.rectangle((0, footer_y, width * 2, footer_y + footer_h), fill=(255, 255, 255, 235))
-        _safe_text(draw, (24, footer_y + 12), WATERMARK, fill=(71, 85, 105), font=small_font)
+        footer_y = height
+        draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255, 235))
+        _safe_text(draw, (16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
         return output
 
     def _draw_improvement_overlays(
@@ -86,7 +78,7 @@ class VisualRenderer:
         header_h: int,
         font: ImageFont.ImageFont,
     ) -> None:
-        right_offset = width
+        right_offset = 0
         for index, finding in enumerate(findings):
             x1, y1, x2, y2 = _bbox_pixels(finding, width, height)
             x1 += right_offset
@@ -113,6 +105,7 @@ class VisualRenderer:
                 width=4,
             )
             _safe_text(draw, (right_offset + 56, header_h + int(height * 0.64)), "動線確保", fill=BLACK, font=font)
+
 
 
 def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, int, int, int]:

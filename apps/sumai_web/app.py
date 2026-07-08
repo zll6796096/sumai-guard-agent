@@ -29,20 +29,7 @@ DISCLAIMER = (
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
-
-
-def _check_backend_health() -> dict[str, Any] | None:
-    """Non-blocking backend health check."""
-    try:
-        response = requests.get(f"{SUMAI_AGENT_URL}/healthz", timeout=3)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as exc:
-        logger.warning(f"Backend health check failed: {exc}")
-    return None
-
-
-_backend_health = _check_backend_health()
+WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -114,7 +101,7 @@ INDEX_HTML = """<!DOCTYPE html>
             height: 100%;
             display: none;
             flex-direction: column;
-            padding: 24px;
+            padding: 20px;
             position: absolute;
             top: 0;
             left: 0;
@@ -134,56 +121,94 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .home-header {
             text-align: center;
-            margin-top: 40px;
+            margin-top: 20px;
         }
 
         .home-icon {
-            width: 64px;
-            height: 64px;
+            width: 48px;
+            height: 48px;
             background-color: rgba(108, 92, 231, 0.15);
             color: var(--primary-color);
-            border-radius: 18px;
+            border-radius: 14px;
             display: flex;
             justify-content: center;
             align-items: center;
-            margin: 0 auto 16px auto;
+            margin: 0 auto 12px auto;
             border: 1px solid rgba(108, 92, 231, 0.3);
         }
 
         .home-icon svg {
-            width: 32px;
-            height: 32px;
+            width: 24px;
+            height: 24px;
         }
 
         .home-title {
-            font-size: 1.8rem;
+            font-size: 1.5rem;
             font-weight: 900;
             letter-spacing: -0.5px;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
         }
 
         .home-subtitle {
-            font-size: 0.95rem;
+            font-size: 0.85rem;
             color: var(--text-muted);
         }
 
+        /* 3-Step Instruction Flow */
+        .home-steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin: 16px 0;
+        }
+
+        .home-step-item {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .home-step-num {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+        }
+
+        .home-step-arrow {
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.8rem;
+        }
+
         .home-controls {
-            margin: 24px 0;
+            margin: 8px 0;
         }
 
         .control-group {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 12px 16px;
-            margin-bottom: 16px;
+            padding: 10px 16px;
+            margin-bottom: 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
         .control-label {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 700;
             color: var(--text-muted);
         }
@@ -192,12 +217,12 @@ INDEX_HTML = """<!DOCTYPE html>
             background: transparent;
             border: none;
             color: var(--text-color);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 700;
             outline: none;
             text-align: right;
             cursor: pointer;
-            width: 150px;
+            width: 120px;
             direction: rtl;
         }
 
@@ -208,30 +233,68 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .guidance-text {
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
             text-align: center;
-            line-height: 1.5;
-            background-color: rgba(255,255,255,0.03);
+            line-height: 1.4;
+            background-color: rgba(255,255,255,0.02);
             border-radius: 8px;
-            padding: 10px;
-            border: 1px dashed rgba(255,255,255,0.06);
+            padding: 8px;
+            border: 1px dashed rgba(255,255,255,0.05);
         }
 
         .error-message {
-            background-color: rgba(239, 68, 68, 0.15);
+            background-color: rgba(239, 68, 68, 0.12);
             border: 1px solid var(--danger-color);
             color: #FFA4A4;
             border-radius: 8px;
-            padding: 10px;
-            font-size: 0.85rem;
+            padding: 8px 12px;
+            font-size: 0.75rem;
             text-align: center;
-            margin-top: 12px;
+            margin-top: 10px;
             font-weight: bold;
         }
 
         .home-footer {
-            margin-bottom: 24px;
+            margin-bottom: 16px;
+        }
+
+        /* Compact Image Preview State */
+        .compact-preview-wrapper {
+            position: relative;
+            width: 140px;
+            height: 105px;
+            margin: 0 auto 16px auto;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            background-color: var(--card-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .compact-preview-wrapper img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .btn-clear-x {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: rgba(0,0,0,0.6);
+            color: white;
+            border: none;
+            font-size: 14px;
+            line-height: 20px;
+            text-align: center;
+            cursor: pointer;
+            font-weight: bold;
         }
 
         .btn {
@@ -239,15 +302,15 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: center;
             justify-content: center;
             width: 100%;
-            height: 54px;
-            border-radius: 14px;
-            font-size: 1.05rem;
+            height: 48px;
+            border-radius: 12px;
+            font-size: 0.95rem;
             font-weight: 700;
             border: none;
             cursor: pointer;
             transition: all 0.2s ease;
             box-sizing: border-box;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
             text-decoration: none;
         }
 
@@ -258,7 +321,7 @@ INDEX_HTML = """<!DOCTYPE html>
         .btn-primary {
             background-color: var(--primary-color);
             color: white;
-            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.25);
         }
 
         .btn-primary:active {
@@ -268,7 +331,7 @@ INDEX_HTML = """<!DOCTYPE html>
         .btn-secondary {
             background-color: var(--secondary-color);
             color: white;
-            box-shadow: 0 4px 12px rgba(76, 125, 255, 0.25);
+            box-shadow: 0 4px 12px rgba(76, 125, 255, 0.2);
         }
 
         .btn-secondary:active {
@@ -286,16 +349,16 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .btn-icon {
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
             margin-right: 8px;
         }
 
         .disclaimer-text {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
             text-align: center;
-            line-height: 1.4;
+            line-height: 1.3;
         }
 
         /* Screen: Analyzing */
@@ -311,24 +374,24 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .analyzing-title {
-            font-size: 1.5rem;
+            font-size: 1.4rem;
             font-weight: 900;
             color: var(--primary-color);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .analyzing-subtitle {
-            font-size: 0.95rem;
+            font-size: 0.85rem;
             color: var(--text-muted);
-            margin-bottom: 24px;
+            margin-bottom: 20px;
         }
 
         .preview-container {
-            width: 200px;
-            height: 150px;
-            border-radius: 12px;
+            width: 160px;
+            height: 120px;
+            border-radius: 10px;
             overflow: hidden;
-            margin: 0 auto 32px auto;
+            margin: 0 auto 24px auto;
             border: 1px solid var(--border-color);
             background-color: var(--card-bg);
             display: flex;
@@ -346,16 +409,16 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin: 24px auto 0 auto;
+            margin: 20px auto 0 auto;
             position: relative;
-            max-width: 320px;
-            padding: 0 10px;
+            max-width: 280px;
+            padding: 0 8px;
         }
 
         .steps-container::before {
             content: '';
             position: absolute;
-            top: 8px;
+            top: 7px;
             left: 20px;
             right: 20px;
             height: 2px;
@@ -373,19 +436,19 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .step-dot {
-            width: 18px;
-            height: 18px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             background-color: #14172A;
             border: 2px solid var(--border-color);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             transition: all 0.3s ease;
         }
 
         .step-item.active .step-dot {
             background-color: var(--primary-color);
             border-color: var(--primary-color);
-            box-shadow: 0 0 10px var(--primary-color);
+            box-shadow: 0 0 8px var(--primary-color);
         }
 
         .step-item.completed .step-dot {
@@ -394,7 +457,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .step-label {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
             font-weight: 500;
         }
@@ -409,7 +472,7 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             flex-shrink: 0;
         }
 
@@ -417,7 +480,7 @@ INDEX_HTML = """<!DOCTYPE html>
             background: transparent;
             border: none;
             color: var(--secondary-color);
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 700;
             display: flex;
             align-items: center;
@@ -426,24 +489,24 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .nav-back svg {
-            width: 20px;
-            height: 20px;
+            width: 18px;
+            height: 18px;
             margin-right: 4px;
         }
 
         .nav-title {
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 900;
         }
 
         .result-summary {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 14px;
-            padding: 16px;
+            border-radius: 12px;
+            padding: 12px;
             display: flex;
             justify-content: space-around;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             flex-shrink: 0;
         }
 
@@ -454,21 +517,21 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .summary-label {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
-            margin-bottom: 6px;
+            margin-bottom: 4px;
         }
 
         .summary-value {
-            font-size: 1.15rem;
+            font-size: 1.05rem;
             font-weight: 900;
         }
 
         .badge {
-            padding: 4px 12px;
-            border-radius: 12px;
+            padding: 2px 10px;
+            border-radius: 10px;
             font-weight: 900;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
 
         .badge-low {
@@ -492,31 +555,31 @@ INDEX_HTML = """<!DOCTYPE html>
         .result-images-list {
             display: flex;
             flex-direction: column;
-            gap: 20px;
-            margin-bottom: 24px;
+            gap: 16px;
+            margin-bottom: 20px;
         }
 
         .result-image-card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
+            border-radius: 14px;
             overflow: hidden;
-            padding: 16px;
+            padding: 12px;
         }
 
         .image-card-title {
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 700;
             color: var(--text-muted);
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             display: block;
         }
 
         .image-wrapper {
             width: 100%;
-            border-radius: 10px;
+            border-radius: 8px;
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.05);
             background-color: #0F1020;
             display: flex;
             justify-content: center;
@@ -532,138 +595,160 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .result-actions, .suggestions-actions {
             margin-top: auto;
-            padding-top: 16px;
+            padding-top: 12px;
             flex-shrink: 0;
         }
 
         /* Screen 3: Action Suggestions */
         .section-title {
-            font-size: 1.3rem;
+            font-size: 1.2rem;
             font-weight: 900;
+            margin-bottom: 4px;
+        }
+
+        .section-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
             margin-bottom: 16px;
         }
 
         .action-cards-container {
             display: flex;
             flex-direction: column;
-            gap: 16px;
-            margin-bottom: 20px;
+            gap: 12px;
+            margin-bottom: 16px;
         }
 
-        .action-card {
+        /* Custom Accordion Cards */
+        .accordion-card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 20px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: all 0.3s ease;
         }
 
-        .family-card {
-            border-left: 5px solid var(--accent-green);
+        .accordion-card-header {
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
         }
 
-        .care-card {
-            border-left: 5px solid var(--accent-blue);
+        .accordion-card-title-group {
+            display: flex;
+            flex-direction: column;
         }
 
-        .contractor-card {
-            border-left: 5px solid var(--accent-red);
+        .accordion-card-title {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text-color);
         }
 
-        .card-header {
+        .accordion-card-sub {
             display: flex;
             align-items: center;
-            margin-bottom: 12px;
+            gap: 6px;
+            margin-top: 4px;
         }
 
-        .card-badge {
-            font-size: 0.7rem;
+        .accordion-card-label {
+            font-size: 0.65rem;
             font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 6px;
-            margin-right: 8px;
+            padding: 1px 6px;
+            border-radius: 4px;
         }
 
-        .family-card .card-badge {
+        .accordion-card-count {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .accordion-card-icon {
+            width: 18px;
+            height: 18px;
+            color: var(--text-muted);
+            transition: transform 0.25s ease;
+        }
+
+        .accordion-card.open .accordion-card-icon {
+            transform: rotate(180deg);
+        }
+
+        .accordion-card-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.25s ease-out;
+            padding: 0 16px;
+        }
+
+        .accordion-card.open .accordion-card-content {
+            max-height: 1200px;
+            padding: 12px 16px 16px 16px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Color variations for left borders and badges */
+        .family-card {
+            border-left: 4px solid var(--accent-green);
+        }
+        .family-card .accordion-card-label {
             background-color: rgba(16, 185, 129, 0.15);
             color: var(--accent-green);
         }
 
-        .care-card .card-badge {
+        .care-card {
+            border-left: 4px solid var(--accent-blue);
+        }
+        .care-card .accordion-card-label {
             background-color: rgba(59, 130, 246, 0.15);
             color: var(--accent-blue);
         }
 
-        .contractor-card .card-badge {
+        .contractor-card {
+            border-left: 4px solid var(--accent-red);
+        }
+        .contractor-card .accordion-card-label {
             background-color: rgba(239, 68, 68, 0.15);
             color: var(--accent-red);
         }
 
-        .card-title {
-            font-size: 1.05rem;
-            font-weight: 900;
-        }
-
         .card-body {
-            font-size: 0.9rem;
-            line-height: 1.6;
+            font-size: 0.85rem;
+            line-height: 1.5;
             color: var(--text-color);
         }
 
-        /* Markdown rendering styles */
+        /* Markdown styles */
         .markdown-body h2, .markdown-body h3 {
-            font-size: 0.95rem;
-            margin-top: 12px;
-            margin-bottom: 6px;
+            font-size: 0.85rem;
+            margin-top: 10px;
+            margin-bottom: 4px;
             font-weight: bold;
             color: var(--text-color);
         }
         
         .markdown-body p {
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .markdown-body ul, .markdown-body ol {
-            padding-left: 18px;
-            margin-bottom: 10px;
+            padding-left: 16px;
+            margin-bottom: 8px;
         }
 
         .markdown-body li {
-            margin-bottom: 4px;
-        }
-
-        /* Accordion Details */
-        .details-accordion {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 14px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-
-        .accordion-header {
-            padding: 16px;
-            font-size: 0.95rem;
-            font-weight: 700;
-            cursor: pointer;
-            outline: none;
-            user-select: none;
-            color: var(--secondary-color);
-        }
-
-        .accordion-content {
-            padding: 16px;
-            border-top: 1px solid var(--border-color);
-            font-size: 0.85rem;
-            line-height: 1.6;
-            color: var(--text-muted);
-            background-color: rgba(0, 0, 0, 0.15);
+            margin-bottom: 3px;
         }
     </style>
 </head>
 <body>
     <div id="app-container">
-        <!-- Hidden Inputs for Files -->
+        <!-- Separate Hidden Inputs for Camera and Library -->
         <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;">
         <input type="file" id="library-input" accept="image/*" style="display: none;">
 
@@ -677,6 +762,24 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
                 <h1 class="home-title">親の家 安全チェックAI</h1>
                 <p class="home-subtitle">写真1枚で、転倒リスクを見える化</p>
+            </div>
+
+            <!-- Compact Steps Row -->
+            <div class="home-steps">
+                <div class="home-step-item">
+                    <span class="home-step-num">1</span>
+                    <span>写真を撮る</span>
+                </div>
+                <span class="home-step-arrow">➔</span>
+                <div class="home-step-item">
+                    <span class="home-step-num">2</span>
+                    <span>AIリスク確認</span>
+                </div>
+                <span class="home-step-arrow">➔</span>
+                <div class="home-step-item">
+                    <span class="home-step-num">3</span>
+                    <span>修繕提案を見る</span>
+                </div>
             </div>
 
             <div class="home-controls">
@@ -697,18 +800,32 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
 
             <div class="home-footer">
-                <button id="btn-camera" class="btn btn-primary">
-                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M4 4h3l2-2h6l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
-                    </svg>
-                    カメラで撮影
-                </button>
-                <button id="btn-library" class="btn btn-secondary">
-                    <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-9 14l-4-4 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-                    </svg>
-                    ライブラリから選択
-                </button>
+                <!-- Select buttons state -->
+                <div id="selection-buttons-container">
+                    <button id="btn-camera" class="btn btn-primary">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M4 4h3l2-2h6l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
+                        </svg>
+                        カメラで撮影
+                    </button>
+                    <button id="btn-library" class="btn btn-secondary">
+                        <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-9 14l-4-4 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                        </svg>
+                        ライブラリから選択
+                    </button>
+                </div>
+
+                <!-- Selected preview and AI CTA state -->
+                <div id="preview-cta-container" style="display: none;">
+                    <div class="compact-preview-wrapper">
+                        <img id="home-image-preview" src="" alt="Selected Preview">
+                        <button id="btn-clear-preview" class="btn-clear-x">×</button>
+                    </div>
+                    <button id="btn-run-analysis" class="btn btn-primary">AIで安全チェック</button>
+                    <button id="btn-change-photo" class="btn btn-outline" style="height: 40px; font-size: 0.85rem;">他の写真を選ぶ</button>
+                </div>
+
                 <p class="disclaimer-text">POC版です。専門判断を代替しません。</p>
             </div>
         </div>
@@ -764,6 +881,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
+            <!-- Stacked Images: Annotated first, Improvement second -->
             <div class="result-images-list">
                 <div class="result-image-card">
                     <span class="image-card-title">現状写真（赤枠）</span>
@@ -780,7 +898,7 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
 
             <div class="result-actions">
-                <button id="btn-show-suggestions" class="btn btn-primary">次にできることを見る</button>
+                <button id="btn-show-suggestions" class="btn btn-primary">点検・修繕提案を見る</button>
                 <button class="btn btn-outline btn-back-home">ホームに戻る</button>
             </div>
         </div>
@@ -794,44 +912,89 @@ INDEX_HTML = """<!DOCTYPE html>
                     </svg>
                     戻る
                 </button>
-                <span class="nav-title">対策の提案</span>
+                <span class="nav-title">点検・修繕提案</span>
                 <div style="width: 60px;"></div>
             </div>
 
-            <h2 class="section-title">次にできること</h2>
+            <h2 class="section-title">点検・修繕提案</h2>
+            <p class="section-subtitle">できることから順に確認してください。</p>
 
+            <!-- Collapsed Accordion Cards -->
             <div class="action-cards-container">
-                <div class="action-card family-card">
-                    <div class="card-header">
-                        <span class="card-badge">今日できる</span>
-                        <h3 class="card-title">家族で今日できること</h3>
+                <!-- Family Card -->
+                <div class="accordion-card family-card">
+                    <div class="accordion-card-header">
+                        <div class="accordion-card-title-group">
+                            <span class="accordion-card-title">家族で今日できること</span>
+                            <div class="accordion-card-sub">
+                                <span class="accordion-card-label">0円・すぐできる</span>
+                                <span id="family-count" class="accordion-card-count"></span>
+                            </div>
+                        </div>
+                        <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                        </svg>
                     </div>
-                    <div id="action-family-content" class="card-body markdown-body"></div>
+                    <div class="accordion-card-content">
+                        <div id="action-family-content" class="card-body markdown-body"></div>
+                    </div>
                 </div>
 
-                <div class="action-card care-card">
-                    <div class="card-header">
-                        <span class="card-badge">相談・レンタル</span>
-                        <h3 class="card-title">ケアマネ・福祉用具に相談</h3>
+                <!-- Care Manager Card -->
+                <div class="accordion-card care-card">
+                    <div class="accordion-card-header">
+                        <div class="accordion-card-title-group">
+                            <span class="accordion-card-title">ケアマネ・福祉用具に相談</span>
+                            <div class="accordion-card-sub">
+                                <span class="accordion-card-label">購入・レンタル</span>
+                                <span id="care-count" class="accordion-card-count"></span>
+                            </div>
+                        </div>
+                        <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                        </svg>
                     </div>
-                    <div id="action-care-content" class="card-body markdown-body"></div>
+                    <div class="accordion-card-content">
+                        <div id="action-care-content" class="card-body markdown-body"></div>
+                    </div>
                 </div>
 
-                <div class="action-card contractor-card">
-                    <div class="card-header">
-                        <span class="card-badge">専門工事</span>
-                        <h3 class="card-title">専門施工・現地確認</h3>
+                <!-- Contractor Card -->
+                <div class="accordion-card contractor-card">
+                    <div class="accordion-card-header">
+                        <div class="accordion-card-title-group">
+                            <span class="accordion-card-title">専門施工・現地確認</span>
+                            <div class="accordion-card-sub">
+                                <span class="accordion-card-label">工事・専門確認</span>
+                                <span id="contractor-count" class="accordion-card-count"></span>
+                            </div>
+                        </div>
+                        <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                        </svg>
                     </div>
-                    <div id="action-contractor-content" class="card-body markdown-body"></div>
+                    <div class="accordion-card-content">
+                        <div id="action-contractor-content" class="card-body markdown-body"></div>
+                    </div>
+                </div>
+
+                <!-- Risk Basis Card -->
+                <div class="accordion-card basis-card">
+                    <div class="accordion-card-header">
+                        <div class="accordion-card-title-group">
+                            <span class="accordion-card-title">詳しいリスク根拠を見る</span>
+                        </div>
+                        <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+                        </svg>
+                    </div>
+                    <div class="accordion-card-content">
+                        <div id="risk-details-content" class="markdown-body"></div>
+                    </div>
                 </div>
             </div>
 
-            <details class="details-accordion">
-                <summary class="accordion-header">詳しいリスク根拠を見る</summary>
-                <div id="risk-details-content" class="accordion-content markdown-body"></div>
-            </details>
-
-            <p class="disclaimer-text" style="color: var(--text-muted); text-align: left; margin: 24px 0 16px 0;">
+            <p class="disclaimer-text" style="color: var(--text-muted); text-align: left; margin: 16px 0;">
                 ※POC版です。医療・介護・施工判断を代替しません。<br>
                 ※改善イメージはコミュニケーション用であり施工図ではありません。
             </p>
@@ -860,9 +1023,19 @@ INDEX_HTML = """<!DOCTYPE html>
         const roomSelect = document.getElementById('room-select');
         const guidanceText = document.getElementById('guidance-text');
         const errorDiv = document.getElementById('error-message');
+        
+        const selectionContainer = document.getElementById('selection-buttons-container');
+        const previewContainer = document.getElementById('preview-cta-container');
+        const homePreviewImg = document.getElementById('home-image-preview');
+        const btnRunAnalysis = document.getElementById('btn-run-analysis');
+        const btnClearPreview = document.getElementById('btn-clear-preview');
+        const btnChangePhoto = document.getElementById('btn-change-photo');
+        
         const btnShowSuggestions = document.getElementById('btn-show-suggestions');
         const btnBackToResult = document.getElementById('btn-back-to-result');
         const btnBackHomes = document.querySelectorAll('.btn-back-home');
+
+        let selectedFile = null;
 
         // Nav functions
         function showScreen(screenId) {
@@ -885,6 +1058,10 @@ INDEX_HTML = """<!DOCTYPE html>
         btnCamera.addEventListener('click', () => {
             errorDiv.style.display = 'none';
             cameraInput.click();
+            if (!/Mobi|Android|iPhone/i.test(navigator.userAgent)) {
+                errorDiv.textContent = "このブラウザではカメラ起動が制限される場合があります。ライブラリから選択してください。";
+                errorDiv.style.display = "block";
+            }
         });
 
         btnLibrary.addEventListener('click', () => {
@@ -899,22 +1076,50 @@ INDEX_HTML = """<!DOCTYPE html>
             const file = event.target.files[0];
             if (!file) return;
 
+            selectedFile = file;
             errorDiv.style.display = 'none';
 
-            // Show preview image instantly
+            // Show preview image in Screen 1
             const reader = new FileReader();
             reader.onload = function(e) {
+                homePreviewImg.src = e.target.result;
                 document.getElementById('analyzing-preview').src = e.target.result;
             };
             reader.readAsDataURL(file);
 
-            // Go to Screen 1.5 (Analyzing state)
+            // Hide select buttons, show preview with CTA
+            selectionContainer.style.display = 'none';
+            previewContainer.style.display = 'block';
+        }
+
+        // Clear preview
+        function clearPreview() {
+            selectedFile = null;
+            cameraInput.value = '';
+            libraryInput.value = '';
+            homePreviewImg.src = '';
+            previewContainer.style.display = 'none';
+            selectionContainer.style.display = 'block';
+            errorDiv.style.display = 'none';
+        }
+
+        btnClearPreview.addEventListener('click', clearPreview);
+        btnChangePhoto.addEventListener('click', () => {
+            clearPreview();
+            libraryInput.click();
+        });
+
+        // Trigger AI analysis
+        btnRunAnalysis.addEventListener('click', () => {
+            if (!selectedFile) {
+                errorDiv.textContent = "写真を選択してください。";
+                errorDiv.style.display = "block";
+                return;
+            }
             showScreen('screen-analyzing');
             startStepAnimation();
-
-            // Run backend fetch
-            uploadAndAnalyze(file);
-        }
+            uploadAndAnalyze(selectedFile);
+        });
 
         // Simulated Step animations
         let step1, step2;
@@ -970,6 +1175,12 @@ INDEX_HTML = """<!DOCTYPE html>
             }
         }
 
+        function countItems(markdown) {
+            if (!markdown) return 0;
+            const matches = markdown.match(/###/g);
+            return matches ? matches.length : 0;
+        }
+
         function renderResults(payload) {
             // Set risk badge
             const riskBadge = document.getElementById('risk-badge');
@@ -991,6 +1202,21 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
             document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
 
+            // Set dynamic counts in headers
+            const famCount = countItems(payload.family_actions_markdown);
+            document.getElementById('family-count').textContent = famCount ? `(${famCount}件)` : '';
+
+            const cCount = countItems(payload.care_manager_actions_markdown);
+            document.getElementById('care-count').textContent = cCount ? `(${cCount}件)` : '';
+
+            const conCount = countItems(payload.contractor_actions_markdown);
+            document.getElementById('contractor-count').textContent = conCount ? `(${conCount}件)` : '';
+
+            // Collapse all accordion cards by default
+            document.querySelectorAll('.accordion-card').forEach(card => {
+                card.classList.remove('open');
+            });
+
             clearStepAnimation();
             showScreen('screen-result');
         }
@@ -1001,6 +1227,14 @@ INDEX_HTML = """<!DOCTYPE html>
             if (risk === 'high') return '高';
             return '中';
         }
+
+        // Accordion Card Toggle Handler
+        document.querySelectorAll('.accordion-card-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const card = header.parentElement;
+                card.classList.toggle('open');
+            });
+        });
 
         // Navigate between result and action cards
         btnShowSuggestions.addEventListener('click', () => {
@@ -1013,11 +1247,9 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Reset flow
         function resetApp() {
-            cameraInput.value = '';
-            libraryInput.value = '';
+            clearPreview();
             roomSelect.value = 'auto';
             updateGuidance();
-            errorDiv.style.display = 'none';
             showScreen('screen-home');
         }
 
@@ -1126,24 +1358,24 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
 
 
 def _local_improvement_image(image: Image.Image, annotated: Image.Image) -> Image.Image:
-    width, height = image.size
-    header_h = max(56, height // 10)
-    footer_h = max(42, height // 14)
-    output = Image.new("RGB", (width * 2, height + header_h + footer_h), (248, 250, 252))
-    output.paste(annotated, (0, header_h))
-    output.paste(image, (width, header_h))
+    canvas = image.convert("RGB").copy()
+    width, height = canvas.size
+    footer_h = max(36, height // 16)
+    output = Image.new("RGB", (width, height + footer_h), (248, 250, 252))
+    output.paste(canvas, (0, 0))
+
     draw = ImageDraw.Draw(output, "RGBA")
-    title_font = _font(max(22, width // 30))
-    draw.rectangle((0, 0, width * 2, header_h), fill=(255, 255, 255, 255))
-    draw.text((24, 16), "現状", fill=(17, 24, 39), font=title_font)
-    draw.text((width + 24, 16), "改善イメージ", fill=(17, 24, 39), font=title_font)
-    safe_zone = (width + int(width * 0.14), header_h + int(height * 0.58), width + int(width * 0.82), header_h + int(height * 0.82))
+    label_font = _font(max(16, width // 42))
+    small_font = _font(max(12, width // 54))
+
+    safe_zone = (int(width * 0.16), int(height * 0.58), int(width * 0.72), int(height * 0.82))
     draw.rounded_rectangle(safe_zone, radius=10, fill=(22, 163, 74, 48), outline=(22, 163, 74, 230), width=4)
-    draw.rounded_rectangle((width + 36, header_h + 36, width + 206, header_h + 82), radius=8, fill=(255, 255, 255, 235))
-    draw.text((width + 50, header_h + 48), "動線確保", fill=(17, 24, 39), font=_font(max(17, width // 42)))
-    footer_y = header_h + height
-    draw.rectangle((0, footer_y, width * 2, footer_y + footer_h), fill=(255, 255, 255, 235))
-    draw.text((24, footer_y + 10), "コミュニケーション用イメージ｜施工図ではありません", fill=(71, 85, 105), font=_font(max(14, width // 54)))
+    draw.rounded_rectangle((36, 36, 206, 82), radius=8, fill=(255, 255, 255, 235))
+    draw.text((50, 48), "動線確保", fill=(17, 24, 39), font=label_font)
+
+    footer_y = height
+    draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255, 235))
+    draw.text((16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
     return output
 
 
