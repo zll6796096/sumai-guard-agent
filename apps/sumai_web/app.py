@@ -122,36 +122,27 @@ INDEX_HTML = """<!DOCTYPE html>
         .home-header {
             text-align: center;
             margin-top: 20px;
+            margin-bottom: 12px;
         }
 
-        .home-icon {
-            width: 48px;
-            height: 48px;
-            background-color: rgba(108, 92, 231, 0.15);
+        .app-tag {
+            display: inline-block;
+            font-size: 0.75rem;
+            font-weight: 700;
             color: var(--primary-color);
-            border-radius: 14px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0 auto 12px auto;
-            border: 1px solid rgba(108, 92, 231, 0.3);
+            background-color: rgba(108, 92, 231, 0.12);
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            letter-spacing: 0.5px;
         }
 
-        .home-icon svg {
-            width: 24px;
-            height: 24px;
-        }
-
-        .home-title {
-            font-size: 1.5rem;
-            font-weight: 900;
-            letter-spacing: -0.5px;
-            margin-bottom: 4px;
-        }
-
-        .home-subtitle {
-            font-size: 0.85rem;
-            color: var(--text-muted);
+        .home-intro {
+            font-size: 1.05rem;
+            line-height: 1.6;
+            color: var(--text-color);
+            text-align: left;
+            margin-bottom: 16px;
         }
 
         /* 3-Step Instruction Flow */
@@ -259,13 +250,13 @@ INDEX_HTML = """<!DOCTYPE html>
             margin-bottom: 16px;
         }
 
-        /* Compact Image Preview State */
+        /* Enlarge Image Preview State */
         .compact-preview-wrapper {
             position: relative;
-            width: 140px;
-            height: 105px;
+            width: 80%;
+            height: 260px;
             margin: 0 auto 16px auto;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
             border: 1px solid var(--border-color);
             background-color: var(--card-bg);
@@ -755,47 +746,18 @@ INDEX_HTML = """<!DOCTYPE html>
         <!-- SCREEN 1: Home / Photo Input -->
         <div id="screen-home" class="screen active">
             <div class="home-header">
-                <div class="home-icon">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M19 13.586V20a1 1 0 0 1-1 1h-4v-6h-4v6H6a1 1 0 0 1-1-1v-6.414l7-7 7 7zM12 2.69l-9 9V13h2v7a2 2 0 0 0 2 2h6v-6h2v6h6a2 2 0 0 0 2-2v-7h2v-1.31l-9-9z"/>
-                    </svg>
-                </div>
-                <h1 class="home-title">親の家 安全チェックAI</h1>
-                <p class="home-subtitle">写真1枚で、転倒リスクを見える化</p>
-            </div>
-
-            <!-- Compact Steps Row -->
-            <div class="home-steps">
-                <div class="home-step-item">
-                    <span class="home-step-num">1</span>
-                    <span>写真を撮る</span>
-                </div>
-                <span class="home-step-arrow">➔</span>
-                <div class="home-step-item">
-                    <span class="home-step-num">2</span>
-                    <span>AIリスク確認</span>
-                </div>
-                <span class="home-step-arrow">➔</span>
-                <div class="home-step-item">
-                    <span class="home-step-num">3</span>
-                    <span>修繕提案を見る</span>
-                </div>
+                <div class="app-tag">親の家 安全チェックAI</div>
+                <p class="home-intro">
+                    このツールは、あなたやご両親の住まいに潜む安全リスク（めくれたマット、浴室の滑りやすさ、コードの散乱など）を事前に見つけ、低コストで実践しやすい高齢者向けの改善案を提案します。
+                </p>
             </div>
 
             <div class="home-controls">
-                <div class="control-group">
-                    <span class="control-label">診断する部屋</span>
-                    <select id="room-select" class="room-dropdown">
-                        <option value="auto" selected>おまかせ</option>
-                        <option value="genkan">玄関</option>
-                        <option value="hallway">廊下</option>
-                        <option value="bathroom">浴室</option>
-                        <option value="toilet">トイレ</option>
-                        <option value="bedroom">寝室</option>
-                        <option value="kitchen">キッチン</option>
-                    </select>
-                </div>
-                <p id="guidance-text" class="guidance-text">床・段差・手すり・通路が見えるように撮影してください。</p>
+                <p id="guidance-text" class="guidance-text" style="font-size: 0.85rem; text-align: left; background-color: rgba(255,255,255,0.02); border-radius: 10px; padding: 12px; border: 1px dashed rgba(255,255,255,0.06); line-height: 1.6; margin-bottom: 16px;">
+                    まずは次のいずれかを1か所撮影してください。<br>
+                    <strong>玄関・廊下・浴室・トイレ・寝室・キッチン</strong><br><br>
+                    床、段差、手すり、通路が入るように撮影してください。
+                </p>
                 <div id="error-message" class="error-message" style="display: none;"></div>
             </div>
 
@@ -889,7 +851,7 @@ INDEX_HTML = """<!DOCTYPE html>
             <!-- Stacked Images: Annotated first, Improvement second -->
             <div class="result-images-list">
                 <div class="result-image-card">
-                    <span class="image-card-title">現状写真（赤枠）</span>
+                    <span class="image-card-title">危険提示</span>
                     <div class="image-wrapper">
                         <img id="result-annotated-img" src="" alt="現状写真">
                     </div>
@@ -1045,7 +1007,6 @@ INDEX_HTML = """<!DOCTYPE html>
         const libraryInput = document.getElementById('library-input');
         const btnCamera = document.getElementById('btn-camera');
         const btnLibrary = document.getElementById('btn-library');
-        const roomSelect = document.getElementById('room-select');
         const guidanceText = document.getElementById('guidance-text');
         const errorDiv = document.getElementById('error-message');
         
@@ -1071,15 +1032,8 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById(screenId).classList.add('active');
         }
 
-        // Room Select guidance changer
-        function updateGuidance() {
-            const val = roomSelect.value;
-            guidanceText.textContent = GUIDANCE[val] || GUIDANCE.auto;
-        }
-
-        roomSelect.addEventListener('change', updateGuidance);
-
         // Bind camera/library triggers
+        let selectedFile = null;
         btnCamera.addEventListener('click', () => {
             errorDiv.style.display = 'none';
             cameraInput.click();
@@ -1176,7 +1130,7 @@ INDEX_HTML = """<!DOCTYPE html>
         async function uploadAndAnalyze(file) {
             const formData = new FormData();
             formData.append('image', file);
-            formData.append('room_hint', roomSelect.value);
+            formData.append('room_hint', 'auto');
 
             try {
                 const response = await fetch('/analyze', {
@@ -1314,8 +1268,6 @@ INDEX_HTML = """<!DOCTYPE html>
         // Reset flow
         function resetApp() {
             clearPreview();
-            roomSelect.value = 'auto';
-            updateGuidance();
             updateDebugPanel(null);
             showScreen('screen-home');
         }
@@ -1399,7 +1351,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     box = (int(width * 0.16), int(height * 0.55), int(width * 0.72), int(height * 0.82))
     draw.rectangle(box, outline=(220, 38, 38), width=max(5, width // 120))
     draw.rectangle((box[0], max(0, box[1] - 34), box[0] + 58, box[1]), fill=(220, 38, 38))
-    draw.text((box[0] + 8, max(0, box[1] - 28)), "R1", fill=(255, 255, 255), font=_font(24))
+    draw.text((box[0] + 8, max(0, box[1] - 28)), "注意", fill=(255, 255, 255), font=_font(24))
 
     improvement = _local_improvement_image(image, annotated)
     room_label = ROOM_LABELS.get(room_hint, "おまかせ")
@@ -1408,14 +1360,14 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "room_type": room_hint,
         "overall_risk_level": "medium",
         "mode": "local_mock",
-        "findings": [{"id": "R1"}],
+        "findings": [{"id": "注意"}],
         "annotated_image_base64": _to_base64_png(annotated),
         "improvement_image_base64": _to_base64_png(improvement),
         "risk_summary_markdown": (
             "## リスク概要\n"
             f"- 部屋: {room_label}\n"
             "- 総合リスク: 中\n\n"
-            "### R1: 動線上の注意箇所\n"
+            "### 注意箇所: 動線上の注意箇所\n"
             "- 危険な理由: 写真上の床・通路まわりに、つまずきや滑りにつながる可能性があります。\n"
             "- 参考根拠: 高齢者住宅安全チェックの一般原則\n"
             "- 信頼度: ローカルフォールバック\n"

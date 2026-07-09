@@ -35,7 +35,7 @@ class VisualRenderer:
         for finding in findings:
             x1, y1, x2, y2 = _bbox_pixels(finding, width, height)
             draw.rectangle((x1, y1, x2, y2), outline=RED, width=line_width)
-            label = finding.id
+            label = "注意"
             text_bbox = draw.textbbox((0, 0), label, font=label_font)
             label_w = text_bbox[2] - text_bbox[0] + 18
             label_h = text_bbox[3] - text_bbox[1] + 14
@@ -124,19 +124,19 @@ def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, in
 def _improvement_label(risk_type: str) -> str:
     labels = {
         "genkan_step": "手すり候補",
-        "large_step": "段差確認",
+        "large_step": "段差対策",
         "stairs": "手すり候補",
-        "hallway_cord": "動線確保",
-        "cluttered_path": "動線確保",
-        "loose_mat": "固定・撤去",
+        "hallway_cord": "コード整理",
+        "cluttered_path": "片付け",
+        "loose_mat": "マット固定",
         "bathroom_slip": "滑り止め",
         "bathtub_stepover": "手すり候補",
         "toilet_transfer": "手すり候補",
         "missing_handrail": "手すり候補",
-        "poor_lighting": "夜間ライト",
+        "poor_lighting": "照明追加",
         "kitchen_slip": "滑り止め",
     }
-    return labels.get(risk_type, "要確認")
+    return labels.get(risk_type, "改善案")
 
 
 def _improvement_color(risk_type: str) -> tuple[int, int, int]:

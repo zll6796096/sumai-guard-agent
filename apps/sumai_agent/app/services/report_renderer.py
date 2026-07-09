@@ -64,9 +64,9 @@ class ReportRenderer:
             confidence_percent = round(finding.confidence * 100)
             lines.extend(
                 [
-                    f"### {finding.id}: {finding.label_ja}",
+                    f"### 注意箇所: {finding.label_ja}",
                     f"- 危険な理由: {finding.description_ja}",
-                    f"- 写真上の根拠: {finding.evidence_ja}",
+                    f"- 理由の根拠: {finding.evidence_ja}",
                     f"- 参考根拠: {finding.basis_label_ja}",
                     f"- 根拠の要約: {finding.basis_summary_ja}",
                     f"- 信頼度: {confidence_percent}%",
@@ -87,7 +87,7 @@ class ReportRenderer:
             lines.extend(
                 [
                     f"### {action.title_ja}",
-                    f"- 対象リスク: {action.risk_id}",
+                    f"- 対象: 今回検出された危険箇所",
                     f"- 内容: {action.description_ja}",
                     f"- 理由: {action.why_ja}",
                     f"- 注意: {action.disclaimer_ja}",
