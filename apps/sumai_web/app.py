@@ -115,76 +115,86 @@ INDEX_HTML = """<!DOCTYPE html>
 
         /* Screen 1: Home */
         #screen-home {
-            overflow-y: hidden;
-            justify-content: space-between;
+            overflow-y: auto;
+            justify-content: flex-start;
         }
 
         .home-header {
             text-align: center;
-            margin-top: 20px;
-            margin-bottom: 12px;
+            margin-top: 16px;
+            margin-bottom: 8px;
         }
 
         .app-tag {
             display: inline-block;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             font-weight: 700;
             color: var(--primary-color);
             background-color: rgba(108, 92, 231, 0.12);
-            padding: 4px 10px;
+            padding: 3px 8px;
             border-radius: 6px;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
             letter-spacing: 0.5px;
         }
 
-        .home-intro {
-            font-size: 1.05rem;
-            line-height: 1.6;
+        .home-slogan {
+            font-size: 1.15rem;
+            font-weight: 900;
+            line-height: 1.5;
             color: var(--text-color);
-            text-align: left;
-            margin-bottom: 16px;
+            margin-bottom: 4px;
         }
 
-        /* 3-Step Instruction Flow */
-        .home-steps {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background-color: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 10px;
-            padding: 10px 14px;
-            margin: 16px 0;
-        }
-
-        .home-step-item {
-            font-size: 0.72rem;
+        /* Place Grid */
+        .place-section-title {
+            font-size: 0.8rem;
+            font-weight: 700;
             color: var(--text-muted);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .place-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .place-block {
             display: flex;
+            flex-direction: column;
             align-items: center;
+            justify-content: center;
+            background-color: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            padding: 10px 4px;
             gap: 4px;
         }
 
-        .home-step-num {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: var(--primary-color);
-            color: white;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 0.65rem;
-            font-weight: 700;
+        .place-block svg {
+            width: 22px;
+            height: 22px;
+            color: var(--secondary-color);
+            opacity: 0.85;
         }
 
-        .home-step-arrow {
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 0.8rem;
+        .place-block span {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        .shooting-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            text-align: center;
+            margin-bottom: 12px;
         }
 
         .home-controls {
-            margin: 8px 0;
+            margin: 0;
         }
 
         .control-group {
@@ -747,17 +757,39 @@ INDEX_HTML = """<!DOCTYPE html>
         <div id="screen-home" class="screen active">
             <div class="home-header">
                 <div class="app-tag">親の家 安全チェックAI</div>
-                <p class="home-intro">
-                    このツールは、あなたやご両親の住まいに潜む安全リスク（めくれたマット、浴室の滑りやすさ、コードの散乱など）を事前に見つけ、低コストで実践しやすい高齢者向けの改善案を提案します。
-                </p>
+                <p class="home-slogan">親や家族の住まいの危険を、<br>写真1枚で見つけて改善。</p>
             </div>
 
+            <p class="place-section-title">まずは1か所を撮影してください</p>
+            <div class="place-grid">
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4"/></svg>
+                    <span>玄関</span>
+                </div>
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/></svg>
+                    <span>廊下</span>
+                </div>
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 21h10M12 3v4M5 7h14a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V9a2 2 0 012-2z"/></svg>
+                    <span>浴室</span>
+                </div>
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="2" width="12" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18.01"/></svg>
+                    <span>トイレ</span>
+                </div>
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7"/><path d="M21 7H3l2-4h14l2 4z"/></svg>
+                    <span>寝室</span>
+                </div>
+                <div class="place-block">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3v4a1 1 0 001 1h4"/><path d="M4 14h6v7H4z"/><circle cx="17" cy="17" r="3"/></svg>
+                    <span>キッチン</span>
+                </div>
+            </div>
+            <p class="shooting-hint">床・段差・手すり・通路が入るように撮影してください。</p>
+
             <div class="home-controls">
-                <p id="guidance-text" class="guidance-text" style="font-size: 0.85rem; text-align: left; background-color: rgba(255,255,255,0.02); border-radius: 10px; padding: 12px; border: 1px dashed rgba(255,255,255,0.06); line-height: 1.6; margin-bottom: 16px;">
-                    まずは次のいずれかを1か所撮影してください。<br>
-                    <strong>玄関・廊下・浴室・トイレ・寝室・キッチン</strong><br><br>
-                    床、段差、手すり、通路が入るように撮影してください。
-                </p>
                 <div id="error-message" class="error-message" style="display: none;"></div>
             </div>
 
@@ -993,21 +1025,10 @@ INDEX_HTML = """<!DOCTYPE html>
     </div>
 
     <script>
-        const GUIDANCE = {
-            genkan: "玄関: 床、上がり框、靴の置き場、手すりの有無が入るように撮影してください。",
-            hallway: "廊下: 床面、壁沿い、コード、敷物、段差が見えるように撮影してください。",
-            bathroom: "浴室: 入口、床、浴槽のまたぎ部分、手すりの有無が入るように撮影してください。",
-            toilet: "トイレ: 便器の周辺、立ち座りスペース、手すりの有無が分かるように撮影してください。",
-            bedroom: "寝室: ベッド横、床、夜間トイレまでの動線が見えるように撮影してください。",
-            kitchen: "キッチン: 床、マット、よく歩く動線、コンロ周辺が見えるように撮影してください。",
-            auto: "床・段差・手すり・通路が見えるように撮影してください。"
-        };
-
         const cameraInput = document.getElementById('camera-input');
         const libraryInput = document.getElementById('library-input');
         const btnCamera = document.getElementById('btn-camera');
         const btnLibrary = document.getElementById('btn-library');
-        const guidanceText = document.getElementById('guidance-text');
         const errorDiv = document.getElementById('error-message');
         
         const selectionContainer = document.getElementById('selection-buttons-container');
@@ -1031,9 +1052,6 @@ INDEX_HTML = """<!DOCTYPE html>
             });
             document.getElementById(screenId).classList.add('active');
         }
-
-        // Bind camera/library triggers
-        let selectedFile = null;
         btnCamera.addEventListener('click', () => {
             errorDiv.style.display = 'none';
             cameraInput.click();
