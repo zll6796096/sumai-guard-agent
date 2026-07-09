@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 import sys
+from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.models import AnalysisResponse
@@ -56,6 +58,9 @@ logger.info(
 )
 
 
+from app.errors import GeminiUnavailableError
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, object]:
     return {
@@ -66,17 +71,37 @@ def healthz() -> dict[str, object]:
     }
 
 
+@app.get("/status")
+def status_endpoint() -> dict[str, object]:
+    return {
+        "status": "ok",
+        "mock_mode": settings.mock_mode,
+        "require_real_gemini": settings.require_real_gemini,
+        "has_gemini_api_key": bool(settings.gemini_api_key),
+        "gemini_model": settings.gemini_model,
+        "mock_allowed": not settings.require_real_gemini,
+    }
+
+
 @app.post("/analyze", response_model=AnalysisResponse, status_code=status.HTTP_200_OK)
 async def analyze(
     image: UploadFile = File(...),
     room_hint: str = Form("auto"),
     mock: bool = Form(False),
-) -> AnalysisResponse:
+) -> Any:
     if image.content_type and not image.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="画像ファイルを指定してください。")
 
     try:
         return await orchestrator.analyze(upload=image, room_hint=room_hint, mock=mock)
+    except GeminiUnavailableError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "gemini_unavailable",
+                "message": "Real Gemini analysis is required but unavailable."
+            }
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

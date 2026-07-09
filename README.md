@@ -97,10 +97,10 @@ export GEMINI_API_KEY=your-key-here
 export MOCK_MODE=false
 ```
 
-3. Run the smoke test:
+3. Run the E2E strict smoke test verifying home/non-home validation:
 
 ```bash
-GEMINI_API_KEY=your-key-here ./scripts/smoke_gemini.sh
+GEMINI_API_KEY=your-key-here ./scripts/smoke_real_gemini.sh
 ```
 
 4. For Docker Compose:
@@ -108,6 +108,18 @@ GEMINI_API_KEY=your-key-here ./scripts/smoke_gemini.sh
 ```bash
 MOCK_MODE=false GEMINI_API_KEY=your-key-here docker compose up --build
 ```
+
+### Strict Production Mode
+
+By default, the backend allows fallback to mock data when Gemini is unavailable. For strict production demos, set:
+```bash
+export REQUIRE_REAL_GEMINI=true
+```
+In strict mode:
+- Mock mode fallback is completely disabled.
+- If the Gemini API key is missing or calls fail, the backend returns `503 Service Unavailable` with `{"error": "gemini_unavailable"}`.
+- Image classification detects non-home environments (`is_home_environment=false`), resulting in 0 risks and no actions.
+- Low confidence risks (< 0.45) are discarded; unknown risks require confidence >= 0.75.
 
 See [docs/gemini_integration.md](docs/gemini_integration.md) for details.
 
@@ -177,6 +189,7 @@ Alternative: Use Workload Identity Federation instead of `GCP_SA_KEY`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MOCK_MODE` | `true` | Forces deterministic mock vision when true |
+| `REQUIRE_REAL_GEMINI` | `false` | Sets strict production mode where mock fallback is disabled |
 | `GEMINI_API_KEY` | (empty) | Gemini API key. Leave empty for mock mode |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
 | `SUMAI_AGENT_URL` | `http://localhost:8080` | Backend URL for frontend |
@@ -186,6 +199,30 @@ Alternative: Use Workload Identity Federation instead of `GCP_SA_KEY`.
 | `GOOGLE_CLOUD_PROJECT` | (required for deploy) | GCP project ID |
 
 Never hardcode secrets.
+
+## Developer Debug & Status APIs
+
+### Status Endpoint (`/status`)
+Retrieve the backend service configuration by querying `/status`:
+```json
+{
+  "status": "ok",
+  "mock_mode": false,
+  "require_real_gemini": true,
+  "has_gemini_api_key": true,
+  "gemini_model": "gemini-2.5-flash",
+  "mock_allowed": false
+}
+```
+
+### Debug Query Parameter (`?debug=1`)
+Open the frontend web application with `?debug=1` appended to the URL (e.g., `http://localhost:8081/?debug=1` or your Cloud Run URL).
+This enables the developer debug panel on both the Result and Suggestions screens, displaying:
+- **Mode**: Whether analysis was performed via Gemini, local mock, or fallback.
+- **Analysis ID**: Unique identifier for tracking request logs.
+- **Model**: The exact Gemini model used.
+- **Findings Count**: Total number of findings after confidence thresholding.
+- **Is Home Environment**: True/False indicating home interior classification.
 
 ## Mock Mode vs Gemini Mode
 
@@ -197,9 +234,9 @@ Never hardcode secrets.
 | Findings | Room-specific fixtures | Photo-specific |
 | Offline use | Yes | No |
 | Cost | Free | API usage cost |
-| Badge | 🟢 MOCK MODE | 🔴 GEMINI MODE |
+| Strict Fallback | None (returns error if REQUIRE_REAL_GEMINI=true) | Mock data (only if REQUIRE_REAL_GEMINI=false) |
 
-The backend also falls back to mock mode when:
+The backend falls back to mock mode on error **only** if `REQUIRE_REAL_GEMINI=false`:
 - `GEMINI_API_KEY` is missing
 - Gemini returns malformed JSON
 - Gemini request times out
@@ -217,8 +254,8 @@ python -m pytest apps/sumai_agent/tests -v
 # Docker compose validation
 docker compose config
 
-# Gemini smoke test (requires API key)
-GEMINI_API_KEY=your-key ./scripts/smoke_gemini.sh
+# E2E Smoke test (requires API key)
+GEMINI_API_KEY=your-key ./scripts/smoke_real_gemini.sh
 ```
 
 ## Demo Flow

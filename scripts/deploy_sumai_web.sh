@@ -37,7 +37,7 @@ gcloud run deploy "$SERVICE_NAME" \
     --source apps/sumai_web \
     --region "$REGION" \
     --allow-unauthenticated \
-    --set-env-vars "SUMAI_AGENT_URL=${AGENT_URL},SUMAI_WEB_PORT=8080,MOCK_MODE=false,LOG_LEVEL=INFO" \
+    --set-env-vars "SUMAI_AGENT_URL=${AGENT_URL},SUMAI_WEB_PORT=8080,MOCK_MODE=false,LOG_LEVEL=INFO,REQUIRE_REAL_GEMINI=${REQUIRE_REAL_GEMINI:-false}" \
     --memory 1Gi \
     --cpu 1 \
     --timeout 120

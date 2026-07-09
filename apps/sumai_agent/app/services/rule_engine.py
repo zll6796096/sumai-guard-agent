@@ -36,14 +36,33 @@ class RuleEngine:
         contractor: list[ActionItem] = []
         seen_actions: set[tuple[str, str, str]] = set()
 
-        for index, finding in enumerate(findings, start=1):
+        filtered_findings = []
+        for finding in findings:
+            if finding.confidence < 0.45:
+                continue
+
+            is_known = finding.risk_type in self.rules
+
+            if 0.45 <= finding.confidence < 0.60:
+                if not is_known:
+                    continue
+                finding = finding.model_copy(update={"needs_human_confirmation": True})
+
+            if not is_known:
+                if finding.confidence < 0.75:
+                    continue
+
+            filtered_findings.append(finding)
+
+        for index, finding in enumerate(filtered_findings, start=1):
             rule = self.rules.get(finding.risk_type, self._fallback_rule(finding))
+            needs_confirm = finding.needs_human_confirmation or finding.confidence < 0.60
             normalized = finding.model_copy(
                 update={
                     "id": f"R{index}",
                     "basis_label_ja": rule["basis_label_ja"],
                     "basis_summary_ja": rule["basis_summary_ja"],
-                    "needs_human_confirmation": finding.needs_human_confirmation or finding.confidence < 0.55,
+                    "needs_human_confirmation": needs_confirm,
                 }
             )
             normalized_findings.append(normalized)

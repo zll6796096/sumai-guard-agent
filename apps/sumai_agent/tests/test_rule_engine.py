@@ -44,6 +44,7 @@ def test_rule_engine_keeps_family_actions_no_cost_only() -> None:
 def test_rule_engine_marks_low_confidence_for_human_confirmation() -> None:
     engine = RuleEngine()
 
-    findings, _ = engine.apply([_finding(confidence=0.42)])
+    findings, _ = engine.apply([_finding(confidence=0.52)])
 
+    assert len(findings) == 1
     assert findings[0].needs_human_confirmation is True

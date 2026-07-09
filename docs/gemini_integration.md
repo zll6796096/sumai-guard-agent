@@ -17,6 +17,7 @@ SumaiGuard Agent uses the Google GenAI SDK (`google-genai`) to analyze home phot
 | `GEMINI_API_KEY` | (empty) | API key from Google AI Studio |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
 | `MOCK_MODE` | `true` | Skip Gemini when true |
+| `REQUIRE_REAL_GEMINI` | `false` | Sets strict production mode where mock fallback is disabled |
 | `ANALYSIS_TIMEOUT` | `120` | Timeout in seconds |
 
 ## Prompt Design
@@ -63,9 +64,9 @@ If any bbox value is > 1.0 but all values are ≤ 1000, divide by 1000:
 - Zero-size boxes → replaced with minimum visible size
 - Missing bbox → safe default with `needs_human_confirmation=true`
 
-## Fallback Behavior
+## Fallback Behavior (Only when REQUIRE_REAL_GEMINI=false)
 
-The service falls back to mock mode (with explicit warning) when:
+When strict mode is disabled (`REQUIRE_REAL_GEMINI=false`), the service falls back to mock mode (with explicit warnings) when:
 
 | Condition | Fallback Reason |
 |-----------|----------------|
@@ -76,10 +77,17 @@ The service falls back to mock mode (with explicit warning) when:
 | Request timeout | `gemini_timeout` |
 | Any API exception | `gemini_error: <type>: <message>` |
 
-Fallback always:
+Fallback:
 - Returns valid mock findings for the requested room type.
 - Logs the fallback reason.
 - Sets the mode to `gemini_fallback(reason)` in the response.
+
+### Strict Mode Behavior (When REQUIRE_REAL_GEMINI=true)
+
+If `REQUIRE_REAL_GEMINI=true` is set:
+- Mock mode fallback is completely disabled.
+- If the Gemini API key is missing or any call fails, the backend immediately throws a `GeminiUnavailableError` and returns `503 Service Unavailable` with `{"error": "gemini_unavailable"}`.
+- If a non-home image is uploaded, it returns `is_home_environment=false`, 0 findings, and `overall_risk_level=low` without fallback.
 
 ## Pydantic Validation
 
@@ -116,27 +124,26 @@ Never logged: image bytes, API keys.
 ## Smoke Test
 
 ```bash
-GEMINI_API_KEY=your-key ./scripts/smoke_gemini.sh
+GEMINI_API_KEY=your-key ./scripts/smoke_real_gemini.sh
 ```
 
 This script:
-1. Starts a temporary backend with `MOCK_MODE=false`.
-2. Generates a synthetic test image if no sample exists.
-3. Calls `/analyze` with the test image.
-4. Reports whether real Gemini was used.
+1. Leverages the python runner `scripts/smoke_real_gemini.py`.
+2. Validates home environment checks using hallway sample image.
+3. Validates non-home environment checks using generated solid color image.
+4. Validates that strict mode works and correctly rejects mock data.
 5. Never prints the API key.
 
 ## Testing
 
 ```bash
-python -m pytest apps/sumai_agent/tests/test_gemini_parsing.py -v
+python -m pytest apps/sumai_agent/tests -v
 ```
 
 Tests cover:
-- Valid JSON parsing
-- Malformed JSON fallback
-- Empty findings
-- Bbox 0–1000 normalization
-- Invalid bbox clamping
-- Zero-size bbox defaults
-- Mock vision for all room types
+- Strict mode HTTP 503 error responses when Gemini is unavailable.
+- Home environment detection (returns is_home_environment=True).
+- Non-home environment detection (returns is_home_environment=False).
+- Empty findings fallback text rendering on action lists.
+- Confidence thresholding (<0.45 discarded; 0.45-0.60 keeps only known risk + needs human confirm; unknown risk needs >=0.75).
+- Valid JSON parsing and bbox normalizations.

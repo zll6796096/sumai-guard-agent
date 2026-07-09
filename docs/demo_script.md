@@ -54,6 +54,32 @@ On Screen 3, point out:
 - Small disclaimer at the bottom.
 - Click **ホームに戻る** to clear the state and return to Screen 1.
 
+## 5. Developer Debug & Edge Case Scenarios
+
+### Showing the Debug Panel (`?debug=1`)
+1. Append `?debug=1` to the URL (e.g., `http://localhost:8081/?debug=1`).
+2. Run the analysis as usual.
+3. Show the **DEBUG INFO** panel rendered at the bottom of Screen 2 and Screen 3:
+   - Point out the `mode` (e.g., `gemini` or `mock`).
+   - Show the exact `model` being called (e.g. `gemini-2.5-flash`).
+   - Mention the unique `Analysis ID` and `Findings Count`.
+   - Point out that this badge is completely hidden for normal users.
+
+### Non-Home Environment Demo
+1. Upload a non-home image (e.g., food, outdoor, animal, document) or generate a solid blue color.
+2. Click **AIで安全チェック**.
+3. Point out that the AI correctly identifies it as a non-home environment (`is_home_environment: false` in the debug panel).
+4. View Screen 2:
+   - Notice that the image cards are hidden.
+   - A warning box is displayed: `住宅内の安全確認対象ではない可能性があります。`
+   - Overall risk level is `low` (低) and finding count is `0件`.
+   - The action cards show the fallback warning message.
+
+### Strict Mode / Gemini Unavailable Demo
+1. Disable the Gemini API key or set `REQUIRE_REAL_GEMINI=true` without setting the key.
+2. Attempt to run safety analysis.
+3. Point out the clear error message on Screen 1 notifying the user that real Gemini analysis is required but unavailable (HTTP 503 error), demonstrating that strict production requirements are met and no mock fallbacks are allowed.
+
 ## Key Talking Points
 
 - **Mobile-first App-like UX**: Centered viewport layout, native camera/photo access, and zero scrolling on the home screen.
@@ -61,4 +87,6 @@ On Screen 3, point out:
 - **No questionnaire**: Starts a conversation using just one photo.
 - **Action cards**: Separates what family can do today vs what needs professional advice.
 - **Disclaimer**: Clear notifications that this POC does not replace medical or professional construction judgment.
-- **Mock fallback**: If backend is down, local PIL-based fallback ensures the demo always works.
+- **Strict Production Mode**: Optional strict mode (`REQUIRE_REAL_GEMINI=true`) ensures that only real Gemini output is returned, preventing silent mock fallbacks during important demos.
+- **Non-home Validation**: Protects the boundary by recognizing and warning the user if the uploaded photo is not a home environment.
+- **Confidence Thresholds**: Filter out low-confidence predictions to ensure high-fidelity recommendations.

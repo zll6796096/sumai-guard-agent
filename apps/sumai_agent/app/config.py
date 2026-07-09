@@ -24,6 +24,7 @@ class Settings:
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     analysis_timeout: int = int(os.getenv("ANALYSIS_TIMEOUT", "120"))
     version: str = "0.2.0"
+    require_real_gemini: bool = _env_bool("REQUIRE_REAL_GEMINI", False)
 
 
 settings = Settings()

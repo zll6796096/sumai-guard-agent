@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.errors import GeminiUnavailableError
 from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
 
 
@@ -16,23 +17,20 @@ VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "
 
 
 VISION_PROMPT = """You are a Japanese elderly home safety risk assessor.
-Analyze one home photo for general elderly fall/slip/trip risks.
+Analyze one photo for general elderly fall/slip/trip risks visible in the image.
 Do not ask user profile questions.
-Only identify risks visible in the image.
-If room_hint is provided, use it as weak context, but correct it if the image clearly shows another room.
-Detect risks such as:
-- 玄関段差
-- 廊下の電源コード
-- 床の物・動線阻害
-- マット・敷物のつまずき
-- 浴室床の滑り
-- 浴槽またぎ
-- トイレ立ち座り
-- 手すり不足
-- 照明不足
-- キッチン床の滑り
+
+Safety Boundary Guidelines:
+1. If the photo is NOT a home/residential interior (e.g. offices, gyms, public spaces, streets, landscapes, cars, documents, food, people-only closeups, or other unrelated scenes), set is_home_environment to false and return no findings.
+2. If no visible elderly fall/slip/trip risk is present in a home environment, return no findings (findings=[]).
+3. Do not invent risk just because the user asks for analysis.
+4. Do not mark normal furniture as a risk unless it visibly blocks walking, transfer, standing, bathing, toilet use, or floor movement.
+5. Correct the room_type if the image clearly shows another room than room_hint.
+
 Output strict JSON only using this shape:
 {
+  "is_home_environment": true/false,
+  "not_applicable_reason_ja": "string or null",
   "room_type": "genkan|hallway|bathroom|toilet|bedroom|kitchen|auto",
   "findings": [
     {
@@ -66,6 +64,16 @@ class GeminiVisionService:
         """Analyze image. Returns (VisionResult, mode) where mode is 'mock' or 'gemini'."""
         normalized_room = normalize_room_hint(room_hint)
 
+        if settings.require_real_gemini:
+            if not settings.gemini_api_key:
+                logger.error("strict_mode_gemini_key_missing", extra={"analysis_id": analysis_id})
+                raise GeminiUnavailableError("Real Gemini analysis is required but GEMINI_API_KEY is not set.")
+            return await self._analyze_with_gemini_strict(
+                image_png=image_png,
+                room_hint=normalized_room,
+                analysis_id=analysis_id,
+            )
+
         if force_mock or settings.mock_mode or not settings.gemini_api_key:
             mode = "mock"
             reason = ""
@@ -88,6 +96,50 @@ class GeminiVisionService:
             room_hint=normalized_room,
             analysis_id=analysis_id,
         )
+
+    async def _analyze_with_gemini_strict(
+        self,
+        image_png: bytes,
+        room_hint: RoomType,
+        analysis_id: str,
+    ) -> tuple[VisionResult, str]:
+        logger.info(
+            "vision_start_strict",
+            extra={
+                "analysis_id": analysis_id,
+                "mode": "gemini",
+                "model": settings.gemini_model,
+                "room_hint": room_hint,
+            },
+        )
+        start_time = time.monotonic()
+        try:
+            async with asyncio.timeout(settings.analysis_timeout):
+                result = await self._call_gemini(image_png, room_hint)
+
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.info(
+                "vision_complete_strict",
+                extra={
+                    "analysis_id": analysis_id,
+                    "mode": "gemini",
+                    "model": settings.gemini_model,
+                    "finding_count": len(result.findings),
+                    "latency_ms": latency_ms,
+                },
+            )
+            return result, "gemini"
+        except Exception as exc:
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            logger.error(
+                "vision_failed_strict",
+                extra={
+                    "analysis_id": analysis_id,
+                    "error": str(exc),
+                    "latency_ms": latency_ms,
+                },
+            )
+            raise GeminiUnavailableError(f"Real Gemini analysis failed: {str(exc)}")
 
     async def _analyze_with_gemini(
         self,
@@ -286,7 +338,7 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
     }
     raw_findings = fixtures.get(room_hint, fixtures["auto"])
     findings = [_finding_from_raw(index, item) for index, item in enumerate(raw_findings, start=1)]
-    return VisionResult(room_type=room_hint, findings=findings)
+    return VisionResult(room_type=room_hint, findings=findings, is_home_environment=True, not_applicable_reason_ja=None)
 
 
 def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
@@ -300,6 +352,19 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
         logger.warning("gemini_unexpected_json_type", extra={"type": type(data).__name__})
         return mock_vision_result(fallback_room)
 
+    is_home = bool(data.get("is_home_environment", True))
+    not_applicable_reason = data.get("not_applicable_reason_ja")
+    if not_applicable_reason:
+        not_applicable_reason = str(not_applicable_reason)
+
+    if not is_home:
+        return VisionResult(
+            room_type="auto",
+            findings=[],
+            is_home_environment=False,
+            not_applicable_reason_ja=not_applicable_reason or "住宅内の安全確認対象ではない可能性があります。"
+        )
+
     room = normalize_room_hint(str(data.get("room_type") or fallback_room))
     findings: list[RiskFinding] = []
     for index, item in enumerate(data.get("findings") or [], start=1):
@@ -310,7 +375,7 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
         except Exception as exc:
             logger.warning("gemini_finding_parse_error", extra={"index": index, "error": str(exc)[:200]})
             continue
-    return VisionResult(room_type=room, findings=findings)
+    return VisionResult(room_type=room, findings=findings, is_home_environment=True, not_applicable_reason_ja=None)
 
 
 def _finding_from_raw(index: int, item: dict[str, Any]) -> RiskFinding:

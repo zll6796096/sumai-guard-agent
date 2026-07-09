@@ -19,18 +19,14 @@ echo "  Region:   $REGION"
 echo "  Model:    $GEMINI_MODEL"
 echo "========================================="
 
-# Build env vars string
-ENV_VARS="MOCK_MODE=false,GEMINI_MODEL=${GEMINI_MODEL},LOG_LEVEL=INFO"
-
-# Add GEMINI_API_KEY if set (via env var)
+# Check for GEMINI_API_KEY and set ENV_VARS
 if [ -n "${GEMINI_API_KEY:-}" ]; then
-    ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${GEMINI_API_KEY}"
+    ENV_VARS="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,GEMINI_MODEL=${GEMINI_MODEL},LOG_LEVEL=INFO,GEMINI_API_KEY=${GEMINI_API_KEY}"
     echo "  API Key:  Set via env var"
 else
-    echo "  API Key:  Not set (will use mock mode on Cloud Run)"
-    echo "  Tip:      Set GEMINI_API_KEY or use Secret Manager:"
-    echo "            gcloud run services update $SERVICE_NAME --region $REGION \\"
-    echo "              --set-secrets=GEMINI_API_KEY=gemini-api-key:latest"
+    echo "❌ Error: GEMINI_API_KEY is required for production deployment but is not set."
+    echo "   Please set the GEMINI_API_KEY environment variable before deploying."
+    exit 1
 fi
 
 echo ""

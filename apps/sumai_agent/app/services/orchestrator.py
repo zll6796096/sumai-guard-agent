@@ -64,13 +64,14 @@ class AnalysisOrchestrator:
         )
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
+        model_name = "N/A" if mode == "mock" else __import__("app.config", fromlist=["settings"]).settings.gemini_model
         logger.info(
             "analysis_complete",
             extra={
                 "analysis_id": analysis_id,
                 "room_hint": normalized_hint,
                 "mock_or_gemini": mode,
-                "model": "N/A" if mode == "mock" else __import__("app.config", fromlist=["settings"]).settings.gemini_model,
+                "model": model_name,
                 "number_of_findings": len(findings),
                 "latency_ms": latency_ms,
             },
@@ -86,6 +87,9 @@ class AnalysisOrchestrator:
             improvement_image_base64=improvement,
             disclaimer_ja=DISCLAIMER_JA,
             mode=mode,
+            is_home_environment=vision_result.is_home_environment,
+            not_applicable_reason_ja=vision_result.not_applicable_reason_ja,
+            model=model_name,
             **reports,
         )
 

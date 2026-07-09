@@ -68,8 +68,13 @@ class AnalysisResponse(BaseModel):
     contractor_actions_markdown: str
     disclaimer_ja: str
     mode: str = "mock"
+    is_home_environment: bool = True
+    not_applicable_reason_ja: str | None = None
+    model: str = "N/A"
 
 
 class VisionResult(BaseModel):
     room_type: RoomType
     findings: list[RiskFinding] = Field(default_factory=list)
+    is_home_environment: bool = True
+    not_applicable_reason_ja: str | None = None

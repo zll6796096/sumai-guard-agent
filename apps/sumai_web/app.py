@@ -881,6 +881,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
             </div>
 
+            <!-- Not Applicable Warning Box -->
+            <div id="not-applicable-container" style="display: none; background-color: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-color); border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center;">
+                <p id="not-applicable-message" style="color: #FFD580; font-weight: bold; font-size: 0.95rem;"></p>
+            </div>
+
             <!-- Stacked Images: Annotated first, Improvement second -->
             <div class="result-images-list">
                 <div class="result-image-card">
@@ -895,6 +900,16 @@ INDEX_HTML = """<!DOCTYPE html>
                         <img id="result-improvement-img" src="" alt="改善イメージ">
                     </div>
                 </div>
+            </div>
+
+            <!-- Hidden Debug Panel -->
+            <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left;">
+                <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
+                <div>Mode: <span class="debug-mode">--</span></div>
+                <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
+                <div>Model: <span class="debug-model">--</span></div>
+                <div>Findings Count: <span class="debug-finding-count">--</span></div>
+                <div>Is Home Environment: <span class="debug-is-home">--</span></div>
             </div>
 
             <div class="result-actions">
@@ -998,6 +1013,16 @@ INDEX_HTML = """<!DOCTYPE html>
                 ※POC版です。医療・介護・施工判断を代替しません。<br>
                 ※改善イメージはコミュニケーション用であり施工図ではありません。
             </p>
+
+            <!-- Hidden Debug Panel -->
+            <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left; margin-bottom: 16px;">
+                <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
+                <div>Mode: <span class="debug-mode">--</span></div>
+                <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
+                <div>Model: <span class="debug-model">--</span></div>
+                <div>Findings Count: <span class="debug-finding-count">--</span></div>
+                <div>Is Home Environment: <span class="debug-is-home">--</span></div>
+            </div>
 
             <div class="suggestions-actions">
                 <button class="btn btn-outline btn-back-home">ホームに戻る</button>
@@ -1192,9 +1217,23 @@ INDEX_HTML = """<!DOCTYPE html>
             const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
 
-            // Set Images
-            document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
-            document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
+            // Check if home environment
+            const notAppContainer = document.getElementById('not-applicable-container');
+            const notAppMsg = document.getElementById('not-applicable-message');
+            const imagesList = document.querySelector('.result-images-list');
+
+            if (payload.is_home_environment === false) {
+                notAppMsg.textContent = payload.not_applicable_reason_ja || "住宅内の安全確認対象ではない可能性があります。";
+                notAppContainer.style.display = 'block';
+                imagesList.style.display = 'none';
+            } else {
+                notAppContainer.style.display = 'none';
+                imagesList.style.display = 'flex';
+                
+                // Set Images
+                document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
+                document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
+            }
 
             // Render Markdown using marked.js
             document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
@@ -1217,8 +1256,35 @@ INDEX_HTML = """<!DOCTYPE html>
                 card.classList.remove('open');
             });
 
+            // Update Debug Panel
+            updateDebugPanel(payload);
+
             clearStepAnimation();
             showScreen('screen-result');
+        }
+
+        function updateDebugPanel(payload) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const isDebug = urlParams.get('debug') === '1';
+            
+            const panels = document.querySelectorAll('.debug-panel');
+            panels.forEach(panel => {
+                panel.style.display = isDebug ? 'block' : 'none';
+            });
+            
+            if (isDebug && payload) {
+                const mode = payload.mode || 'N/A';
+                const analysisId = payload.analysis_id || 'N/A';
+                const model = payload.model || 'N/A';
+                const count = payload.findings ? payload.findings.length : 0;
+                const isHome = payload.is_home_environment !== false;
+                
+                document.querySelectorAll('.debug-mode').forEach(el => el.textContent = mode);
+                document.querySelectorAll('.debug-analysis-id').forEach(el => el.textContent = analysisId);
+                document.querySelectorAll('.debug-model').forEach(el => el.textContent = model);
+                document.querySelectorAll('.debug-finding-count').forEach(el => el.textContent = count);
+                document.querySelectorAll('.debug-is-home').forEach(el => el.textContent = isHome ? 'True' : 'False');
+            }
         }
 
         function getRiskLabel(risk) {
@@ -1250,6 +1316,7 @@ INDEX_HTML = """<!DOCTYPE html>
             clearPreview();
             roomSelect.value = 'auto';
             updateGuidance();
+            updateDebugPanel(null);
             showScreen('screen-home');
         }
 
@@ -1260,6 +1327,9 @@ INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+FRONTEND_REQUIRE_REAL_GEMINI = os.getenv("REQUIRE_REAL_GEMINI", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1284,11 +1354,27 @@ async def analyze(
         if response.status_code == 200:
             return JSONResponse(content=response.json())
 
+        # Strict mode: never fallback on error
+        if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
+            try:
+                err_data = response.json()
+            except Exception:
+                err_data = {"error": "gemini_unavailable", "message": f"Backend returned status {response.status_code}"}
+            return JSONResponse(status_code=503, content=err_data)
+
         logger.warning(f"Backend returned non-200: {response.status_code}, using fallback mock.")
         payload = _build_local_mock(image_bytes, room_hint, f"Backend HTTP {response.status_code}")
         return JSONResponse(content=payload)
 
     except Exception as exc:
+        if FRONTEND_REQUIRE_REAL_GEMINI:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "error": "gemini_unavailable",
+                    "message": f"Real Gemini analysis is required but backend is unreachable: {exc}"
+                }
+            )
         logger.warning(f"Backend call failed: {exc}, using fallback mock.")
         payload = _build_local_mock(image_bytes, room_hint, str(exc))
         return JSONResponse(content=payload)

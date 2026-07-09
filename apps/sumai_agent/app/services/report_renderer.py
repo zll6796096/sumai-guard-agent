@@ -28,6 +28,14 @@ class ReportRenderer:
         findings: list[RiskFinding],
         action_plan: ActionPlan,
     ) -> dict[str, str]:
+        if not findings:
+            msg = "写真内に明確な転倒リスクは検出されませんでした。必要に応じて別角度で撮影してください。"
+            return {
+                "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
+                "family_actions_markdown": msg,
+                "care_manager_actions_markdown": msg,
+                "contractor_actions_markdown": msg,
+            }
         return {
             "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
             "family_actions_markdown": self.actions_markdown("家族で今日できること", action_plan.family_no_cost),
