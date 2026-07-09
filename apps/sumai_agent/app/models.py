@@ -73,8 +73,21 @@ class AnalysisResponse(BaseModel):
     model: str = "N/A"
 
 
+class MissingSafetyFeature(BaseModel):
+    feature_key: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    bbox: BoundingBox
+    evidence_ja: str
+
+
 class VisionResult(BaseModel):
     room_type: RoomType
-    findings: list[RiskFinding] = Field(default_factory=list)
     is_home_environment: bool = True
+    observations: dict[str, bool | None] = Field(default_factory=dict)
+    visible_hazards: list[RiskFinding] = Field(default_factory=list)
+    missing_safety_features: list[MissingSafetyFeature] = Field(default_factory=list)
     not_applicable_reason_ja: str | None = None
+
+    @property
+    def findings(self) -> list[RiskFinding]:
+        return self.visible_hazards

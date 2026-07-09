@@ -156,7 +156,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .place-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr;
             gap: 8px;
             margin-bottom: 10px;
         }
@@ -362,110 +362,74 @@ INDEX_HTML = """<!DOCTYPE html>
             line-height: 1.3;
         }
 
-        /* Screen: Analyzing */
-        #screen-analyzing {
-            justify-content: center;
-            align-items: center;
-            background: var(--bg-gradient);
-        }
-
-        .analyzing-content {
-            text-align: center;
+        /* Screen: Result & Analyzing */
+        .large-preview-wrapper {
             width: 100%;
-        }
-
-        .analyzing-title {
-            font-size: 1.4rem;
-            font-weight: 900;
-            color: var(--primary-color);
-            margin-bottom: 6px;
-        }
-
-        .analyzing-subtitle {
-            font-size: 0.85rem;
-            color: var(--text-muted);
-            margin-bottom: 20px;
-        }
-
-        .preview-container {
-            width: 160px;
-            height: 120px;
-            border-radius: 10px;
+            max-height: 52svh;
+            border-radius: 12px;
             overflow: hidden;
-            margin: 0 auto 24px auto;
             border: 1px solid var(--border-color);
             background-color: var(--card-bg);
             display: flex;
             justify-content: center;
             align-items: center;
+            margin-bottom: 16px;
         }
 
-        .preview-container img {
-            max-width: 100%;
-            max-height: 100%;
+        .large-preview-wrapper img {
+            width: 100%;
+            height: auto;
+            max-height: 52svh;
             object-fit: contain;
+            display: block;
+            border-radius: 12px;
         }
 
-        .steps-container {
+        .analyzing-status-box {
+            text-align: center;
+            margin-top: 12px;
+        }
+
+        .analyzing-subtitle {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-color);
+            margin-bottom: 16px;
+        }
+
+        .steps-container-compact {
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: center;
-            margin: 20px auto 0 auto;
-            position: relative;
-            max-width: 280px;
-            padding: 0 8px;
+            gap: 6px;
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 20px;
+            padding: 8px 16px;
+            display: inline-flex;
+            margin: 0 auto;
         }
 
-        .steps-container::before {
-            content: '';
-            position: absolute;
-            top: 7px;
-            left: 20px;
-            right: 20px;
-            height: 2px;
-            background-color: var(--border-color);
-            z-index: 1;
-        }
-
-        .step-item {
-            position: relative;
-            z-index: 2;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            flex: 1;
-        }
-
-        .step-dot {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background-color: #14172A;
-            border: 2px solid var(--border-color);
-            margin-bottom: 6px;
+        .step-compact {
+            font-size: 0.72rem;
+            font-weight: 500;
+            color: var(--text-muted);
             transition: all 0.3s ease;
         }
 
-        .step-item.active .step-dot {
-            background-color: var(--primary-color);
-            border-color: var(--primary-color);
-            box-shadow: 0 0 8px var(--primary-color);
-        }
-
-        .step-item.completed .step-dot {
-            background-color: var(--success-color);
-            border-color: var(--success-color);
-        }
-
-        .step-label {
-            font-size: 0.7rem;
-            color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        .step-item.active .step-label {
-            color: var(--text-color);
+        .step-compact.active {
+            color: var(--primary-color);
             font-weight: 700;
+        }
+
+        .step-compact.completed {
+            color: var(--success-color);
+            font-weight: 700;
+        }
+
+        .step-arrow-compact {
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.15);
         }
 
         /* Screen: Result & Suggestions */
@@ -810,48 +774,11 @@ INDEX_HTML = """<!DOCTYPE html>
                     </button>
                 </div>
 
-                <!-- Selected preview and AI CTA state -->
-                <div id="preview-cta-container" style="display: none;">
-                    <div class="compact-preview-wrapper">
-                        <img id="home-image-preview" src="" alt="Selected Preview">
-                        <button id="btn-clear-preview" class="btn-clear-x">×</button>
-                    </div>
-                    <button id="btn-run-analysis" class="btn btn-primary">AIで安全チェック</button>
-                    <button id="btn-change-photo" class="btn btn-outline" style="height: 40px; font-size: 0.85rem;">他の写真を選ぶ</button>
-                </div>
-
                 <p class="disclaimer-text">POC版です。専門判断を代替しません。</p>
             </div>
         </div>
 
-        <!-- SCREEN 1.5: Analyzing -->
-        <div id="screen-analyzing" class="screen">
-            <div class="analyzing-content">
-                <h2 class="analyzing-title">AI分析中...</h2>
-                <p class="analyzing-subtitle">AIが写真を確認しています</p>
-                
-                <div class="preview-container">
-                    <img id="analyzing-preview" src="" alt="Preview">
-                </div>
-                
-                <div class="steps-container">
-                    <div class="step-item active">
-                        <span class="step-dot"></span>
-                        <span class="step-label">写真を確認</span>
-                    </div>
-                    <div class="step-item">
-                        <span class="step-dot"></span>
-                        <span class="step-label">リスク抽出</span>
-                    </div>
-                    <div class="step-item">
-                        <span class="step-dot"></span>
-                        <span class="step-label">結果作成</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- SCREEN 2: Visual Diagnosis Result -->
+        <!-- SCREEN 2: Visual Diagnosis Result / Analyzing -->
         <div id="screen-result" class="screen">
             <div class="screen-nav">
                 <button class="nav-back btn-back-home">
@@ -860,55 +787,75 @@ INDEX_HTML = """<!DOCTYPE html>
                     </svg>
                     ホーム
                 </button>
-                <span class="nav-title">診断結果</span>
+                <span class="nav-title" id="screen2-title">写真確認中</span>
                 <div style="width: 60px;"></div>
             </div>
 
-            <div class="result-summary">
-                <div class="summary-item">
-                    <span class="summary-label">総合リスク</span>
-                    <span id="risk-badge" class="badge">--</span>
+            <!-- 1. Analyzing State Container -->
+            <div id="result-analyzing-container">
+                <div class="large-preview-wrapper">
+                    <img id="result-large-preview" src="" alt="Selected Photo">
                 </div>
-                <div class="summary-item">
-                    <span class="summary-label">赤枠リスク</span>
-                    <span id="risk-count" class="summary-value">--件</span>
-                </div>
-            </div>
-
-            <!-- Not Applicable Warning Box -->
-            <div id="not-applicable-container" style="display: none; background-color: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-color); border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center;">
-                <p id="not-applicable-message" style="color: #FFD580; font-weight: bold; font-size: 0.95rem;"></p>
-            </div>
-
-            <!-- Stacked Images: Annotated first, Improvement second -->
-            <div class="result-images-list">
-                <div class="result-image-card">
-                    <span class="image-card-title">危険提示</span>
-                    <div class="image-wrapper">
-                        <img id="result-annotated-img" src="" alt="現状写真">
-                    </div>
-                </div>
-                <div class="result-image-card">
-                    <span class="image-card-title">改善イメージ</span>
-                    <div class="image-wrapper">
-                        <img id="result-improvement-img" src="" alt="改善イメージ">
+                <div class="analyzing-status-box">
+                    <p class="analyzing-subtitle">AIが写真を確認しています…</p>
+                    <div class="steps-container-compact">
+                        <div class="step-compact active" id="step-c1">写真確認</div>
+                        <div class="step-arrow-compact">→</div>
+                        <div class="step-compact" id="step-c2">リスク判定</div>
+                        <div class="step-arrow-compact">→</div>
+                        <div class="step-compact" id="step-c3">改善案作成</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Hidden Debug Panel -->
-            <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left;">
-                <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
-                <div>Mode: <span class="debug-mode">--</span></div>
-                <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
-                <div>Model: <span class="debug-model">--</span></div>
-                <div>Findings Count: <span class="debug-finding-count">--</span></div>
-                <div>Is Home Environment: <span class="debug-is-home">--</span></div>
-            </div>
+            <!-- 2. Completed State Container -->
+            <div id="result-completed-container" style="display: none;">
+                <div class="result-summary">
+                    <div class="summary-item">
+                        <span class="summary-label">総合リスク</span>
+                        <span id="risk-badge" class="badge">--</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">赤枠リスク</span>
+                        <span id="risk-count" class="summary-value">--件</span>
+                    </div>
+                </div>
 
-            <div class="result-actions">
-                <button id="btn-show-suggestions" class="btn btn-primary">点検・修繕提案を見る</button>
-                <button class="btn btn-outline btn-back-home">ホームに戻る</button>
+                <!-- Not Applicable Warning Box -->
+                <div id="not-applicable-container" style="display: none; background-color: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-color); border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center;">
+                    <p id="not-applicable-message" style="color: #FFD580; font-weight: bold; font-size: 0.95rem;"></p>
+                </div>
+
+                <!-- Stacked Images: Annotated first, Improvement second -->
+                <div class="result-images-list">
+                    <div class="result-image-card">
+                        <span class="image-card-title">危険提示</span>
+                        <div class="image-wrapper">
+                            <img id="result-annotated-img" src="" alt="現状写真">
+                        </div>
+                    </div>
+                    <div class="result-image-card">
+                        <span class="image-card-title">改善イメージ</span>
+                        <div class="image-wrapper">
+                            <img id="result-improvement-img" src="" alt="改善イメージ">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden Debug Panel -->
+                <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left;">
+                    <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
+                    <div>Mode: <span class="debug-mode">--</span></div>
+                    <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
+                    <div>Model: <span class="debug-model">--</span></div>
+                    <div>Findings Count: <span class="debug-finding-count">--</span></div>
+                    <div>Is Home Environment: <span class="debug-is-home">--</span></div>
+                </div>
+
+                <div class="result-actions">
+                    <button id="btn-show-suggestions" class="btn btn-primary">点検・修繕提案を見る</button>
+                    <button class="btn btn-outline btn-back-home">ホームに戻る</button>
+                </div>
             </div>
         </div>
 
@@ -1030,14 +977,7 @@ INDEX_HTML = """<!DOCTYPE html>
         const btnCamera = document.getElementById('btn-camera');
         const btnLibrary = document.getElementById('btn-library');
         const errorDiv = document.getElementById('error-message');
-        
-        const selectionContainer = document.getElementById('selection-buttons-container');
-        const previewContainer = document.getElementById('preview-cta-container');
-        const homePreviewImg = document.getElementById('home-image-preview');
-        const btnRunAnalysis = document.getElementById('btn-run-analysis');
-        const btnClearPreview = document.getElementById('btn-clear-preview');
-        const btnChangePhoto = document.getElementById('btn-change-photo');
-        
+
         const btnShowSuggestions = document.getElementById('btn-show-suggestions');
         const btnBackToResult = document.getElementById('btn-back-to-result');
         const btnBackHomes = document.querySelectorAll('.btn-back-home');
@@ -1052,6 +992,7 @@ INDEX_HTML = """<!DOCTYPE html>
             });
             document.getElementById(screenId).classList.add('active');
         }
+
         btnCamera.addEventListener('click', () => {
             errorDiv.style.display = 'none';
             cameraInput.click();
@@ -1076,56 +1017,51 @@ INDEX_HTML = """<!DOCTYPE html>
             selectedFile = file;
             errorDiv.style.display = 'none';
 
-            // Show preview image in Screen 1
+            // Show selected photo in Screen 2 immediately
             const reader = new FileReader();
             reader.onload = function(e) {
-                homePreviewImg.src = e.target.result;
-                document.getElementById('analyzing-preview').src = e.target.result;
+                document.getElementById('result-large-preview').src = e.target.result;
             };
             reader.readAsDataURL(file);
 
-            // Hide select buttons, show preview with CTA
-            selectionContainer.style.display = 'none';
-            previewContainer.style.display = 'block';
+            // Move directly to Screen 2
+            showScreen('screen-result');
+
+            // Reset Screen 2 state to "Analyzing"
+            document.getElementById('screen2-title').textContent = "写真確認中";
+            document.getElementById('result-analyzing-container').style.display = 'block';
+            document.getElementById('result-completed-container').style.display = 'none';
+
+            // Start step animations
+            startStepAnimation();
+
+            // Run analysis immediately
+            uploadAndAnalyze(selectedFile);
         }
 
-        // Clear preview
+        // Clear preview / reset to home
         function clearPreview() {
             selectedFile = null;
             cameraInput.value = '';
             libraryInput.value = '';
-            homePreviewImg.src = '';
-            previewContainer.style.display = 'none';
-            selectionContainer.style.display = 'block';
+            document.getElementById('result-large-preview').src = '';
             errorDiv.style.display = 'none';
         }
-
-        btnClearPreview.addEventListener('click', clearPreview);
-        btnChangePhoto.addEventListener('click', () => {
-            clearPreview();
-            libraryInput.click();
-        });
-
-        // Trigger AI analysis
-        btnRunAnalysis.addEventListener('click', () => {
-            if (!selectedFile) {
-                errorDiv.textContent = "写真を選択してください。";
-                errorDiv.style.display = "block";
-                return;
-            }
-            showScreen('screen-analyzing');
-            startStepAnimation();
-            uploadAndAnalyze(selectedFile);
-        });
 
         // Simulated Step animations
         let step1, step2;
         function startStepAnimation() {
-            const steps = document.querySelectorAll('.step-item');
+            const steps = [
+                document.getElementById('step-c1'),
+                document.getElementById('step-c2'),
+                document.getElementById('step-c3')
+            ];
             steps.forEach((step, idx) => {
-                step.className = 'step-item';
+                step.className = 'step-compact';
                 if (idx === 0) step.classList.add('active');
             });
+
+            clearStepAnimation();
 
             step1 = setTimeout(() => {
                 steps[0].classList.add('completed');
@@ -1232,7 +1168,11 @@ INDEX_HTML = """<!DOCTYPE html>
             updateDebugPanel(payload);
 
             clearStepAnimation();
-            showScreen('screen-result');
+            
+            // Switch title and transition to completed layout inside Screen 2
+            document.getElementById('screen2-title').textContent = "診断結果";
+            document.getElementById('result-analyzing-container').style.display = 'none';
+            document.getElementById('result-completed-container').style.display = 'block';
         }
 
         function updateDebugPanel(payload) {

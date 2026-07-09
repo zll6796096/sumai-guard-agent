@@ -9,6 +9,7 @@ from PIL import Image
 
 from app.models import AnalysisResponse, RiskFinding, RiskLevel, RoomType
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
+from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import read_and_sanitize_image
 from app.services.report_renderer import ReportRenderer
 from app.services.rule_engine import RuleEngine
@@ -27,6 +28,7 @@ DISCLAIMER_JA = (
 class AnalysisOrchestrator:
     def __init__(self) -> None:
         self.vision = GeminiVisionService()
+        self.checklist_engine = ChecklistEngine()
         self.rule_engine = RuleEngine()
         self.visual_renderer = VisualRenderer()
         self.report_renderer = ReportRenderer()
@@ -53,7 +55,8 @@ class AnalysisOrchestrator:
             force_mock=mock,
             analysis_id=analysis_id,
         )
-        findings, action_plan = self.rule_engine.apply(vision_result.findings)
+        checklist_findings = self.checklist_engine.process(vision_result)
+        findings, action_plan = self.rule_engine.apply(checklist_findings)
         overall_risk = overall_risk_level(findings)
         annotated, improvement = self.visual_renderer.render(image, findings)
         reports = self.report_renderer.render(

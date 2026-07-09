@@ -123,7 +123,7 @@ def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, in
 
 def _improvement_label(risk_type: str) -> str:
     labels = {
-        "genkan_step": "手すり候補",
+        "genkan_step": "段差対策",
         "large_step": "段差対策",
         "stairs": "手すり候補",
         "hallway_cord": "コード整理",
@@ -135,14 +135,35 @@ def _improvement_label(risk_type: str) -> str:
         "missing_handrail": "手すり候補",
         "poor_lighting": "照明追加",
         "kitchen_slip": "滑り止め",
+        # New checklist types
+        "toilet_missing_handrail": "手すり候補",
+        "toilet_missing_emergency_call": "緊急呼出相談",
+        "toilet_transfer_support": "動線確保",
+        "toilet_slip": "滑り止め",
+        "bathroom_missing_handrail": "手すり候補",
+        "bathroom_missing_non_slip": "滑り止め",
+        "bathroom_missing_transfer_support": "手すり候補",
+        "bathroom_missing_emergency_call": "緊急呼出相談",
+        "bathroom_no_shower_chair": "動線確保",
+        "genkan_missing_support": "手すり候補",
+        "genkan_invisible_step": "段差対策",
+        "hallway_narrow_path": "動線確保",
+        "bedroom_blocked_path": "動線確保",
+        "bedroom_missing_support": "手すり候補",
+        "kitchen_cluttered_floor": "片付け",
+        "kitchen_narrow_path": "動線確保",
+        "kitchen_unreachable_storage": "片付け",
     }
     return labels.get(risk_type, "改善案")
 
 
 def _improvement_color(risk_type: str) -> tuple[int, int, int]:
-    if risk_type in {"bathroom_slip", "kitchen_slip"}:
+    if risk_type in {
+        "bathroom_slip", "kitchen_slip", "toilet_slip",
+        "bathroom_missing_non_slip", "loose_mat"
+    }:
         return BLUE
-    if risk_type in {"poor_lighting"}:
+    if risk_type in {"poor_lighting", "toilet_missing_emergency_call", "bathroom_missing_emergency_call"}:
         return YELLOW
     return GREEN
 

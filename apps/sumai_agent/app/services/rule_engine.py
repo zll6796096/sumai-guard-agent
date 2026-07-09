@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -7,6 +8,7 @@ import yaml
 
 from app.models import ActionItem, ActionPlan, RiskFinding
 
+logger = logging.getLogger("sumai.rule_engine")
 
 PROFESSIONAL_CONFIRMATION_RISKS = {
     "bathroom_slip",
@@ -25,9 +27,29 @@ CONTRACTOR_DISCLAIMER = "写真だけでは寸法や施工可否を判断しま�
 
 
 class RuleEngine:
-    def __init__(self, rules_path: Path | None = None) -> None:
-        self.rules_path = rules_path or Path(__file__).resolve().parents[1] / "knowledge_base" / "demo_rules.yaml"
-        self.rules = self._load_rules()
+    def __init__(self, checklists_path: Path | None = None) -> None:
+        if checklists_path is None:
+            checklists_path = Path(__file__).resolve().parents[1] / "knowledge_base" / "room_checklists.yaml"
+        self.checklists_path = checklists_path
+        self.checklists = self._load_checklists()
+
+    def _load_checklists(self) -> dict[str, Any]:
+        try:
+            with self.checklists_path.open("r", encoding="utf-8") as handle:
+                return yaml.safe_load(handle) or {}
+        except Exception as e:
+            logger.error(f"Failed to load checklists: {e}")
+            return {}
+
+    def _find_checklist_item(self, risk_type: str) -> dict[str, Any] | None:
+        for room_name, room_data in self.checklists.items():
+            for feat in room_data.get("expected_features", []):
+                if feat.get("missing_risk_type") == risk_type:
+                    return feat
+            for haz in room_data.get("visible_hazards", []):
+                if haz.get("risk_type") == risk_type:
+                    return haz
+        return None
 
     def apply(self, findings: list[RiskFinding]) -> tuple[list[RiskFinding], ActionPlan]:
         normalized_findings: list[RiskFinding] = []
@@ -41,7 +63,7 @@ class RuleEngine:
             if finding.confidence < 0.45:
                 continue
 
-            is_known = finding.risk_type in self.rules
+            is_known = self._find_checklist_item(finding.risk_type) is not None
 
             if 0.45 <= finding.confidence < 0.60:
                 if not is_known:
@@ -55,19 +77,61 @@ class RuleEngine:
             filtered_findings.append(finding)
 
         for index, finding in enumerate(filtered_findings, start=1):
-            rule = self.rules.get(finding.risk_type, self._fallback_rule(finding))
+            chk_item = self._find_checklist_item(finding.risk_type)
+            
+            # Populate basis if not already filled by checklist engine
+            basis_label = finding.basis_label_ja
+            basis_summary = finding.basis_summary_ja
+            if chk_item:
+                if not basis_label:
+                    basis_label = chk_item.get("basis_label_ja", "")
+                if not basis_summary:
+                    basis_summary = chk_item.get("basis_summary_ja", "")
+
+            if not basis_label:
+                basis_label = "高齢者住宅安全チェックの一般原則"
+            if not basis_summary:
+                basis_summary = "写真で見える範囲の一般的な転倒・つまずき予防の観点です。"
+
             needs_confirm = finding.needs_human_confirmation or finding.confidence < 0.60
             normalized = finding.model_copy(
                 update={
                     "id": f"R{index}",
-                    "basis_label_ja": rule["basis_label_ja"],
-                    "basis_summary_ja": rule["basis_summary_ja"],
+                    "basis_label_ja": basis_label,
+                    "basis_summary_ja": basis_summary,
                     "needs_human_confirmation": needs_confirm,
                 }
             )
             normalized_findings.append(normalized)
 
-            before_count = len(family) + len(care) + len(contractor)
+            # Build action lists from checklist definition
+            if chk_item:
+                desc_reason = normalized.description_ja.rstrip("。")
+                # Family actions
+                family_raw = [
+                    {"title_ja": act, "description_ja": f"{normalized.label_ja}への対策として、{act}を行います。", "why_ja": f"{desc_reason}を防ぐためです。"}
+                    for act in chk_item.get("family_actions", [])
+                ]
+                # Care Manager actions
+                care_raw = [
+                    {"title_ja": act, "description_ja": f"専門職と連携し、{act}について相談・検討します。", "why_ja": f"{desc_reason}のリスクを軽減するためです。"}
+                    for act in chk_item.get("care_manager_actions", [])
+                ]
+                # Contractor actions
+                contractor_raw = [
+                    {"title_ja": act, "description_ja": f"施工会社などの専門業者に依頼し、{act}の可否を確認します。", "why_ja": f"住宅改修により高齢者の自立支援と安全を確保するためです。"}
+                    for act in chk_item.get("contractor_actions", [])
+                ]
+            else:
+                # Fallback action
+                family_raw = [{
+                    "title_ja": "家族で該当箇所を確認",
+                    "description_ja": "写真の赤枠部分を見ながら、今日の移動時に気をつける場所として共有します。",
+                    "why_ja": "見えるリスクを家族内でそろえることで、まず無理のない予防行動につなげるためです。",
+                }]
+                care_raw = []
+                contractor_raw = []
+
             self._append_actions(
                 target=family,
                 seen=seen_actions,
@@ -75,7 +139,7 @@ class RuleEngine:
                 tier="FAMILY_NO_COST",
                 cost_level="ZERO",
                 requires_professional=False,
-                raw_actions=rule.get("family_no_cost_actions", []),
+                raw_actions=family_raw,
                 disclaimer=FAMILY_DISCLAIMER,
             )
             self._append_actions(
@@ -85,7 +149,7 @@ class RuleEngine:
                 tier="CARE_MANAGER_PURCHASE",
                 cost_level="LOW",
                 requires_professional=True,
-                raw_actions=rule.get("care_manager_purchase_actions", []),
+                raw_actions=care_raw,
                 disclaimer=CARE_MANAGER_DISCLAIMER,
             )
             self._append_actions(
@@ -95,10 +159,11 @@ class RuleEngine:
                 tier="CONTRACTOR_CONSTRUCTION",
                 cost_level="HIGH",
                 requires_professional=True,
-                raw_actions=rule.get("contractor_construction_actions", []),
+                raw_actions=contractor_raw,
                 disclaimer=CONTRACTOR_DISCLAIMER,
             )
 
+            # Professional confirmation override
             if normalized.risk_type in PROFESSIONAL_CONFIRMATION_RISKS:
                 self._append_actions(
                     target=contractor,
@@ -117,35 +182,11 @@ class RuleEngine:
                     disclaimer=CONTRACTOR_DISCLAIMER,
                 )
 
-            after_count = len(family) + len(care) + len(contractor)
-            if normalized.severity >= 4 and after_count == before_count:
-                self._append_actions(
-                    target=family,
-                    seen=seen_actions,
-                    finding=normalized,
-                    tier="FAMILY_NO_COST",
-                    cost_level="ZERO",
-                    requires_professional=False,
-                    raw_actions=[
-                        {
-                            "title_ja": "危険箇所の一時的な見える化",
-                            "description_ja": "家族の会話用に、写真の該当箇所を確認し、今日近づく時の注意点を共有します。",
-                            "why_ja": "高めのリスク候補は、まず認識をそろえることが予防の出発点になるためです。",
-                        }
-                    ],
-                    disclaimer=FAMILY_DISCLAIMER,
-                )
-
         return normalized_findings, ActionPlan(
             family_no_cost=family[:5],
             care_manager_purchase=care[:5],
             contractor_construction=contractor[:5],
         )
-
-    def _load_rules(self) -> dict[str, dict[str, Any]]:
-        with self.rules_path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
-        return data.get("rules", {})
 
     def _append_actions(
         self,
@@ -189,18 +230,3 @@ class RuleEngine:
     def _is_invalid_family_action(self, *parts: str) -> bool:
         text = " ".join(parts)
         return any(word in text for word in FAMILY_FORBIDDEN_WORDS)
-
-    def _fallback_rule(self, finding: RiskFinding) -> dict[str, Any]:
-        return {
-            "basis_label_ja": "高齢者住宅安全チェックの一般原則",
-            "basis_summary_ja": "写真で見える範囲の一般的な転倒・つまずき予防の観点です。",
-            "family_no_cost_actions": [
-                {
-                    "title_ja": "家族で該当箇所を確認",
-                    "description_ja": "写真の赤枠部分を見ながら、今日の移動時に気をつける場所として共有します。",
-                    "why_ja": "見えるリスクを家族内でそろえることで、まず無理のない予防行動につなげるためです。",
-                }
-            ],
-            "care_manager_purchase_actions": [],
-            "contractor_construction_actions": [],
-        }
