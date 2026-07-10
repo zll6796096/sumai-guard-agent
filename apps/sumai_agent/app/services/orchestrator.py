@@ -58,7 +58,7 @@ class AnalysisOrchestrator:
         checklist_findings = self.checklist_engine.process(vision_result)
         findings, action_plan = self.rule_engine.apply(checklist_findings)
         overall_risk = overall_risk_level(findings)
-        annotated, improvement = self.visual_renderer.render(image, findings)
+        annotated, improvement = self.visual_renderer.render(image, findings, vision_result.room_type)
         reports = self.report_renderer.render(
             room_type=vision_result.room_type,
             overall_risk_level=overall_risk,

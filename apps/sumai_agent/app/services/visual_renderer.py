@@ -4,53 +4,248 @@ import base64
 import io
 import math
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from app.models import RiskFinding
-
+from app.models import RiskFinding, BoundingBox
 
 RED = (220, 38, 38)
 WHITE = (255, 255, 255)
 GREEN = (22, 163, 74)
+PURPLE = (147, 51, 234)
 BLUE = (14, 116, 144)
 YELLOW = (245, 158, 11)
 BLACK = (17, 24, 39)
 WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
+# Visual zone coordinates: (x, y, w, h) relative
+VISUAL_ZONES = {
+    "toilet": {
+        "toilet_missing_handrail": {"left": (0.08, 0.42, 0.17, 0.36), "right": (0.70, 0.42, 0.22, 0.36)},
+        "toilet_transfer_support": {"left": (0.08, 0.42, 0.17, 0.36), "right": (0.70, 0.42, 0.22, 0.36)},
+        "toilet_missing_emergency_call": (0.68, 0.30, 0.25, 0.28),
+        "toilet_slip": (0.18, 0.68, 0.64, 0.24),
+        "looks_slippery_floor": (0.18, 0.68, 0.64, 0.24),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.22),
+    },
+    "bathroom": {
+        "bathroom_missing_handrail": {"left": (0.10, 0.30, 0.18, 0.50), "right": (0.72, 0.30, 0.18, 0.50)},
+        "bathroom_missing_non_slip": (0.20, 0.70, 0.60, 0.25),
+        "bathroom_slip": (0.20, 0.70, 0.60, 0.25),
+        "bathroom_missing_emergency_call": (0.70, 0.35, 0.20, 0.30),
+        "bathtub_stepover": (0.30, 0.50, 0.40, 0.25),
+    },
+    "hallway": {
+        "hallway_cord": (0.10, 0.75, 0.80, 0.15),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.25),
+        "poor_lighting": (0.30, 0.10, 0.40, 0.20),
+    },
+    "genkan": {
+        "genkan_step": (0.15, 0.60, 0.70, 0.20),
+        "large_step": (0.15, 0.60, 0.70, 0.20),
+        "genkan_missing_support": (0.08, 0.30, 0.15, 0.50),
+        "loose_shoes": (0.20, 0.65, 0.60, 0.25),
+        "cluttered_path": (0.20, 0.65, 0.60, 0.25),
+    },
+    "bedroom": {
+        "clear_path_from_bed": (0.20, 0.70, 0.60, 0.22),
+        "cluttered_path": (0.20, 0.70, 0.60, 0.22),
+        "loose_mat": (0.25, 0.72, 0.50, 0.20),
+        "poor_lighting": (0.70, 0.20, 0.20, 0.30),
+    },
+    "kitchen": {
+        "kitchen_slip": (0.20, 0.75, 0.60, 0.20),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.25),
+        "reachable_storage_issue": (0.15, 0.15, 0.70, 0.25),
+    }
+}
+
+ROOM_ANCHORS = {
+    "toilet": (0.25, 0.65, 0.50, 0.25),
+    "bathroom": (0.30, 0.60, 0.40, 0.30),
+    "hallway": (0.25, 0.70, 0.50, 0.25),
+    "genkan": (0.20, 0.60, 0.60, 0.30),
+    "bedroom": (0.25, 0.65, 0.50, 0.25),
+    "kitchen": (0.25, 0.70, 0.50, 0.25),
+}
+
+DANGER_LABELS = {
+    "toilet_missing_handrail": "支え不足",
+    "toilet_transfer_support": "支え不足",
+    "bathroom_missing_handrail": "支え不足",
+    "genkan_missing_support": "支え不足",
+    "bedroom_missing_support": "支え不足",
+    "stairs": "支え不足",
+    "missing_handrail": "支え不足",
+    
+    "toilet_missing_emergency_call": "連絡手段",
+    "bathroom_missing_emergency_call": "連絡手段",
+    
+    "toilet_slip": "滑り",
+    "bathroom_slip": "滑り",
+    "bathroom_missing_non_slip": "滑り",
+    "kitchen_slip": "滑り",
+    "looks_slippery_floor": "滑り",
+    "loose_mat": "滑り",
+    
+    "genkan_step": "段差",
+    "large_step": "段差",
+    "genkan_invisible_step": "段差",
+    "bathtub_stepover": "段差",
+    
+    "hallway_cord": "コード",
+}
+
+
+def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox:
+    if room_type and room_type in VISUAL_ZONES:
+        mapped = VISUAL_ZONES[room_type].get(finding.risk_type)
+        if mapped:
+            if isinstance(mapped, dict):
+                center_x = finding.bbox.x + finding.bbox.w / 2
+                zone_coords = mapped["right"] if center_x > 0.5 else mapped["left"]
+            else:
+                zone_coords = mapped
+            x, y, w, h = zone_coords
+            return BoundingBox(x=x, y=y, w=w, h=h)
+
+    # Check if original is huge (>65%)
+    orig_area = finding.bbox.w * finding.bbox.h
+    if orig_area > 0.65:
+        anchor = None
+        if room_type and room_type in ROOM_ANCHORS:
+            anchor = ROOM_ANCHORS[room_type]
+        if not anchor:
+            anchor = (0.25, 0.65, 0.50, 0.25)
+        x, y, w, h = anchor
+        return BoundingBox(x=x, y=y, w=w, h=h)
+
+    return finding.bbox
+
+
+def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
+    ax1, ay1 = b1.x, b1.y
+    ax2, ay2 = b1.x + b1.w, b1.y + b1.h
+    bx1, by1 = b2.x, b2.y
+    bx2, by2 = b2.x + b2.w, b2.y + b2.h
+
+    ix1 = max(ax1, bx1)
+    iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2)
+    iy2 = min(ay2, by2)
+
+    intersection = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    area1 = b1.w * b1.h
+    area2 = b2.w * b2.h
+    union = area1 + area2 - intersection
+    return intersection / union if union > 0.0 else 0.0
+
+
+def _select_visual_findings(
+    findings: list[RiskFinding], room_type: str | None, max_items: int = 3
+) -> list[tuple[RiskFinding, BoundingBox]]:
+    candidates = []
+    for f in findings:
+        candidates.append((f, _get_mapped_bbox(f, room_type)))
+
+    # Sort by severity desc, then confidence desc
+    candidates.sort(key=lambda item: (-item[0].severity, -item[0].confidence))
+
+    selected: list[tuple[RiskFinding, BoundingBox]] = []
+    for f, bbox in candidates:
+        # Check overlaps with already selected
+        overlap = False
+        for _, sel_bbox in selected:
+            if _compute_iou(bbox, sel_bbox) > 0.45:
+                overlap = True
+                break
+        if not overlap:
+            selected.append((f, bbox))
+        if len(selected) >= max_items:
+            break
+
+    return selected
+
 
 class VisualRenderer:
-    def render(self, image: Image.Image, findings: list[RiskFinding]) -> tuple[str, str]:
-        annotated = self._annotated_image(image, findings)
-        improvement = self._improvement_image(image, findings, annotated)
+    def render(
+        self, image: Image.Image, findings: list[RiskFinding], room_type: str | None = None
+    ) -> tuple[str, str]:
+        selected_findings = _select_visual_findings(findings, room_type, max_items=3)
+        annotated = self._annotated_image(image, selected_findings)
+        improvement = self._improvement_image(image, selected_findings)
         return _to_base64_png(annotated), _to_base64_png(improvement)
 
-    def _annotated_image(self, image: Image.Image, findings: list[RiskFinding]) -> Image.Image:
+    def _annotated_image(
+        self, image: Image.Image, selected_findings: list[tuple[RiskFinding, BoundingBox]]
+    ) -> Image.Image:
         canvas = image.convert("RGB").copy()
-        draw = ImageDraw.Draw(canvas)
         width, height = canvas.size
         line_width = max(5, width // 140)
         label_font = _load_font(max(18, width // 32), bold=True)
 
-        for finding in findings:
-            x1, y1, x2, y2 = _bbox_pixels(finding, width, height)
+        # Draw transparent fills using an RGBA overlay
+        overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        for _, bbox in selected_findings:
+            x1 = int(bbox.x * width)
+            y1 = int(bbox.y * height)
+            x2 = int((bbox.x + bbox.w) * width)
+            y2 = int((bbox.y + bbox.h) * height)
+            overlay_draw.rectangle((x1, y1, x2, y2), fill=RED + (36,))
+        canvas = Image.alpha_composite(canvas.convert("RGBA"), overlay).convert("RGB")
+
+        # Now draw outlines and labels
+        draw = ImageDraw.Draw(canvas)
+        placed_label_rects = []
+
+        for finding, bbox in selected_findings:
+            x1 = int(bbox.x * width)
+            y1 = int(bbox.y * height)
+            x2 = int((bbox.x + bbox.w) * width)
+            y2 = int((bbox.y + bbox.h) * height)
+            
             draw.rectangle((x1, y1, x2, y2), outline=RED, width=line_width)
-            label = "注意"
+
+            label = DANGER_LABELS.get(finding.risk_type, "注意")
             text_bbox = draw.textbbox((0, 0), label, font=label_font)
             label_w = text_bbox[2] - text_bbox[0] + 18
             label_h = text_bbox[3] - text_bbox[1] + 14
-            label_x = max(0, x1)
-            label_y = max(0, y1 - label_h)
-            draw.rectangle((label_x, label_y, label_x + label_w, label_y + label_h), fill=RED)
-            draw.text((label_x + 9, label_y + 5), label, fill=WHITE, font=label_font)
+
+            # Candidate positions: above, below, inside top-left, right, left
+            candidates = [
+                (x1, y1 - label_h),
+                (x1, y2),
+                (x1 + 6, y1 + 6),
+                (x2, y1),
+                (x1 - label_w, y1)
+            ]
+
+            chosen_pos = None
+            for cx, cy in candidates:
+                # bounds check
+                if 0 <= cx <= width - label_w and 0 <= cy <= height - label_h:
+                    cand_rect = (cx, cy, cx + label_w, cy + label_h)
+                    overlap = False
+                    for pr in placed_label_rects:
+                        if not (cand_rect[2] < pr[0] or cand_rect[0] > pr[2] or cand_rect[3] < pr[1] or cand_rect[1] > pr[3]):
+                            overlap = True
+                            break
+                    if not overlap:
+                        chosen_pos = (cx, cy)
+                        break
+
+            if chosen_pos:
+                lx, ly = chosen_pos
+                placed_label_rects.append((lx, ly, lx + label_w, ly + label_h))
+                draw.rectangle((lx, ly, lx + label_w, ly + label_h), fill=RED)
+                draw.text((lx + 9, ly + 5), label, fill=WHITE, font=label_font)
 
         return canvas
 
     def _improvement_image(
-        self,
-        image: Image.Image,
-        findings: list[RiskFinding],
-        annotated: Image.Image,
+        self, image: Image.Image, selected_findings: list[tuple[RiskFinding, BoundingBox]]
     ) -> Image.Image:
         canvas = image.convert("RGB").copy()
         width, height = canvas.size
@@ -58,54 +253,92 @@ class VisualRenderer:
         output = Image.new("RGB", (width, height + footer_h), (248, 250, 252))
         output.paste(canvas, (0, 0))
 
-        draw = ImageDraw.Draw(output, "RGBA")
+        overlay = Image.new("RGBA", (width, height + footer_h), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
         label_font = _load_font(max(16, width // 42), bold=True)
         small_font = _load_font(max(12, width // 54))
 
-        self._draw_improvement_overlays(draw, findings, width, height, 0, label_font)
+        # Define styles for alternating callouts
+        colors = [GREEN, PURPLE]
+        placed_label_rects = []
 
-        footer_y = height
-        draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255, 235))
-        _safe_text(draw, (16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
-        return output
+        # Draw overlays
+        for index, (finding, bbox) in enumerate(selected_findings):
+            color = colors[index % len(colors)]
+            x1 = int(bbox.x * width)
+            y1 = int(bbox.y * height)
+            x2 = int((bbox.x + bbox.w) * width)
+            y2 = int((bbox.y + bbox.h) * height)
 
-    def _draw_improvement_overlays(
-        self,
-        draw: ImageDraw.ImageDraw,
-        findings: list[RiskFinding],
-        width: int,
-        height: int,
-        header_h: int,
-        font: ImageFont.ImageFont,
-    ) -> None:
-        right_offset = 0
-        for index, finding in enumerate(findings):
-            x1, y1, x2, y2 = _bbox_pixels(finding, width, height)
-            x1 += right_offset
-            x2 += right_offset
-            y1 += header_h
-            y2 += header_h
+            overlay_draw.rounded_rectangle(
+                (x1, y1, x2, y2), radius=10, fill=color + (36,), outline=color + (230,), width=4
+            )
+
+        output = Image.alpha_composite(output.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(output)
+
+        # Draw labels directly adjacent
+        for index, (finding, bbox) in enumerate(selected_findings):
+            color = colors[index % len(colors)]
+            x1 = int(bbox.x * width)
+            y1 = int(bbox.y * height)
+            x2 = int((bbox.x + bbox.w) * width)
+            y2 = int((bbox.y + bbox.h) * height)
 
             label = _improvement_label(finding.risk_type)
-            color = _improvement_color(finding.risk_type)
-            draw.rounded_rectangle((x1, y1, x2, y2), radius=10, fill=color + (54,), outline=color + (230,), width=4)
+            text_bbox = draw.textbbox((0, 0), label, font=label_font)
+            label_w = text_bbox[2] - text_bbox[0] + 20
+            label_h = text_bbox[3] - text_bbox[1] + 20
 
-            label_x = min(right_offset + width - 180, max(right_offset + 18, x2 + 18))
-            label_y = min(header_h + height - 62, max(header_h + 16, y1 + index * 6))
-            _draw_arrow(draw, (x2, (y1 + y2) // 2), (label_x, label_y + 18), color + (230,), width=4)
-            draw.rounded_rectangle((label_x, label_y, label_x + 158, label_y + 42), radius=8, fill=(255, 255, 255, 235), outline=color + (230,), width=2)
-            _safe_text(draw, (label_x + 10, label_y + 10), label, fill=BLACK, font=font)
+            candidates = [
+                (x1, y1 - label_h),
+                (x1, y2),
+                (x1 + 6, y1 + 6),
+                (x2, y1),
+                (x1 - label_w, y1)
+            ]
 
-        if not findings:
+            chosen_pos = None
+            for cx, cy in candidates:
+                if 0 <= cx <= width - label_w and 0 <= cy <= height - label_h:
+                    cand_rect = (cx, cy, cx + label_w, cy + label_h)
+                    overlap = False
+                    for pr in placed_label_rects:
+                        if not (cand_rect[2] < pr[0] or cand_rect[0] > pr[2] or cand_rect[3] < pr[1] or cand_rect[1] > pr[3]):
+                            overlap = True
+                            break
+                    if not overlap:
+                        chosen_pos = (cx, cy)
+                        break
+
+            if chosen_pos:
+                lx, ly = chosen_pos
+                placed_label_rects.append((lx, ly, lx + label_w, ly + label_h))
+                draw.rounded_rectangle(
+                    (lx, ly, lx + label_w, ly + label_h),
+                    radius=8,
+                    fill=(255, 255, 255, 235),
+                    outline=color + (230,),
+                    width=2,
+                )
+                _safe_text(draw, (lx + 10, ly + 10), label, fill=BLACK, font=label_font)
+
+        if not selected_findings:
+            # Fallback if no findings selected (draw clean default overlay)
             draw.rounded_rectangle(
-                (right_offset + 36, header_h + height * 0.58, right_offset + width - 36, header_h + height * 0.82),
+                (36, int(height * 0.58), width - 36, int(height * 0.82)),
                 radius=14,
                 fill=GREEN + (42,),
                 outline=GREEN + (220,),
                 width=4,
             )
-            _safe_text(draw, (right_offset + 56, header_h + int(height * 0.64)), "動線確保", fill=BLACK, font=font)
+            _safe_text(draw, (56, int(height * 0.64)), "動線確保", fill=BLACK, font=label_font)
 
+        footer_y = height
+        draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255))
+        _safe_text(draw, (16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
+
+        return output
 
 
 def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, int, int, int]:
@@ -130,7 +363,7 @@ def _improvement_label(risk_type: str) -> str:
         "cluttered_path": "片付け",
         "loose_mat": "マット固定",
         "bathroom_slip": "滑り止め",
-        "bathtub_stepover": "手すり候補",
+        "bathtub_stepover": "またぎ対策",
         "toilet_transfer": "手すり候補",
         "missing_handrail": "手すり候補",
         "poor_lighting": "照明追加",
@@ -138,7 +371,7 @@ def _improvement_label(risk_type: str) -> str:
         # New checklist types
         "toilet_missing_handrail": "手すり候補",
         "toilet_missing_emergency_call": "緊急呼出相談",
-        "toilet_transfer_support": "動線確保",
+        "toilet_transfer_support": "手すり候補",
         "toilet_slip": "滑り止め",
         "bathroom_missing_handrail": "手すり候補",
         "bathroom_missing_non_slip": "滑り止め",
@@ -152,7 +385,7 @@ def _improvement_label(risk_type: str) -> str:
         "bedroom_missing_support": "手すり候補",
         "kitchen_cluttered_floor": "片付け",
         "kitchen_narrow_path": "動線確保",
-        "kitchen_unreachable_storage": "片付け",
+        "kitchen_unreachable_storage": "収納見直し",
     }
     return labels.get(risk_type, "改善案")
 
