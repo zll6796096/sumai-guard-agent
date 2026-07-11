@@ -10,6 +10,7 @@ from video_manifest import FINAL_PATH, WORK
 
 
 RENDERER = Path(__file__).with_name("render_hackathon_video.py")
+MANIFEST = Path(__file__).with_name("video_manifest.py")
 PROHIBITED = ("GEMINI_API_KEY", "zll6796096@gmail.com", "key.json")
 
 
@@ -50,7 +51,11 @@ def probe_final() -> tuple[dict[str, Any], str]:
             "-v",
             "error",
             "-show_entries",
-            "format=duration:format_tags:stream=codec_name,codec_type,width,height",
+            (
+                "format=duration:format_tags:"
+                "stream=codec_name,codec_type,width,height:stream_tags:"
+                "chapter=start_time,end_time:chapter_tags"
+            ),
             "-of",
             "json",
             str(FINAL_PATH),
@@ -148,20 +153,74 @@ def verify_loudness() -> None:
 
 
 def verify_prohibited_text(probe_text: str) -> None:
-    if not RENDERER.exists():
-        raise SystemExit(f"missing renderer source for text scan: {RENDERER}")
-    scan_text = RENDERER.read_text(encoding="utf-8") + probe_text
+    sources = (RENDERER, MANIFEST)
+    missing = [path for path in sources if not path.exists()]
+    if missing:
+        raise SystemExit(f"missing source for prohibited-text scan: {missing}")
+    source_text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+    scan_text = f"{source_text}\n{probe_text}"
     matches = [term for term in PROHIBITED if term in scan_text]
     require(
         not matches,
-        f"prohibited text found in renderer source or media metadata: {matches}",
+        (
+            "prohibited text found in renderer, manifest, or media metadata: "
+            f"{matches}"
+        ),
     )
     print("PASS prohibited-text scan")
 
 
-def generate_review_assets() -> Path:
+def verify_image_asset(path: Path, expected_size: tuple[int, int]) -> None:
+    require(path.exists(), f"expected review image was not created: {path}")
+    require(path.stat().st_size > 0, f"review image is empty: {path}")
+    probe_text = run_capture(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height",
+            "-of",
+            "json",
+            str(path),
+        ],
+        output=f"validate review image {path}",
+    )
+    try:
+        streams = json.loads(probe_text)["streams"]
+    except (json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise AssertionError(f"invalid ffprobe image output for {path}") from exc
+    require(
+        len(streams) == 1,
+        f"expected one image stream in {path}, got {len(streams)}",
+    )
+    image = streams[0]
+    require(
+        image.get("codec_name") == "mjpeg",
+        f"review image must be JPEG, got {image.get('codec_name')!r}: {path}",
+    )
+    actual_size = (image.get("width"), image.get("height"))
+    require(
+        actual_size == expected_size,
+        f"review image must be {expected_size}, got {actual_size}: {path}",
+    )
+
+
+def generate_review_assets() -> tuple[Path, ...]:
     WORK.mkdir(parents=True, exist_ok=True)
     contact = WORK / "contact-sheet.jpg"
+    review_specs = (
+        (0, WORK / "review-00.jpg"),
+        (38, WORK / "review-38.jpg"),
+        (75, WORK / "review-75.jpg"),
+    )
+    review_paths = tuple(path for _, path in review_specs)
+    assets = (contact, *review_paths)
+    for asset in assets:
+        asset.unlink(missing_ok=True)
+
     run(
         [
             "ffmpeg",
@@ -179,12 +238,8 @@ def generate_review_assets() -> Path:
         ],
         output=f"create contact sheet {contact}",
     )
-    for second, name in (
-        (0, "review-00.jpg"),
-        (38, "review-38.jpg"),
-        (75, "review-75.jpg"),
-    ):
-        frame = WORK / name
+    verify_image_asset(contact, (1960, 1120))
+    for second, frame in review_specs:
         run(
             [
                 "ffmpeg",
@@ -204,7 +259,8 @@ def generate_review_assets() -> Path:
             ],
             output=f"extract review frame at {second}s to {frame}",
         )
-    return contact
+        verify_image_asset(frame, (1920, 1080))
+    return assets
 
 
 def main() -> None:
@@ -215,8 +271,10 @@ def main() -> None:
     verify_media_contract(probe)
     verify_loudness()
     verify_prohibited_text(probe_text)
-    contact = generate_review_assets()
+    contact, *review_frames = generate_review_assets()
     print(f"contact sheet: {contact}")
+    for frame in review_frames:
+        print(f"review frame: {frame}")
 
 
 if __name__ == "__main__":
