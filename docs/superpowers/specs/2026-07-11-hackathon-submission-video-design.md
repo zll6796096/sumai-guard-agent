@@ -59,7 +59,7 @@ The following claims were verified on 2026-07-11 JST and may be shown:
 - The deployed frontend is `https://sumai-web-sxielk4wua-an.a.run.app`.
 - The backend runs on Cloud Run with `MOCK_MODE=false`, `REQUIRE_REAL_GEMINI=true`, and model `gemini-2.5-flash`.
 - A real online smoke test passed for both a home image and a non-home image.
-- The local project verification passed 34 backend tests, the frontend import check, and Docker Compose validation.
+- The local project verification passed 73 backend tests, the frontend import check, and Docker Compose validation.
 
 These claims must be rechecked immediately before upload. If any claim changes, the video copy must be updated or removed.
 
@@ -91,7 +91,7 @@ These claims must be rechecked immediately before upload. If any claim changes, 
 - The video states the privacy and professional-judgment boundaries.
 - No secret, personal email, or sensitive console content is visible.
 - A fresh Cloud Run/Gemini smoke test passes before upload.
-- The rendered video receives a frame-by-frame contact-sheet review and an audio loudness check.
+- The rendered video receives a dense 1fps + scene-change + targeted transition visual/OCR review, with OCR limitations documented, and an audio loudness check.
 - Git status remains clean apart from the approved design/plan commits.
 
 ## 10. Verification commands

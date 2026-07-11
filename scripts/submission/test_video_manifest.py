@@ -1,10 +1,16 @@
+import hashlib
 from pathlib import Path
 
+import pytest
 import render_hackathon_video as renderer
+import video_manifest as manifest
 from video_manifest import BASE, FINAL_PATH, SEGMENTS, SOURCE_COPY, WORK
 
 
 SOURCE_DURATION = 56.676667
+AUDITED_SOURCE_SHA256 = (
+    "5771d92ce3e8cdf194afafd2353c2bccee729d78c61888e64c07e6332fb16ed6"
+)
 PROTECTED_SOURCE_RANGE = (3.3, 6.0)
 EXPECTED_IDS = (
     "01_problem",
@@ -64,7 +70,7 @@ EXPECTED_COPY = (
     ),
     (
         "つくる。まわす。とどける。",
-        "Public GitHub / Cloud Run / Gemini strict mode / 34 tests passed",
+        "Public GitHub / Cloud Run / Gemini strict mode / 73 tests passed",
         "事故の前に、家族の安全対話を。",
         "公開コードと動作デモはこちら。事故の前に、家族の安全対話を始めます。",
     ),
@@ -90,6 +96,7 @@ def test_exact_ordered_segment_contract() -> None:
     assert len(set(ids)) == len(ids)
     assert tuple(segment["type"] for segment in SEGMENTS) == EXPECTED_TYPES
     assert tuple(segment["duration"] for segment in SEGMENTS) == EXPECTED_DURATIONS
+    assert manifest.SOURCE_SHA256 == AUDITED_SOURCE_SHA256
 
 
 def test_segment_copy_matches_approved_timeline() -> None:
@@ -191,11 +198,27 @@ def test_boundary_segment_uses_exact_approved_negative_disclaimer() -> None:
 
 def test_boundary_frame_uses_exact_privacy_pills() -> None:
     assert renderer.PRIVACY_PILLS == EXPECTED_PRIVACY_PILLS
+    assert renderer.EVIDENCE_TEST_PILL == "73 tests PASS"
 
 
-def test_media_paths_are_outside_repository() -> None:
+def test_media_paths_are_outside_repository(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2].resolve()
 
     for media_path in (BASE, SOURCE_COPY, WORK, FINAL_PATH):
         resolved_path = media_path.resolve(strict=False)
         assert not resolved_path.is_relative_to(repo_root)
+
+    sample = tmp_path / "source.mp4"
+    sample.write_bytes(b"audited source")
+    expected = hashlib.sha256(b"audited source").hexdigest()
+    assert renderer.sha256_file(sample) == expected
+
+    with pytest.raises(SystemExit) as exc_info:
+        renderer.validate_source_identity(sample)
+
+    message = str(exc_info.value)
+    assert message == (
+        "source SHA-256 mismatch: expected 5771d92ce3e8, "
+        f"actual {expected[:12]}"
+    )
+    assert str(sample) not in message

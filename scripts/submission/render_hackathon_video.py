@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import subprocess
@@ -7,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from video_manifest import FINAL_PATH, SEGMENTS, SOURCE_COPY, WORK
+from video_manifest import FINAL_PATH, SEGMENTS, SOURCE_COPY, SOURCE_SHA256, WORK
 
 
 W, H = 1920, 1080
@@ -63,10 +64,28 @@ PRIVACY_PILLS = (
     "送信前にEXIF除去",
     "専門家へ相談",
 )
+EVIDENCE_TEST_PILL = "73 tests PASS"
 
 
 def run(args: list[str]) -> None:
     subprocess.run(args, check=True)
+
+
+def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def validate_source_identity(path: Path = SOURCE_COPY) -> None:
+    actual = sha256_file(path)
+    if actual != SOURCE_SHA256:
+        raise SystemExit(
+            "source SHA-256 mismatch: "
+            f"expected {SOURCE_SHA256[:12]}, actual {actual[:12]}"
+        )
 
 
 def probe_duration(path: Path) -> float:
@@ -259,7 +278,7 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
             pill(draw, (190, 665), "Public GitHub")
             pill(draw, (500, 665), "Cloud Run")
             pill(draw, (750, 665), "Gemini strict")
-            pill(draw, (1070, 665), "34 tests PASS")
+            pill(draw, (1070, 665), EVIDENCE_TEST_PILL)
     else:
         draw.rounded_rectangle((75, 55, 605, 1005), 42, fill="#070A16")
         draw.rounded_rectangle((690, 110, 1810, 850), 34, fill=PANEL)
@@ -459,6 +478,7 @@ def render_segment(
 def main() -> None:
     if not SOURCE_COPY.exists():
         raise SystemExit(f"missing source: {SOURCE_COPY}")
+    validate_source_identity()
     if probe_duration(SOURCE_COPY) < 56.6:
         raise SystemExit("source recording is unexpectedly short")
     if not BOLD_PATH.exists() or not MEDIUM_PATH.exists():

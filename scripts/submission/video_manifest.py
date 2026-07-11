@@ -3,6 +3,9 @@ from pathlib import Path
 
 BASE = Path.home() / "Movies" / "SumaiGuard-Hackathon-2026"
 SOURCE_COPY = BASE / "source" / "screen-recording.mp4"
+SOURCE_SHA256 = (
+    "5771d92ce3e8cdf194afafd2353c2bccee729d78c61888e64c07e6332fb16ed6"
+)
 WORK = BASE / "work"
 FINAL_PATH = BASE / "sumai-guard-hackathon-demo-2026.mp4"
 
@@ -83,7 +86,7 @@ SEGMENTS = [
         "type": "card",
         "duration": 7,
         "heading": "つくる。まわす。とどける。",
-        "body": "Public GitHub / Cloud Run / Gemini strict mode / 34 tests passed",
+        "body": "Public GitHub / Cloud Run / Gemini strict mode / 73 tests passed",
         "caption_ja": "事故の前に、家族の安全対話を。",
         "narration_ja": "公開コードと動作デモはこちら。事故の前に、家族の安全対話を始めます。",
     },

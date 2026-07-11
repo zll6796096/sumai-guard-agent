@@ -44,7 +44,7 @@ def test_total_duration_is_submission_target() -> None:
 
 def test_source_spans_fit_the_real_recording() -> None:
     for segment in SEGMENTS:
-        if segment["kind"] == "demo":
+        if segment["type"] == "demo":
             assert 0 <= segment["source_start"] < 56.676667
             assert segment["source_start"] + segment["source_duration"] <= 56.676667
 
@@ -92,7 +92,7 @@ FINAL_PATH = BASE / "sumai-guard-hackathon-demo-2026.mp4"
 SEGMENTS = [
     {
         "id": "01_problem",
-        "kind": "card",
+        "type": "card",
         "duration": 7,
         "heading": "転倒する前に、親の家を一枚で点検",
         "body": "離れて暮らす家族が、事故の前に安全対話を始めるためのAIエージェント",
@@ -101,7 +101,7 @@ SEGMENTS = [
     },
     {
         "id": "02_agent",
-        "kind": "card",
+        "type": "card",
         "duration": 8,
         "heading": "一枚の写真から、次の行動まで",
         "body": "見える危険を抽出 → 決定論ルールで判断 → 3段階の行動へ",
@@ -110,7 +110,7 @@ SEGMENTS = [
     },
     {
         "id": "03_input",
-        "kind": "demo",
+        "type": "demo",
         "duration": 9,
         "source_start": 0,
         "source_duration": 3,
@@ -121,7 +121,7 @@ SEGMENTS = [
     },
     {
         "id": "04_analysis",
-        "kind": "demo",
+        "type": "demo",
         "duration": 6,
         "source_start": 6,
         "source_duration": 22,
@@ -132,7 +132,7 @@ SEGMENTS = [
     },
     {
         "id": "05_visible_risk",
-        "kind": "demo",
+        "type": "demo",
         "duration": 14,
         "source_start": 28,
         "source_duration": 10,
@@ -143,7 +143,7 @@ SEGMENTS = [
     },
     {
         "id": "06_actions",
-        "kind": "demo",
+        "type": "demo",
         "duration": 17,
         "source_start": 38,
         "source_duration": 17,
@@ -154,7 +154,7 @@ SEGMENTS = [
     },
     {
         "id": "07_boundary",
-        "kind": "card",
+        "type": "card",
         "duration": 8,
         "heading": "安全のための境界",
         "body": "アプリ内に永続保存しない / Gemini送信前にEXIF除去 / 専門家への相談を促す",
@@ -163,10 +163,10 @@ SEGMENTS = [
     },
     {
         "id": "08_evidence",
-        "kind": "card",
+        "type": "card",
         "duration": 7,
         "heading": "つくる。まわす。とどける。",
-        "body": "Public GitHub / Cloud Run / Gemini strict mode / 34 tests passed",
+        "body": "Public GitHub / Cloud Run / Gemini strict mode / 73 tests passed",
         "caption_ja": "事故の前に、家族の安全対話を。",
         "narration_ja": "公開コードと動作デモはこちら。事故の前に、家族の安全対話を始めます。",
     },
@@ -181,7 +181,7 @@ Run:
 PYTHONPATH=scripts/submission python3 -m pytest scripts/submission/test_video_manifest.py -v
 ~~~
 
-Expected: 5 passed.
+Expected: 10 passed.
 
 - [ ] **Step 5: Commit the tested manifest**
 
@@ -310,7 +310,7 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
     body = str(segment["body"])
     caption = str(segment["caption_ja"])
 
-    if segment["kind"] == "card":
+    if segment["type"] == "card":
         draw.rounded_rectangle((135, 120, 1785, 870), 38, fill=PANEL)
         draw.text((190, 175), "親の家 安全チェックAI", font=font(30, True), fill=BLUE)
         y = draw_lines(draw, heading, (190, 270), font(65, True), WHITE, 1460, 18)
@@ -330,7 +330,7 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
             pill(draw, (190, 665), "Public GitHub")
             pill(draw, (500, 665), "Cloud Run")
             pill(draw, (750, 665), "Gemini strict")
-            pill(draw, (1070, 665), "34 tests PASS")
+            pill(draw, (1070, 665), "73 tests PASS")
     else:
         draw.rounded_rectangle((75, 55, 605, 1005), 42, fill="#070A16")
         draw.rounded_rectangle((690, 110, 1810, 850), 34, fill=PANEL)
@@ -380,7 +380,7 @@ def video_encode_args() -> list[str]:
 
 def render_segment(segment: dict[str, object], frame: Path, audio: Path, output: Path) -> None:
     duration = float(segment["duration"])
-    if segment["kind"] == "card":
+    if segment["type"] == "card":
         args = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-loop", "1", "-framerate", "30", "-t", str(duration), "-i", str(frame),
@@ -591,6 +591,8 @@ PASS prohibited-text scan
 contact sheet: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
 ~~~
 
+The committed verifier remains a coarse artifact gate. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git.
+
 - [ ] **Step 3: Visually inspect the contact sheet and three review frames**
 
 Open the four generated JPG files with the local image viewer. Reject the render if Japanese glyphs are missing, phone text is cropped, captions collide, secrets appear, or the first/last frames do not communicate the problem and evidence.
@@ -613,7 +615,7 @@ git commit -m "test: verify hackathon video artifact"
 ./scripts/test_all.sh
 ~~~
 
-Expected: 34 backend tests pass, frontend import passes, and Docker Compose config passes.
+Expected: 73 backend tests pass, frontend import passes, and Docker Compose config passes.
 
 - [ ] **Step 2: Prove real Gemini participation on Cloud Run**
 
