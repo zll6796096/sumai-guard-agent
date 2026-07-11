@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import render_hackathon_video as renderer
 from video_manifest import BASE, FINAL_PATH, SEGMENTS, SOURCE_COPY, WORK
 
 
 SOURCE_DURATION = 56.676667
+PROTECTED_SOURCE_RANGE = (3.3, 6.0)
 EXPECTED_IDS = (
     "01_problem",
     "02_agent",
@@ -55,9 +57,10 @@ EXPECTED_COPY = (
     ),
     (
         "安全のための境界",
-        "画像保存なし / EXIF除去 / 専門家への相談を促す",
+        "アプリ内に永続保存しない / Gemini送信前にEXIF除去 / 専門家への相談を促す",
         "医療・介護・保険・施工判断を置き換えません",
-        "画像は保存せず、位置情報を除去。医療、介護、保険、施工判断の代わりにはなりません。",
+        "画像はアプリ内に永続保存せず、Geminiへ送る前にEXIF情報を除去。"
+        "医療、介護、保険、施工判断の代わりにはなりません。",
     ),
     (
         "つくる。まわす。とどける。",
@@ -67,10 +70,15 @@ EXPECTED_COPY = (
     ),
 )
 EXPECTED_DEMO_WINDOWS = (
-    ("03_input", 0, 4),
-    ("04_analysis", 4, 24),
+    ("03_input", 0, 3),
+    ("04_analysis", 6, 22),
     ("05_visible_risk", 28, 10),
     ("06_actions", 38, 17),
+)
+EXPECTED_PRIVACY_PILLS = (
+    "アプリ内に永続保存しない",
+    "送信前にEXIF除去",
+    "専門家へ相談",
 )
 
 
@@ -143,6 +151,27 @@ def test_demo_segments_stay_within_source_recording() -> None:
     assert tuple(actual_windows) == EXPECTED_DEMO_WINDOWS
 
 
+def test_demo_segments_exclude_audited_photo_picker_interval() -> None:
+    protected_start, protected_end = PROTECTED_SOURCE_RANGE
+    demo_segments = {
+        segment["id"]: segment
+        for segment in SEGMENTS
+        if segment["type"] == "demo"
+    }
+
+    for segment in demo_segments.values():
+        source_start = segment["source_start"]
+        source_end = source_start + segment["source_duration"]
+        assert source_end <= protected_start or source_start >= protected_end
+
+    input_end = (
+        demo_segments["03_input"]["source_start"]
+        + demo_segments["03_input"]["source_duration"]
+    )
+    assert input_end <= protected_start
+    assert demo_segments["04_analysis"]["source_start"] >= protected_end
+
+
 def test_narration_states_safety_boundaries() -> None:
     narration = "".join(segment["narration_ja"] for segment in SEGMENTS)
 
@@ -154,10 +183,14 @@ def test_boundary_segment_uses_exact_approved_negative_disclaimer() -> None:
     boundary = next(segment for segment in SEGMENTS if segment["id"] == "07_boundary")
 
     assert boundary["narration_ja"] == (
-        "画像は保存せず、位置情報を除去。"
+        "画像はアプリ内に永続保存せず、Geminiへ送る前にEXIF情報を除去。"
         "医療、介護、保険、施工判断の代わりにはなりません。"
     )
     assert "代わりにはなりません" in boundary["narration_ja"]
+
+
+def test_boundary_frame_uses_exact_privacy_pills() -> None:
+    assert renderer.PRIVACY_PILLS == EXPECTED_PRIVACY_PILLS
 
 
 def test_media_paths_are_outside_repository() -> None:

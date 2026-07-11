@@ -58,6 +58,11 @@ AUDIO_SIGNATURE_FIELDS = (
     "time_base",
     "extradata_size",
 )
+PRIVACY_PILLS = (
+    "アプリ内に永続保存しない",
+    "送信前にEXIF除去",
+    "専門家へ相談",
+)
 
 
 def run(args: list[str]) -> None:
@@ -248,9 +253,8 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
                         fill=VIOLET,
                     )
         elif segment["id"] == "07_boundary":
-            pill(draw, (190, 665), "画像保存なし")
-            pill(draw, (500, 665), "EXIF除去")
-            pill(draw, (750, 665), "専門家へ相談")
+            for x, label in zip((190, 650, 1030), PRIVACY_PILLS, strict=True):
+                pill(draw, (x, 665), label)
         elif segment["id"] == "08_evidence":
             pill(draw, (190, 665), "Public GitHub")
             pill(draw, (500, 665), "Cloud Run")

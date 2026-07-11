@@ -22,6 +22,8 @@
 
 ### Task 1: Lock the approved timeline as tested data
 
+Source 3.3–6.0s is intentionally excluded from all demo segments because the photo picker exposes unrelated library content in that interval.
+
 **Files:**
 - Create: scripts/submission/test_video_manifest.py
 - Create: scripts/submission/video_manifest.py
@@ -111,7 +113,7 @@ SEGMENTS = [
         "kind": "demo",
         "duration": 9,
         "source_start": 0,
-        "source_duration": 4,
+        "source_duration": 3,
         "heading": "質問票なし。写真を一枚。",
         "body": "部屋を選び、カメラまたはライブラリから入力",
         "caption_ja": "1 PHOTO IN",
@@ -121,8 +123,8 @@ SEGMENTS = [
         "id": "04_analysis",
         "kind": "demo",
         "duration": 6,
-        "source_start": 4,
-        "source_duration": 24,
+        "source_start": 6,
+        "source_duration": 22,
         "heading": "Cloud Run × Gemini 2.5 Flash",
         "body": "転倒・滑り・つまずきの候補を抽出",
         "caption_ja": "REAL GEMINI / STRICT MODE",
@@ -155,9 +157,9 @@ SEGMENTS = [
         "kind": "card",
         "duration": 8,
         "heading": "安全のための境界",
-        "body": "画像保存なし / EXIF除去 / 専門家への相談を促す",
+        "body": "アプリ内に永続保存しない / Gemini送信前にEXIF除去 / 専門家への相談を促す",
         "caption_ja": "医療・介護・保険・施工判断を置き換えません",
-        "narration_ja": "画像は保存せず、位置情報を除去。医療、介護、保険、施工判断の代わりにはなりません。",
+        "narration_ja": "画像はアプリ内に永続保存せず、Geminiへ送る前にEXIF情報を除去。医療、介護、保険、施工判断の代わりにはなりません。",
     },
     {
         "id": "08_evidence",
@@ -233,6 +235,11 @@ WHITE = "#F7F8FA"
 MUTED = "#B8C2DC"
 BLUE = "#4C7DFF"
 VIOLET = "#6C5CE7"
+PRIVACY_PILLS = (
+    "アプリ内に永続保存しない",
+    "送信前にEXIF除去",
+    "専門家へ相談",
+)
 
 
 def run(args: list[str]) -> None:
@@ -317,9 +324,8 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
                 if index < 2:
                     draw.text((x + 435, 675), "→", font=font(42, True), fill=VIOLET)
         elif segment["id"] == "07_boundary":
-            pill(draw, (190, 665), "画像保存なし")
-            pill(draw, (500, 665), "EXIF除去")
-            pill(draw, (750, 665), "専門家へ相談")
+            for x, label in zip((190, 650, 1030), PRIVACY_PILLS, strict=True):
+                pill(draw, (x, 665), label)
         elif segment["id"] == "08_evidence":
             pill(draw, (190, 665), "Public GitHub")
             pill(draw, (500, 665), "Cloud Run")
