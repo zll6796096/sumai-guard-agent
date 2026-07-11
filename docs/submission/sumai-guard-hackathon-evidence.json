@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1.0",
-  "generated_at_jst": "2026-07-12T04:15:20+09:00",
+  "generated_at_jst": "2026-07-12T04:45:30+09:00",
   "artifact": {
     "basename": "sumai-guard-hackathon-demo-2026.mp4",
     "sha256": "d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207",
@@ -52,9 +52,9 @@
       "manifest_fix": "5fbc0413daab34c46062599aaca3a711110151cd",
       "privacy_fix": "1a082ac0deb19c9a300dc9c7b03218e28aae1247",
       "real_gemini_provenance_fix": "09e022a60cdb75c87cfabe02f12dff5b65545896",
-      "backend_source": "16f616c56646f74f9be918170285aed4136f4dde"
+      "backend_source": "11f659a7b9855aa299817314619183ad24652f70"
     },
-    "backend_source_tree": "cbf701e2ed1763a6600520981eda5dc3b8e3047d",
+    "backend_source_tree": "1a4681b5da067e0e5f44fd0d10b1e33cdee3884d",
     "publication_strategy": "One privacy-clean squash commit directly on origin/main; local development commits are intentionally not published.",
     "public_base_before_publication": {
       "ref": "origin/main",
@@ -63,12 +63,12 @@
     }
   },
   "cloud_run_point_in_time": {
-    "observed_at_jst": "2026-07-12T04:15:20+09:00",
+    "observed_at_jst": "2026-07-12T04:45:30+09:00",
     "agent": {
-      "revision": "sumai-agent-00010-t9m",
-      "image_digest": "sha256:861d88300454fe1b281aacdccfa17b44f363933f14bdf55996120634d32f2a69",
-      "source_commit_local": "16f616c56646f74f9be918170285aed4136f4dde",
-      "source_tree": "cbf701e2ed1763a6600520981eda5dc3b8e3047d"
+      "revision": "sumai-agent-00011-4kl",
+      "image_digest": "sha256:fff83978ad1c64634055df782d66ff5471081c9c18bb25e0afefbd88a8a0adeb",
+      "source_commit_local": "11f659a7b9855aa299817314619183ad24652f70",
+      "source_tree": "1a4681b5da067e0e5f44fd0d10b1e33cdee3884d"
     },
     "web": {
       "revision": "sumai-web-00008-7hc",
@@ -77,17 +77,25 @@
     "note": "Read-only snapshot; external Cloud Run state can change after generation."
   },
   "real_gemini_smoke": {
-    "revision": "sumai-agent-00010-t9m",
+    "revision": "sumai-agent-00011-4kl",
     "model": "gemini-2.5-flash",
     "mode": "gemini",
     "mock_mode": false,
     "require_real_gemini": true,
     "fresh_run": {
-      "started_at_jst": "2026-07-12T04:12:48+09:00",
-      "finished_at_jst": "2026-07-12T04:13:13+09:00",
-      "home_analysis_id": "sumai_b6372f257967",
-      "non_home_analysis_id": "sumai_4f711d1702b6",
+      "started_at_jst": "2026-07-12T04:39:27+09:00",
+      "finished_at_jst": "2026-07-12T04:39:51+09:00",
+      "home_analysis_id": "sumai_e05bd3c9d977",
+      "non_home_analysis_id": "sumai_d4c28c9aa323",
       "passed": true
+    },
+    "rate_limit_observation": {
+      "observed_at_jst": "2026-07-12T04:44:57+09:00",
+      "provider_status": 429,
+      "service_status": 503,
+      "strict_fail_closed": true,
+      "mock_result_returned": false,
+      "note": "A later rapid repeat check hit the external Gemini API quota. Logs showed provider HTTP 429, not a schema-validation failure."
     },
     "prior_point_in_time_analysis_ids": {
       "home": "sumai_b2d3da668d5b",
@@ -98,8 +106,9 @@
     "note": "Analysis IDs and service configuration are point-in-time evidence and do not guarantee future external state."
   },
   "verification": {
-    "backend_tests_passed": 160,
-    "manifest_tests_passed": 10,
+    "backend_tests_passed": 166,
+    "submission_tests_passed": 19,
+    "manifest_tests_passed": 13,
     "renderer_integration_tests_passed": 2,
     "artifact_verifier_tests_passed": 4,
     "artifact_verifier_passed": true,
@@ -137,6 +146,7 @@
   },
   "limitations": [
     "Vision OCR may miss tiny or blurred text.",
+    "Gemini API rate quotas can temporarily return HTTP 429; strict mode returns 503 rather than substituting mock output.",
     "External cloud service state can drift after this point-in-time receipt.",
     "Private audit frames and raw OCR output are intentionally not committed."
   ]
