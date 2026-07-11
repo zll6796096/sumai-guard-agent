@@ -16,7 +16,7 @@ Point out that we are on **Screen 1 (Home / Photo Input)**:
 - A compact horizontal 3-step instruction row (1. 写真を撮る -> 2. AIリスク確認 -> 3. 修繕提案を見る).
 - A compact room hint dropdown (defaults to "おまかせ").
 - One line of guidance and a tiny POC disclaimer at the bottom.
-- No debug badges or Gradio visual clutter.
+- No debug badges or framework chrome in the normal user view.
 
 ## 2. Take or Select a Photo
 

@@ -17,7 +17,7 @@ Families often notice risky areas in a parent's home only after a fall or near-m
 Implemented:
 
 - FastAPI backend with Gemini AI integration.
-- Gradio frontend with Japanese UI.
+- FastAPI web service serving an embedded Japanese HTML/CSS/vanilla JavaScript UI.
 - One-photo upload or camera input.
 - Optional room hint.
 - Mock mode without Gemini credentials.
@@ -45,7 +45,7 @@ Not implemented:
 Two services:
 
 - `sumai-agent`: FastAPI AI agent on `http://localhost:8080`
-- `sumai-web`: Gradio web app on `http://localhost:8081`
+- `sumai-web`: FastAPI web service with an embedded HTML/CSS/vanilla JavaScript UI on `http://localhost:8081`
 
 Flow:
 

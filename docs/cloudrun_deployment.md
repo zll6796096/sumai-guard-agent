@@ -21,7 +21,7 @@ export GEMINI_API_KEY=your-key-here  # optional
 
 This deploys both services in order:
 1. `sumai-agent` → FastAPI backend
-2. `sumai-web` → Gradio frontend (with agent URL auto-configured)
+2. `sumai-web` → FastAPI web service serving the embedded HTML/CSS/vanilla JavaScript frontend (with agent URL auto-configured)
 
 ## Individual Deployment
 
