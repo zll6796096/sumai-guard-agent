@@ -53,7 +53,7 @@ MALFORMED_GEMINI_RESPONSES = [
                 "observations": {},
                 "visible_hazards": [
                     {
-                        "risk_type": "floor_clutter",
+                        "risk_type": "cluttered_path",
                         "label_ja": "床の物",
                         "description_ja": "通路に物があります。",
                         "severity": 99,
@@ -101,7 +101,7 @@ MALFORMED_GEMINI_RESPONSES = [
                 "observations": {},
                 "visible_hazards": [
                     {
-                        "risk_type": "floor_clutter",
+                        "risk_type": "cluttered_path",
                         "label_ja": "床の物",
                         "description_ja": "通路に物があります。",
                         "severity": 3,
@@ -124,7 +124,7 @@ MALFORMED_GEMINI_RESPONSES = [
                 "observations": {},
                 "visible_hazards": [
                     {
-                        "risk_type": "floor_clutter",
+                        "risk_type": "cluttered_path",
                         "label_ja": "床の物",
                         "description_ja": "通路に物があります。",
                         "severity": 3,
@@ -147,7 +147,7 @@ MALFORMED_GEMINI_RESPONSES = [
                 "observations": {},
                 "visible_hazards": [
                     {
-                        "risk_type": "floor_clutter",
+                        "risk_type": "cluttered_path",
                         "label_ja": "床の物",
                         "description_ja": "通路に物があります。",
                         "severity": 3,

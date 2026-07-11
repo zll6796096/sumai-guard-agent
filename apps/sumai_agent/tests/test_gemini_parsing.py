@@ -3,14 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from app.services.gemini_vision import (
+    CHECKLIST_EXPECTED_FEATURE_KEYS,
+    CHECKLIST_VISIBLE_RISK_TYPES,
     GEMINI_RESPONSE_JSON_SCHEMA,
     GeminiVisionService,
+    VALID_OBSERVATION_KEYS,
     VISION_PROMPT,
     _normalize_bbox,
     mock_vision_result,
@@ -198,7 +203,7 @@ def test_parse_canonical_hazard_requires_explicit_item_fields(
     missing_field: str,
 ) -> None:
     hazard: dict[str, object] = {
-        "risk_type": "floor_clutter",
+        "risk_type": "cluttered_path",
         "label_ja": "床の物",
         "description_ja": "通路に物があります。",
         "severity": 3,
@@ -236,7 +241,7 @@ def test_parse_canonical_hazard_rejects_non_schema_values(
     invalid_value: object,
 ) -> None:
     hazard: dict[str, object] = {
-        "risk_type": "floor_clutter",
+        "risk_type": "cluttered_path",
         "label_ja": "床の物",
         "description_ja": "通路に物があります。",
         "severity": 3,
@@ -269,7 +274,7 @@ def test_parse_canonical_hazard_requires_complete_bbox(
         "observations": {},
         "visible_hazards": [
             {
-                "risk_type": "floor_clutter",
+                "risk_type": "cluttered_path",
                 "label_ja": "床の物",
                 "description_ja": "通路に物があります。",
                 "severity": 3,
@@ -369,7 +374,7 @@ def test_parse_canonical_hazard_rejects_severity_outside_integer_domain(
         "observations": {},
         "visible_hazards": [
             {
-                "risk_type": "floor_clutter",
+                "risk_type": "cluttered_path",
                 "label_ja": "床の物",
                 "description_ja": "通路に物があります。",
                 "severity": invalid_severity,
@@ -401,7 +406,7 @@ def test_parse_canonical_items_reject_confidence_outside_finite_unit_interval(
     invalid_confidence: float,
 ) -> None:
     hazard = {
-        "risk_type": "floor_clutter",
+        "risk_type": "cluttered_path",
         "label_ja": "床の物",
         "description_ja": "通路に物があります。",
         "severity": 3,
@@ -453,7 +458,7 @@ def test_parse_canonical_bbox_rejects_non_finite_or_invalid_domain(
         "observations": {},
         "visible_hazards": [
             {
-                "risk_type": "floor_clutter",
+                "risk_type": "cluttered_path",
                 "label_ja": "床の物",
                 "description_ja": "通路に物があります。",
                 "severity": 3,
@@ -476,7 +481,7 @@ def test_parse_canonical_domain_boundaries_and_observation_null_remain_valid() -
         "observations": {"clear_path": True, "lighting_poor": None},
         "visible_hazards": [
             {
-                "risk_type": "floor_clutter",
+                "risk_type": "cluttered_path",
                 "label_ja": "床の物",
                 "description_ja": "通路に物があります。",
                 "severity": 1,
@@ -552,7 +557,7 @@ def test_parse_canonical_bbox_must_fit_entirely_inside_image(
         "observations": {},
         "visible_hazards": [
             {
-                "risk_type": "floor_clutter",
+                "risk_type": "cluttered_path",
                 "label_ja": "床の物",
                 "description_ja": "通路に物があります。",
                 "severity": 3,
@@ -583,7 +588,7 @@ def test_parse_canonical_huge_integer_is_schema_error_without_value_leakage(
 ) -> None:
     huge_integer = 10**400
     hazard = {
-        "risk_type": "floor_clutter",
+        "risk_type": "cluttered_path",
         "label_ja": "床の物",
         "description_ja": "通路に物があります。",
         "severity": 3,
@@ -647,18 +652,10 @@ def test_parse_canonical_rejects_unknown_observation_key_without_key_leakage(
 
 
 def test_parse_canonical_accepts_exact_prompt_observation_allowlist() -> None:
+    allowed_values = (True, False, None)
     observations = {
-        "has_handrail": True,
-        "has_emergency_call_button": False,
-        "has_non_slip_floor_or_mat": None,
-        "has_bath_transfer_support": True,
-        "has_floor_clutter": False,
-        "has_loose_mat": None,
-        "has_visible_threshold": True,
-        "looks_slippery_floor": False,
-        "lighting_poor": None,
-        "space_looks_narrow": True,
-        "clear_path": False,
+        key: allowed_values[index % len(allowed_values)]
+        for index, key in enumerate(sorted(VALID_OBSERVATION_KEYS))
     }
     payload = {
         "is_home_environment": True,
@@ -810,6 +807,9 @@ def test_call_gemini_passes_canonical_response_json_schema() -> None:
         }
     )
     assert schema["properties"]["observations"]["additionalProperties"] is False
+    assert set(schema["properties"]["observations"]["properties"]) == set(
+        VALID_OBSERVATION_KEYS
+    )
     hazard_schema = schema["properties"]["visible_hazards"]["items"]
     assert hazard_schema["required"] == [
         "risk_type",
@@ -827,6 +827,12 @@ def test_call_gemini_passes_canonical_response_json_schema() -> None:
         "bbox",
         "evidence_ja",
     ]
+    assert hazard_schema["properties"]["risk_type"]["enum"] == sorted(
+        CHECKLIST_VISIBLE_RISK_TYPES
+    )
+    assert missing_schema["properties"]["feature_key"]["enum"] == sorted(
+        CHECKLIST_EXPECTED_FEATURE_KEYS
+    )
     for item_schema in (hazard_schema, missing_schema):
         bbox_schema = item_schema["properties"]["bbox"]
         assert bbox_schema["required"] == ["x", "y", "w", "h"]
@@ -842,6 +848,90 @@ def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None
     assert '"visible_hazards"' not in VISION_PROMPT
     assert '"missing_safety_features"' not in VISION_PROMPT
     assert "Output strict JSON only using this shape" not in VISION_PROMPT
+    assert "x + w must be at most 1" in VISION_PROMPT
+    assert "y + h must be at most 1" in VISION_PROMPT
+
+
+def test_gemini_vocabularies_match_room_checklists() -> None:
+    checklist_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    checklists = yaml.safe_load(checklist_path.read_text(encoding="utf-8"))
+
+    expected_feature_keys = {
+        item["key"]
+        for room in checklists.values()
+        for item in room.get("expected_features", [])
+    }
+    visible_observation_keys = {
+        item["key"]
+        for room in checklists.values()
+        for item in room.get("visible_hazards", [])
+    }
+    visible_risk_types = {
+        item["risk_type"]
+        for room in checklists.values()
+        for item in room.get("visible_hazards", [])
+    }
+
+    assert set(CHECKLIST_EXPECTED_FEATURE_KEYS) == expected_feature_keys
+    assert set(CHECKLIST_VISIBLE_RISK_TYPES) == visible_risk_types
+    assert set(VALID_OBSERVATION_KEYS) == (
+        expected_feature_keys | visible_observation_keys
+    )
+
+
+@pytest.mark.parametrize(
+    ("collection", "item"),
+    [
+        (
+            "visible_hazards",
+            {
+                "risk_type": "unsupported_visible_hazard",
+                "label_ja": "未対応リスク",
+                "description_ja": "説明",
+                "severity": 3,
+                "confidence": 0.8,
+                "bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "evidence_ja": "写真内の根拠",
+            },
+        ),
+        (
+            "missing_safety_features",
+            {
+                "feature_key": "unsupported_missing_feature",
+                "confidence": 0.8,
+                "bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                "evidence_ja": "写真内の根拠",
+            },
+        ),
+    ],
+)
+def test_parse_canonical_rejects_unsupported_checklist_vocabulary(
+    collection: str,
+    item: dict[str, object],
+) -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+    payload[collection] = [item]
+
+    with pytest.raises(ValueError, match=collection):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+def test_google_genai_minimum_version_supports_response_json_schema() -> None:
+    requirements_path = Path(__file__).resolve().parents[1] / "requirements.txt"
+    requirements = requirements_path.read_text(encoding="utf-8").splitlines()
+
+    assert "google-genai>=2.10.0,<3.0" in requirements
 
 
 def test_bbox_1000_range_normalization() -> None:

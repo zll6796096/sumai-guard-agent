@@ -15,20 +15,62 @@ from app.models import BoundingBox, RiskFinding, RoomType, VisionResult, Missing
 logger = logging.getLogger("sumai.gemini_vision")
 
 VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
-VALID_OBSERVATION_KEYS: frozenset[str] = frozenset(
+CHECKLIST_EXPECTED_FEATURE_KEYS: frozenset[str] = frozenset(
     {
-        "has_handrail",
-        "has_emergency_call_button",
-        "has_non_slip_floor_or_mat",
+        "bedside_light",
+        "clear_floor",
+        "clear_path",
+        "clear_path_from_bed",
         "has_bath_transfer_support",
+        "has_emergency_call_button",
+        "has_handrail",
+        "has_handrail_or_support",
+        "has_non_slip_floor_or_mat",
+        "stable_bedside_support",
+        "stable_working_path",
+        "step_visible_marking",
+        "sufficient_lighting",
+    }
+)
+CHECKLIST_VISIBLE_OBSERVATION_KEYS: frozenset[str] = frozenset(
+    {
+        "bathtub_stepover",
+        "cluttered_floor",
+        "cluttered_path",
+        "genkan_step",
+        "hallway_cord",
         "has_floor_clutter",
         "has_loose_mat",
-        "has_visible_threshold",
-        "looks_slippery_floor",
+        "kitchen_slip",
         "lighting_poor",
+        "looks_slippery_floor",
+        "loose_mat",
+        "loose_shoes",
+        "no_shower_chair",
+        "poor_lighting",
+        "reachable_storage_issue",
         "space_looks_narrow",
-        "clear_path",
+        "wet_floor",
     }
+)
+CHECKLIST_VISIBLE_RISK_TYPES: frozenset[str] = frozenset(
+    {
+        "bathroom_no_shower_chair",
+        "bathroom_slip",
+        "bathtub_stepover",
+        "cluttered_path",
+        "genkan_step",
+        "hallway_cord",
+        "kitchen_slip",
+        "kitchen_unreachable_storage",
+        "loose_mat",
+        "poor_lighting",
+        "toilet_slip",
+        "toilet_transfer_support",
+    }
+)
+VALID_OBSERVATION_KEYS: frozenset[str] = (
+    CHECKLIST_EXPECTED_FEATURE_KEYS | CHECKLIST_VISIBLE_OBSERVATION_KEYS
 )
 
 
@@ -68,7 +110,10 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "risk_type": {"type": "string"},
+                    "risk_type": {
+                        "type": "string",
+                        "enum": sorted(CHECKLIST_VISIBLE_RISK_TYPES),
+                    },
                     "label_ja": {"type": "string"},
                     "description_ja": {"type": "string"},
                     "severity": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -93,7 +138,10 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "feature_key": {"type": "string"},
+                    "feature_key": {
+                        "type": "string",
+                        "enum": sorted(CHECKLIST_EXPECTED_FEATURE_KEYS),
+                    },
                     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
                     "bbox": _bbox_response_json_schema(),
                     "evidence_ja": {"type": "string"},
@@ -136,6 +184,7 @@ Observations Rules:
 - Do not invent objects.
 - Do not claim legal violation. Use "確認できません", "可能性があります", "相談候補です", "専門確認が必要です". Never say "違反", "必須".
 - For every reported hazard or missing safety feature, tightly bound the visible evidence in its bbox. Do not use the full image as a generic bbox.
+- Every bbox must fit entirely inside the image: x + w must be at most 1, and y + h must be at most 1.
 """
 
 
@@ -619,10 +668,20 @@ def _validate_canonical_item(
             _raise_schema_error(f"{item_path}.{field}", "a string")
 
     if collection == "visible_hazards":
+        if item["risk_type"] not in CHECKLIST_VISIBLE_RISK_TYPES:
+            _raise_schema_error(
+                f"{item_path}.risk_type",
+                "an exact supported checklist risk type",
+            )
         if type(item["severity"]) is not int:
             _raise_schema_error(f"{item_path}.severity", "an integer")
         if not 1 <= item["severity"] <= 5:
             _raise_schema_error(f"{item_path}.severity", "from 1 to 5")
+    elif item["feature_key"] not in CHECKLIST_EXPECTED_FEATURE_KEYS:
+        _raise_schema_error(
+            f"{item_path}.feature_key",
+            "an exact supported checklist feature key",
+        )
 
     confidence_field = f"{item_path}.confidence"
     confidence = _canonical_number(confidence_field, item["confidence"])
