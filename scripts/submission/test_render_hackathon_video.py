@@ -84,6 +84,36 @@ def frame_mean(source: Path, second: float, output: Path) -> list[float]:
         return ImageStat.Stat(image.convert("RGB")).mean
 
 
+def test_compose_final_uses_concat_filter_and_reencodes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    commands: list[list[str]] = []
+    moves: list[tuple[Path, Path]] = []
+    monkeypatch.setattr(renderer, "run", commands.append)
+    monkeypatch.setattr(
+        renderer.shutil,
+        "move",
+        lambda source, destination: moves.append((source, destination)),
+    )
+    segments = [tmp_path / "first.mp4", tmp_path / "second.mp4"]
+    output = tmp_path / "composed.mp4"
+
+    renderer.compose_final(segments, output)
+
+    assert len(commands) == 1
+    command = commands[0]
+    assert "-filter_complex" in command
+    filter_graph = command[command.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=1" in filter_graph
+    assert "-c:v" in command
+    assert command[command.index("-c:v") + 1] == "libx264"
+    assert not any(
+        argument == "-c" and command[index + 1] == "copy"
+        for index, argument in enumerate(command[:-1])
+    )
+    assert moves == [(tmp_path / "composed-rendering.mp4", output)]
+
+
 def test_compose_final_reencodes_cleanly_across_b_frame_boundary(
     tmp_path: Path,
 ) -> None:
