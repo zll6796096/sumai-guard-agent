@@ -22,7 +22,7 @@ Implemented:
 - Six-place capture guidance for the entrance, hallway, bathroom, toilet, bedroom, and kitchen.
 - Mock mode without Gemini credentials.
 - Gemini vision with structured JSON output and Pydantic validation.
-- Red-box risk annotation with R1/R2/R3 labels.
+- Red-box risk annotation with Japanese risk labels.
 - Current-risk and improvement images stacked vertically.
 - Deterministic rule mapping into three action tiers.
 - Japanese markdown reports.

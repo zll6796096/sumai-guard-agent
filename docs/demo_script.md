@@ -33,7 +33,7 @@ On Screen 2, point out:
 - Simple header showing "診断結果" and a Back button (ホーム).
 - Compact summary at the top showing Overall Risk and number of findings.
 - Exactly two images are stacked vertically:
-  - First: 危険提示 (with red boxes and R1/R2/R3 labels).
+  - First: 危険提示 (with red boxes and Japanese risk labels).
   - Second: 改善イメージ (improvement-only image shown below the first image).
 - Click the primary CTA: **点検・修繕提案を見る** to navigate to Screen 3.
 
