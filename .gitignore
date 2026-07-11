@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 .DS_Store
 .superpowers/
+.worktrees/
 outputs/
 *.key
 *.json.bak
