@@ -480,6 +480,7 @@ from pathlib import Path
 from video_manifest import FINAL_PATH, WORK
 
 RENDERER = Path(__file__).with_name("render_hackathon_video.py")
+MANIFEST = Path(__file__).with_name("video_manifest.py")
 PROHIBITED_UI_TERMS = ("GEMINI_API_KEY", "key.json")
 EXTRA_PROHIBITED_TERMS_ENV = "SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS"
 
@@ -534,15 +535,25 @@ def main() -> None:
     assert max_db <= -1, max_db
     print(f"PASS loudness mean={mean_db:.1f}dB max={max_db:.1f}dB")
 
-    scan_text = RENDERER.read_text(encoding="utf-8") + probe_text
+    source_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in (RENDERER, MANIFEST)
+    )
+    scan_text = f"{source_text}\n{probe_text}"
     extra_terms = tuple(
         term.strip()
         for term in os.environ.get(EXTRA_PROHIBITED_TERMS_ENV, "").splitlines()
         if term.strip()
     )
-    for term in (*PROHIBITED_UI_TERMS, *extra_terms):
-        assert term not in scan_text, term
-    print("PASS prohibited-text scan")
+    prohibited_terms = (*PROHIBITED_UI_TERMS, *extra_terms)
+    matches = [term for term in prohibited_terms if term and term in scan_text]
+    assert not matches, (
+        "prohibited text found in renderer, manifest, or media metadata: "
+        f"{len(matches)} prohibited term(s)"
+    )
+    print(
+        "PASS prohibited-text scan "
+        "(source/manifest/metadata only; pixel OCR is a separate audit)"
+    )
 
     WORK.mkdir(parents=True, exist_ok=True)
     contact = WORK / "contact-sheet.jpg"
