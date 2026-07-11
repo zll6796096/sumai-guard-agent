@@ -1,4 +1,5 @@
 import hashlib
+import re
 import subprocess
 from pathlib import Path
 
@@ -87,6 +88,32 @@ EXPECTED_PRIVACY_PILLS = (
     "送信前にEXIF除去",
     "専門家へ相談",
 )
+FORBIDDEN_LOCAL_LITERALS = (
+    ("macOS private temporary path", b"/private" + b"/var/folders/"),
+    ("Photos provider path component", b"NSItem" + b"Provider"),
+)
+MACOS_USER_PATH = re.compile(
+    rb"/Users" + rb"/(?!<)[^/\x00\s]+(?:/|$)"
+)
+UUID_SHAPE = re.compile(
+    rb"(?<![0-9a-fA-F])"
+    rb"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    rb"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    rb"(?![0-9a-fA-F])"
+)
+
+
+def tracked_blob_privacy_markers(content: bytes) -> list[str]:
+    markers = [
+        label
+        for label, literal in FORBIDDEN_LOCAL_LITERALS
+        if literal in content
+    ]
+    if MACOS_USER_PATH.search(content):
+        markers.append("macOS user path")
+    if UUID_SHAPE.search(content):
+        markers.append("UUID-shaped identifier")
+    return markers
 
 
 def test_exact_ordered_segment_contract() -> None:
@@ -238,21 +265,20 @@ def test_tracked_files_do_not_publish_local_private_paths() -> None:
         for path in tracked_output.split(b"\0")
         if path
     ]
-    forbidden_patterns = (
-        b"/private" + b"/var/folders/",
-        b"NSItem" + b"Provider",
-        b"BDD7B771-5249-4024" + b"-8273-0FBC79AD93B6",
-        b"/Users/" + b"zhanglonglong",
-    )
-
     violations = {
-        str(path.relative_to(repo_root)): [
-            pattern.decode()
-            for pattern in forbidden_patterns
-            if pattern in path.read_bytes()
-        ]
+        str(path.relative_to(repo_root)): tracked_blob_privacy_markers(
+            path.read_bytes()
+        )
         for path in tracked_files
     }
     violations = {path: matches for path, matches in violations.items() if matches}
 
     assert violations == {}
+
+
+def test_uuid_shape_detector_does_not_need_a_real_identifier() -> None:
+    synthetic_uuid = b"123e4567" + b"-e89b-12d3-a456-426614174000"
+
+    assert tracked_blob_privacy_markers(synthetic_uuid) == [
+        "UUID-shaped identifier"
+    ]
