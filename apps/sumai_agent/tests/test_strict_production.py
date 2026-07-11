@@ -17,6 +17,7 @@ from app.services.rule_engine import RuleEngine
 
 
 SENTINEL = "SECRET_PROVIDER_DETAIL_12345"
+HUGE_INTEGER = 10**400
 
 MALFORMED_GEMINI_RESPONSES = [
     pytest.param(json.dumps({"provider_detail": SENTINEL}), id="empty-response-shape"),
@@ -115,6 +116,64 @@ MALFORMED_GEMINI_RESPONSES = [
         ),
         id="canonical-bbox-exceeds-image",
     ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "floor_clutter",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": HUGE_INTEGER,
+                        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-huge-confidence",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "floor_clutter",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": 0.8,
+                        "bbox": {"x": HUGE_INTEGER, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-huge-bbox",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {SENTINEL: True},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-provider-observation-key",
+    ),
 ]
 
 
@@ -198,8 +257,10 @@ def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
         "message": "Real Gemini analysis is required but unavailable.",
     }
     assert SENTINEL not in response.text
+    assert str(HUGE_INTEGER) not in response.text
     log_details = _captured_log_details(caplog)
     assert SENTINEL not in log_details
+    assert str(HUGE_INTEGER) not in log_details
     assert "invalid_response" in log_details
 
 
@@ -236,7 +297,10 @@ def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
     data = response.json()
     assert data["mode"] == "gemini_fallback(invalid_response)"
     assert SENTINEL not in response.text
-    assert SENTINEL not in _captured_log_details(caplog)
+    assert str(HUGE_INTEGER) not in response.text
+    log_details = _captured_log_details(caplog)
+    assert SENTINEL not in log_details
+    assert str(HUGE_INTEGER) not in log_details
     assert data["room_type"] == "bathroom"
     assert [finding["risk_type"] for finding in data["findings"]] == [
         "bathroom_missing_handrail",

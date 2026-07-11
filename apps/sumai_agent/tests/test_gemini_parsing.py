@@ -574,6 +574,92 @@ def test_parse_pure_legacy_room_type_remains_normalized() -> None:
     assert result.room_type == "hallway"
 
 
+@pytest.mark.parametrize("numeric_field", ["confidence", "bbox.x"])
+def test_parse_canonical_huge_integer_is_schema_error_without_value_leakage(
+    numeric_field: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    huge_integer = 10**400
+    hazard = {
+        "risk_type": "floor_clutter",
+        "label_ja": "床の物",
+        "description_ja": "通路に物があります。",
+        "severity": 3,
+        "confidence": huge_integer if numeric_field == "confidence" else 0.8,
+        "bbox": {
+            "x": huge_integer if numeric_field == "bbox.x" else 0.1,
+            "y": 0.2,
+            "w": 0.3,
+            "h": 0.4,
+        },
+        "evidence_ja": "床に物が見えます。",
+    }
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [hazard],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match="Gemini response") as exc_info:
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+    sensitive_value = str(huge_integer)
+    assert sensitive_value not in str(exc_info.value)
+    assert sensitive_value not in "\n".join(
+        repr(record.__dict__) for record in caplog.records
+    )
+
+
+def test_parse_canonical_rejects_unknown_observation_key_without_key_leakage(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret_key = "SECRET_PROVIDER_OBSERVATION_KEY"
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {secret_key: True},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match=r"observations\.<invalid_key>") as exc_info:
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+    assert secret_key not in str(exc_info.value)
+    assert secret_key not in "\n".join(
+        repr(record.__dict__) for record in caplog.records
+    )
+
+
+def test_parse_canonical_accepts_exact_prompt_observation_allowlist() -> None:
+    observations = {
+        "has_handrail": True,
+        "has_emergency_call_button": False,
+        "has_non_slip_floor_or_mat": None,
+        "has_bath_transfer_support": True,
+        "has_floor_clutter": False,
+        "has_loose_mat": None,
+        "has_visible_threshold": True,
+        "looks_slippery_floor": False,
+        "lighting_poor": None,
+        "space_looks_narrow": True,
+        "clear_path": False,
+    }
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": observations,
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+
+    result = parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+    assert result.observations == observations
+
+
 def test_parse_canonical_empty_lists_remain_valid() -> None:
     raw_json = json.dumps(
         {

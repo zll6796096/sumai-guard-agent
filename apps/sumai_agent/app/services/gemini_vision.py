@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 from app.config import settings
 from app.errors import GeminiUnavailableError
@@ -15,6 +15,21 @@ from app.models import BoundingBox, RiskFinding, RoomType, VisionResult, Missing
 logger = logging.getLogger("sumai.gemini_vision")
 
 VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
+VALID_OBSERVATION_KEYS: frozenset[str] = frozenset(
+    {
+        "has_handrail",
+        "has_emergency_call_button",
+        "has_non_slip_floor_or_mat",
+        "has_bath_transfer_support",
+        "has_floor_clutter",
+        "has_loose_mat",
+        "has_visible_threshold",
+        "looks_slippery_floor",
+        "lighting_poor",
+        "space_looks_narrow",
+        "clear_path",
+    }
+)
 
 
 VISION_PROMPT = """You are a Japanese elderly home safety risk assessor.
@@ -460,7 +475,7 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
     )
 
 
-def _raise_schema_error(field: str, expected: str) -> None:
+def _raise_schema_error(field: str, expected: str) -> NoReturn:
     logger.warning(
         "gemini_schema_validation_error",
         extra={"field": field, "expected": expected},
@@ -499,25 +514,36 @@ CANONICAL_MISSING_FEATURE_FIELDS = (
 )
 
 
+def _canonical_number(field: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _raise_schema_error(field, "a number")
+    try:
+        numeric_value = float(value)
+    except (OverflowError, TypeError, ValueError):
+        _raise_schema_error(field, "a finite number")
+    if not math.isfinite(numeric_value):
+        _raise_schema_error(field, "a finite number")
+    return numeric_value
+
+
 def _validate_bbox_schema(field: str, bbox: object) -> None:
     if not isinstance(bbox, dict):
         _raise_schema_error(field, "an object")
+    numeric_values: dict[str, float] = {}
     for coordinate in ("x", "y", "w", "h"):
         coordinate_field = f"{field}.{coordinate}"
         if coordinate not in bbox:
             _raise_schema_error(coordinate_field, "present")
-        value = bbox[coordinate]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            _raise_schema_error(coordinate_field, "a number")
-        numeric_value = float(value)
-        if not math.isfinite(numeric_value) or not 0.0 <= numeric_value <= 1.0:
+        numeric_value = _canonical_number(coordinate_field, bbox[coordinate])
+        numeric_values[coordinate] = numeric_value
+        if not 0.0 <= numeric_value <= 1.0:
             _raise_schema_error(coordinate_field, "a finite number from 0 to 1")
         if coordinate in ("w", "h") and numeric_value <= 0.0:
             _raise_schema_error(coordinate_field, "greater than 0")
 
-    if float(bbox["x"]) + float(bbox["w"]) > 1.0:
+    if numeric_values["x"] + numeric_values["w"] > 1.0:
         _raise_schema_error(field, "fully inside the image width")
-    if float(bbox["y"]) + float(bbox["h"]) > 1.0:
+    if numeric_values["y"] + numeric_values["h"] > 1.0:
         _raise_schema_error(field, "fully inside the image height")
 
 
@@ -547,12 +573,11 @@ def _validate_canonical_item(
         if not 1 <= item["severity"] <= 5:
             _raise_schema_error(f"{item_path}.severity", "from 1 to 5")
 
-    confidence = item["confidence"]
-    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-        _raise_schema_error(f"{item_path}.confidence", "a number")
-    if not math.isfinite(float(confidence)) or not 0.0 <= confidence <= 1.0:
+    confidence_field = f"{item_path}.confidence"
+    confidence = _canonical_number(confidence_field, item["confidence"])
+    if not 0.0 <= confidence <= 1.0:
         _raise_schema_error(
-            f"{item_path}.confidence",
+            confidence_field,
             "a finite number from 0 to 1",
         )
 
@@ -597,6 +622,11 @@ def _validate_top_level_schema(data: dict[str, Any]) -> None:
         ):
             _raise_schema_error("not_applicable_reason_ja", "a string or null")
         for observation, value in data.get("observations", {}).items():
+            if observation not in VALID_OBSERVATION_KEYS:
+                _raise_schema_error(
+                    "observations.<invalid_key>",
+                    "a supported prompt observation",
+                )
             if value is not None and type(value) is not bool:
                 _raise_schema_error(
                     f"observations.{observation}",
