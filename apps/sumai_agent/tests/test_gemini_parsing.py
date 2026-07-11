@@ -607,8 +607,15 @@ def test_parse_canonical_huge_integer_is_schema_error_without_value_leakage(
 
     sensitive_value = str(huge_integer)
     assert sensitive_value not in str(exc_info.value)
-    assert sensitive_value not in "\n".join(
-        repr(record.__dict__) for record in caplog.records
+    log_details = "\n".join(repr(record.__dict__) for record in caplog.records)
+    assert sensitive_value not in log_details
+    expected_field = (
+        "visible_hazards[0].confidence"
+        if numeric_field == "confidence"
+        else "visible_hazards[0].bbox.x"
+    )
+    assert f"schema_field={expected_field}" in "\n".join(
+        record.getMessage() for record in caplog.records
     )
 
 
@@ -628,8 +635,12 @@ def test_parse_canonical_rejects_unknown_observation_key_without_key_leakage(
         parse_vision_json(json.dumps(payload), fallback_room="auto")
 
     assert secret_key not in str(exc_info.value)
-    assert secret_key not in "\n".join(
-        repr(record.__dict__) for record in caplog.records
+    log_details = "\n".join(repr(record.__dict__) for record in caplog.records)
+    assert secret_key not in log_details
+    log_messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "schema_field=observations.<invalid_key>" in log_messages
+    assert (
+        "schema_expected=a supported prompt observation" in log_messages
     )
 
 

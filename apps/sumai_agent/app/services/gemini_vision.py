@@ -477,7 +477,9 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
 
 def _raise_schema_error(field: str, expected: str) -> NoReturn:
     logger.warning(
-        "gemini_schema_validation_error",
+        "gemini_schema_validation_error schema_field=%s schema_expected=%s",
+        field,
+        expected,
         extra={"field": field, "expected": expected},
     )
     raise ValueError(f"Gemini response field '{field}' must be {expected}.")
