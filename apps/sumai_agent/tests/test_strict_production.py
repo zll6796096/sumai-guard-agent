@@ -67,6 +67,54 @@ MALFORMED_GEMINI_RESPONSES = [
         ),
         id="canonical-severity-out-of-domain",
     ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": SENTINEL,
+                "observations": {},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-room-out-of-domain",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": False,
+                "room_type": "auto",
+                "observations": {},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+                "not_applicable_reason_ja": {"provider_detail": SENTINEL},
+            }
+        ),
+        id="canonical-reason-wrong-type",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "floor_clutter",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": 0.8,
+                        "bbox": {"x": 0.9, "y": 0.2, "w": 0.2, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-bbox-exceeds-image",
+    ),
 ]
 
 

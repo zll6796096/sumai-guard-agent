@@ -515,6 +515,11 @@ def _validate_bbox_schema(field: str, bbox: object) -> None:
         if coordinate in ("w", "h") and numeric_value <= 0.0:
             _raise_schema_error(coordinate_field, "greater than 0")
 
+    if float(bbox["x"]) + float(bbox["w"]) > 1.0:
+        _raise_schema_error(field, "fully inside the image width")
+    if float(bbox["y"]) + float(bbox["h"]) > 1.0:
+        _raise_schema_error(field, "fully inside the image height")
+
 
 def _validate_canonical_item(
     collection: str,
@@ -583,6 +588,14 @@ def _validate_top_level_schema(data: dict[str, Any]) -> None:
 
     is_canonical = any(field in data for field in CANONICAL_MARKER_FIELDS)
     if is_canonical:
+        if "room_type" in data and data["room_type"] not in VALID_ROOMS:
+            _raise_schema_error("room_type", "an exact supported room value")
+        if (
+            "not_applicable_reason_ja" in data
+            and data["not_applicable_reason_ja"] is not None
+            and not isinstance(data["not_applicable_reason_ja"], str)
+        ):
+            _raise_schema_error("not_applicable_reason_ja", "a string or null")
         for observation, value in data.get("observations", {}).items():
             if value is not None and type(value) is not bool:
                 _raise_schema_error(
@@ -631,8 +644,6 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
 
     is_home = data.get("is_home_environment", True)
     not_applicable_reason = data.get("not_applicable_reason_ja")
-    if not_applicable_reason:
-        not_applicable_reason = str(not_applicable_reason)
 
     if not is_home:
         return VisionResult(

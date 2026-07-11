@@ -501,6 +501,79 @@ def test_parse_canonical_domain_boundaries_and_observation_null_remain_valid() -
     assert result.observations == {"clear_path": True, "lighting_poor": None}
 
 
+@pytest.mark.parametrize("invalid_room", ["garage", "HALLWAY", " hallway "])
+def test_parse_canonical_room_type_requires_exact_supported_member(
+    invalid_room: str,
+) -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": invalid_room,
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match="room_type"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize("invalid_reason", [{"secret": "value"}, 1, True, []])
+def test_parse_canonical_not_applicable_reason_requires_string_or_null(
+    invalid_reason: object,
+) -> None:
+    payload = {
+        "is_home_environment": False,
+        "room_type": "auto",
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+        "not_applicable_reason_ja": invalid_reason,
+    }
+
+    with pytest.raises(ValueError, match="not_applicable_reason_ja"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        {"x": 0.8, "y": 0.2, "w": 0.3, "h": 0.4},
+        {"x": 0.1, "y": 0.7, "w": 0.3, "h": 0.4},
+    ],
+)
+def test_parse_canonical_bbox_must_fit_entirely_inside_image(
+    bbox: dict[str, float],
+) -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [
+            {
+                "risk_type": "floor_clutter",
+                "label_ja": "床の物",
+                "description_ja": "通路に物があります。",
+                "severity": 3,
+                "confidence": 0.8,
+                "bbox": bbox,
+                "evidence_ja": "床に物が見えます。",
+            }
+        ],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match="bbox"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+def test_parse_pure_legacy_room_type_remains_normalized() -> None:
+    payload = {"room_type": " HALLWAY ", "findings": []}
+
+    result = parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+    assert result.room_type == "hallway"
+
+
 def test_parse_canonical_empty_lists_remain_valid() -> None:
     raw_json = json.dumps(
         {
