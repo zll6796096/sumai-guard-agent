@@ -78,6 +78,12 @@ def extract_frame_linear(source: Path, second: float, output: Path) -> None:
     )
 
 
+def frame_mean(source: Path, second: float, output: Path) -> list[float]:
+    extract_frame_linear(source, second, output)
+    with Image.open(output) as image:
+        return ImageStat.Stat(image.convert("RGB")).mean
+
+
 def test_compose_final_reencodes_cleanly_across_b_frame_boundary(
     tmp_path: Path,
 ) -> None:
@@ -109,16 +115,29 @@ def test_compose_final_reencodes_cleanly_across_b_frame_boundary(
     assert 1.9 <= float(probe["format"]["duration"]) <= 2.1
     assert {stream["codec_name"] for stream in probe["streams"]} == {"h264", "aac"}
 
-    red_frame = tmp_path / "red.png"
-    blue_frame = tmp_path / "blue.png"
-    extract_frame_linear(output, 0.5, red_frame)
-    extract_frame_linear(output, 1.5, blue_frame)
-    with Image.open(red_frame) as image:
-        red_mean = ImageStat.Stat(image.convert("RGB")).mean
-    with Image.open(blue_frame) as image:
-        blue_mean = ImageStat.Stat(image.convert("RGB")).mean
+    samples = {
+        "red_midpoint": frame_mean(
+            output, 0.5, tmp_path / "red-midpoint.png"
+        ),
+        "red_before_boundary": frame_mean(
+            output, 0.95, tmp_path / "red-before-boundary.png"
+        ),
+        "blue_at_boundary": frame_mean(
+            output, 1.0, tmp_path / "blue-at-boundary.png"
+        ),
+        "blue_after_boundary": frame_mean(
+            output, 1.05, tmp_path / "blue-after-boundary.png"
+        ),
+        "blue_midpoint": frame_mean(
+            output, 1.5, tmp_path / "blue-midpoint.png"
+        ),
+    }
 
-    assert red_mean[0] > 150 and red_mean[0] > red_mean[1] * 3
-    assert red_mean[0] > red_mean[2] * 3
-    assert blue_mean[2] > 100 and blue_mean[2] > blue_mean[0] * 2
-    assert blue_mean[2] > blue_mean[1] * 2
+    for sample in ("red_midpoint", "red_before_boundary"):
+        red_mean = samples[sample]
+        assert red_mean[0] > 150 and red_mean[0] > red_mean[1] * 3, sample
+        assert red_mean[0] > red_mean[2] * 3, sample
+    for sample in ("blue_at_boundary", "blue_after_boundary", "blue_midpoint"):
+        blue_mean = samples[sample]
+        assert blue_mean[2] > 100 and blue_mean[2] > blue_mean[0] * 2, sample
+        assert blue_mean[2] > blue_mean[1] * 2, sample
