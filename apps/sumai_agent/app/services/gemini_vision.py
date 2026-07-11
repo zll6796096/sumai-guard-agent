@@ -232,7 +232,7 @@ class GeminiVisionService:
             ],
             config=types.GenerateContentConfig(response_mime_type="application/json"),
         )
-        return parse_vision_json(response.text or "{}", fallback_room=room_hint)
+        return parse_vision_json(response.text or "", fallback_room=room_hint)
 
 
 def normalize_room_hint(room_hint: str | None) -> RoomType:
@@ -455,13 +455,15 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
 def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
     try:
         data = json.loads(raw_json)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         logger.warning("gemini_json_decode_error", extra={"raw_length": len(raw_json)})
-        return mock_vision_result(fallback_room)
+        raise ValueError("Gemini response is empty or not valid JSON.") from exc
 
     if not isinstance(data, dict):
         logger.warning("gemini_unexpected_json_type", extra={"type": type(data).__name__})
-        return mock_vision_result(fallback_room)
+        raise ValueError(
+            f"Gemini response must be a JSON object, got {type(data).__name__}."
+        )
 
     is_home = bool(data.get("is_home_environment", True))
     not_applicable_reason = data.get("not_applicable_reason_ja")

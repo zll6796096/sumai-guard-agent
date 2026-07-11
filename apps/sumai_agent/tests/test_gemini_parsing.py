@@ -1,6 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
 from app.services.gemini_vision import (
+    GeminiVisionService,
     _normalize_bbox,
     mock_vision_result,
     parse_vision_json,
@@ -33,11 +41,19 @@ def test_parse_valid_json() -> None:
     assert result.findings[0].bbox.w == 0.5
 
 
-def test_parse_malformed_json_falls_back_to_mock() -> None:
-    result = parse_vision_json("not valid json {{{", fallback_room="bathroom")
-
-    assert result.room_type == "bathroom"
-    assert len(result.findings) > 0  # mock findings for bathroom
+@pytest.mark.parametrize(
+    "raw_json",
+    [
+        "",
+        "not valid json {{{",
+        "null",
+        "[]",
+        '"string"',
+    ],
+)
+def test_parse_invalid_or_non_object_json_raises_value_error(raw_json: str) -> None:
+    with pytest.raises(ValueError, match="Gemini response"):
+        parse_vision_json(raw_json, fallback_room="bathroom")
 
 
 def test_parse_empty_findings_returns_empty() -> None:
@@ -45,6 +61,37 @@ def test_parse_empty_findings_returns_empty() -> None:
 
     assert result.room_type == "hallway"
     assert result.findings == []
+
+
+def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None:
+    client = SimpleNamespace(
+        models=SimpleNamespace(
+            generate_content=lambda **_kwargs: SimpleNamespace(text=""),
+        )
+    )
+    google_module = ModuleType("google")
+    genai_module = ModuleType("google.genai")
+    types_module = ModuleType("google.genai.types")
+    genai_module.Client = lambda **_kwargs: client  # type: ignore[attr-defined]
+    types_module.Part = SimpleNamespace(  # type: ignore[attr-defined]
+        from_bytes=lambda **_kwargs: object()
+    )
+    types_module.GenerateContentConfig = (  # type: ignore[attr-defined]
+        lambda **_kwargs: object()
+    )
+    google_module.genai = genai_module  # type: ignore[attr-defined]
+    genai_module.types = types_module  # type: ignore[attr-defined]
+
+    with patch.dict(
+        sys.modules,
+        {
+            "google": google_module,
+            "google.genai": genai_module,
+            "google.genai.types": types_module,
+        },
+    ):
+        with pytest.raises(ValueError, match="Gemini response"):
+            asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
 
 
 def test_bbox_1000_range_normalization() -> None:

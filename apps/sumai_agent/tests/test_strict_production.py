@@ -53,6 +53,67 @@ def test_strict_mode_without_api_key() -> None:
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_strict_mode_parse_failure_returns_503(mock_call_gemini: AsyncMock) -> None:
+    mock_call_gemini.side_effect = ValueError("Gemini response is not valid JSON")
+    new_settings = Settings(
+        require_real_gemini=True,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "auto", "mock": "false"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": "gemini_unavailable",
+        "message": "Real Gemini analysis is required but unavailable.",
+    }
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
+    mock_call_gemini: AsyncMock,
+) -> None:
+    mock_call_gemini.side_effect = ValueError("Gemini response is not valid JSON")
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "bathroom", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"].startswith("gemini_fallback(")
+    assert data["mode"] != "gemini"
+    assert data["room_type"] == "bathroom"
+    assert [finding["risk_type"] for finding in data["findings"]] == [
+        "bathroom_missing_handrail",
+        "bathroom_missing_non_slip",
+        "bathroom_missing_transfer_support",
+        "bathroom_slip",
+        "bathtub_stepover",
+    ]
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
 def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -> None:
     # Setup mock call to return is_home_environment=False
     mock_call_gemini.return_value = VisionResult(
