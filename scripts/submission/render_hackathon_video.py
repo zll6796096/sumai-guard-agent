@@ -29,6 +29,35 @@ WHITE = "#F7F8FA"
 MUTED = "#B8C2DC"
 BLUE = "#4C7DFF"
 VIOLET = "#6C5CE7"
+BT709_LIMITED_FILTER = (
+    "format=yuv420p,"
+    "setparams=range=tv:color_primaries=bt709:"
+    "color_trc=bt709:colorspace=bt709"
+)
+VIDEO_SIGNATURE_FIELDS = (
+    "codec_name",
+    "profile",
+    "level",
+    "width",
+    "height",
+    "pix_fmt",
+    "color_range",
+    "color_space",
+    "color_transfer",
+    "color_primaries",
+    "r_frame_rate",
+    "time_base",
+    "extradata_size",
+)
+AUDIO_SIGNATURE_FIELDS = (
+    "codec_name",
+    "profile",
+    "sample_rate",
+    "channels",
+    "channel_layout",
+    "time_base",
+    "extradata_size",
+)
 
 
 def run(args: list[str]) -> None:
@@ -52,6 +81,71 @@ def probe_duration(path: Path) -> float:
         text=True,
     )
     return float(json.loads(result.stdout)["format"]["duration"])
+
+
+def probe_stream_signature(path: Path) -> dict[str, dict[str, object]]:
+    fields = ("codec_type", *VIDEO_SIGNATURE_FIELDS, *AUDIO_SIGNATURE_FIELDS)
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            f"stream={','.join(fields)}",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    streams = {
+        str(stream["codec_type"]): stream
+        for stream in json.loads(result.stdout)["streams"]
+    }
+    if "video" not in streams or "audio" not in streams:
+        raise SystemExit(f"segment is missing video or audio: {path}")
+    return {
+        "video": {
+            field: streams["video"].get(field)
+            for field in VIDEO_SIGNATURE_FIELDS
+        },
+        "audio": {
+            field: streams["audio"].get(field)
+            for field in AUDIO_SIGNATURE_FIELDS
+        },
+    }
+
+
+def ensure_compatible_segments(paths: list[Path]) -> None:
+    if not paths:
+        raise SystemExit("no rendered segments to concatenate")
+    expected = probe_stream_signature(paths[0])
+    required_video_metadata = {
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+    }
+    actual_video_metadata = {
+        field: expected["video"][field]
+        for field in required_video_metadata
+    }
+    if actual_video_metadata != required_video_metadata:
+        raise SystemExit(
+            "rendered segments do not use limited-range BT.709 yuv420p: "
+            f"{json.dumps(actual_video_metadata, sort_keys=True)}"
+        )
+    for path in paths[1:]:
+        actual = probe_stream_signature(path)
+        if actual != expected:
+            raise SystemExit(
+                f"incompatible segment streams: {path}\n"
+                f"expected: {json.dumps(expected, sort_keys=True)}\n"
+                f"actual: {json.dumps(actual, sort_keys=True)}"
+            )
 
 
 def font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -253,6 +347,14 @@ def video_encode_args() -> list[str]:
         "18",
         "-pix_fmt",
         "yuv420p",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "-color_trc",
+        "bt709",
         "-r",
         "30",
         "-c:a",
@@ -292,6 +394,8 @@ def render_segment(
             str(frame),
             "-i",
             str(audio),
+            "-vf",
+            BT709_LIMITED_FILTER,
             "-map",
             "0:v:0",
             "-map",
@@ -307,8 +411,10 @@ def render_segment(
         speed = duration / source_duration
         graph = (
             f"[0:v]setpts={speed:.8f}*PTS,"
-            "scale=-2:920:flags=lanczos[phone];"
-            "[1:v][phone]overlay=120:(H-h)/2:shortest=1[outv]"
+            "scale=-2:920:flags=lanczos:in_range=pc:out_range=tv,"
+            f"{BT709_LIMITED_FILTER}[phone];"
+            "[1:v][phone]overlay=120:(H-h)/2:shortest=1,"
+            f"{BT709_LIMITED_FILTER}[outv]"
         )
         args = [
             "ffmpeg",
@@ -367,6 +473,7 @@ def main() -> None:
         render_segment(segment, frame, audio, video)
         segment_paths.append(video)
 
+    ensure_compatible_segments(segment_paths)
     concat = WORK / "concat.txt"
     concat.write_text(
         "".join(f"file '{path.as_posix()}'\n" for path in segment_paths),
