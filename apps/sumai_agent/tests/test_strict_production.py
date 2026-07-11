@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import io
+import logging
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -9,6 +12,13 @@ from app.main import app
 from app.config import Settings
 from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
 from app.services.rule_engine import RuleEngine
+
+
+SENTINEL = "SECRET_PROVIDER_DETAIL_12345"
+
+
+def _captured_log_details(caplog: pytest.LogCaptureFixture) -> str:
+    return "\n".join(repr(record.__dict__) for record in caplog.records)
 
 
 def _create_mock_image() -> bytes:
@@ -53,8 +63,12 @@ def test_strict_mode_without_api_key() -> None:
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
-def test_strict_mode_parse_failure_returns_503(mock_call_gemini: AsyncMock) -> None:
-    mock_call_gemini.side_effect = ValueError("Gemini response is not valid JSON")
+def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = ValueError(f"Invalid response: {SENTINEL}")
     new_settings = Settings(
         require_real_gemini=True,
         gemini_api_key="dummy_key",
@@ -76,13 +90,19 @@ def test_strict_mode_parse_failure_returns_503(mock_call_gemini: AsyncMock) -> N
         "error": "gemini_unavailable",
         "message": "Real Gemini analysis is required but unavailable.",
     }
+    assert SENTINEL not in response.text
+    log_details = _captured_log_details(caplog)
+    assert SENTINEL not in log_details
+    assert "invalid_response" in log_details
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
 def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
     mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    mock_call_gemini.side_effect = ValueError("Gemini response is not valid JSON")
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = ValueError(f"Invalid response: {SENTINEL}")
     new_settings = Settings(
         require_real_gemini=False,
         gemini_api_key="dummy_key",
@@ -101,8 +121,9 @@ def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["mode"].startswith("gemini_fallback(")
-    assert data["mode"] != "gemini"
+    assert data["mode"] == "gemini_fallback(invalid_response)"
+    assert SENTINEL not in response.text
+    assert SENTINEL not in _captured_log_details(caplog)
     assert data["room_type"] == "bathroom"
     assert [finding["risk_type"] for finding in data["findings"]] == [
         "bathroom_missing_handrail",
@@ -111,6 +132,64 @@ def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
         "bathroom_slip",
         "bathtub_stepover",
     ]
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_non_strict_provider_error_uses_stable_code_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = RuntimeError(f"Provider failed: {SENTINEL}")
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "hallway", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "gemini_fallback(provider_error)"
+    assert SENTINEL not in response.text
+    assert SENTINEL not in _captured_log_details(caplog)
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_non_strict_timeout_uses_stable_code_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = TimeoutError(f"Timed out: {SENTINEL}")
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "hallway", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "gemini_fallback(gemini_timeout)"
+    assert SENTINEL not in response.text
+    assert SENTINEL not in _captured_log_details(caplog)
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")

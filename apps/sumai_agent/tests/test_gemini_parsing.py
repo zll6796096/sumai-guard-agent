@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
@@ -61,6 +62,104 @@ def test_parse_empty_findings_returns_empty() -> None:
 
     assert result.room_type == "hallway"
     assert result.findings == []
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        pytest.param("is_home_environment", "false", id="home-string"),
+        pytest.param("is_home_environment", 0, id="home-number"),
+        pytest.param("is_home_environment", None, id="home-null"),
+        pytest.param("observations", [], id="observations-list"),
+        pytest.param("observations", None, id="observations-null"),
+        pytest.param("visible_hazards", {}, id="visible-hazards-object"),
+        pytest.param("findings", "invalid", id="legacy-findings-string"),
+        pytest.param("missing_safety_features", {}, id="missing-features-object"),
+        pytest.param("room_type", 123, id="room-number"),
+    ],
+)
+def test_parse_rejects_invalid_top_level_field_types(
+    field: str,
+    invalid_value: object,
+) -> None:
+    raw_json = json.dumps({field: invalid_value})
+
+    with pytest.raises(ValueError, match=field):
+        parse_vision_json(raw_json, fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["visible_hazards", "findings", "missing_safety_features"],
+)
+def test_parse_rejects_non_object_list_elements(field: str) -> None:
+    raw_json = json.dumps({field: ["SECRET_PROVIDER_ELEMENT"]})
+
+    with pytest.raises(ValueError, match=field):
+        parse_vision_json(raw_json, fallback_room="auto")
+
+
+def test_explicit_empty_visible_hazards_overrides_legacy_findings() -> None:
+    raw_json = json.dumps(
+        {
+            "room_type": "hallway",
+            "visible_hazards": [],
+            "findings": [
+                {
+                    "risk_type": "legacy_risk",
+                    "label_ja": "旧リスク",
+                    "description_ja": "旧形式の所見です。",
+                    "severity": 3,
+                    "confidence": 0.8,
+                    "bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
+                    "evidence_ja": "旧形式の根拠です。",
+                }
+            ],
+        }
+    )
+
+    result = parse_vision_json(raw_json, fallback_room="auto")
+
+    assert result.visible_hazards == []
+
+
+def test_parse_canonical_empty_lists_remain_valid() -> None:
+    raw_json = json.dumps(
+        {
+            "is_home_environment": True,
+            "room_type": "hallway",
+            "observations": {},
+            "visible_hazards": [],
+            "missing_safety_features": [],
+        }
+    )
+
+    result = parse_vision_json(raw_json, fallback_room="auto")
+
+    assert result.is_home_environment is True
+    assert result.room_type == "hallway"
+    assert result.visible_hazards == []
+    assert result.missing_safety_features == []
+
+
+def test_parse_genuine_non_home_response_remains_valid() -> None:
+    raw_json = json.dumps(
+        {
+            "is_home_environment": False,
+            "room_type": "auto",
+            "observations": {},
+            "visible_hazards": [],
+            "missing_safety_features": [],
+            "not_applicable_reason_ja": "住宅内ではありません。",
+        }
+    )
+
+    result = parse_vision_json(raw_json, fallback_room="hallway")
+
+    assert result.is_home_environment is False
+    assert result.room_type == "auto"
+    assert result.visible_hazards == []
+    assert result.not_applicable_reason_ja == "住宅内ではありません。"
 
 
 def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None:

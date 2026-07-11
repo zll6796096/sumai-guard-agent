@@ -77,6 +77,14 @@ Each item in visible_hazards and missing_safety_features must include normalized
 """
 
 
+def _gemini_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return "gemini_timeout"
+    if isinstance(exc, ValueError):
+        return "invalid_response"
+    return "provider_error"
+
+
 class GeminiVisionService:
     async def analyze(
         self,
@@ -155,15 +163,16 @@ class GeminiVisionService:
             return result, "gemini"
         except Exception as exc:
             latency_ms = int((time.monotonic() - start_time) * 1000)
+            fallback_reason = _gemini_failure_reason(exc)
             logger.error(
                 "vision_failed_strict",
                 extra={
                     "analysis_id": analysis_id,
-                    "error": str(exc),
+                    "fallback_reason": fallback_reason,
                     "latency_ms": latency_ms,
                 },
             )
-            raise GeminiUnavailableError(f"Real Gemini analysis failed: {str(exc)}")
+            raise GeminiUnavailableError("Real Gemini analysis failed.") from None
 
     async def _analyze_with_gemini(
         self,
@@ -201,10 +210,8 @@ class GeminiVisionService:
             )
             return result, "gemini"
 
-        except TimeoutError:
-            fallback_reason = "gemini_timeout"
         except Exception as exc:
-            fallback_reason = f"gemini_error: {type(exc).__name__}: {str(exc)[:200]}"
+            fallback_reason = _gemini_failure_reason(exc)
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
         logger.warning(
@@ -452,12 +459,40 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
     )
 
 
+def _raise_schema_error(field: str, expected: str) -> None:
+    logger.warning(
+        "gemini_schema_validation_error",
+        extra={"field": field, "expected": expected},
+    )
+    raise ValueError(f"Gemini response field '{field}' must be {expected}.")
+
+
+def _validate_top_level_schema(data: dict[str, Any]) -> None:
+    if "is_home_environment" in data and type(data["is_home_environment"]) is not bool:
+        _raise_schema_error("is_home_environment", "a boolean")
+
+    if "room_type" in data and not isinstance(data["room_type"], str):
+        _raise_schema_error("room_type", "a string")
+
+    if "observations" in data and not isinstance(data["observations"], dict):
+        _raise_schema_error("observations", "an object")
+
+    for field in ("visible_hazards", "findings", "missing_safety_features"):
+        if field not in data:
+            continue
+        value = data[field]
+        if not isinstance(value, list):
+            _raise_schema_error(field, "a list")
+        if any(not isinstance(item, dict) for item in value):
+            _raise_schema_error(field, "a list of objects")
+
+
 def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
     try:
         data = json.loads(raw_json)
-    except json.JSONDecodeError as exc:
+    except json.JSONDecodeError:
         logger.warning("gemini_json_decode_error", extra={"raw_length": len(raw_json)})
-        raise ValueError("Gemini response is empty or not valid JSON.") from exc
+        raise ValueError("Gemini response is empty or not valid JSON.") from None
 
     if not isinstance(data, dict):
         logger.warning("gemini_unexpected_json_type", extra={"type": type(data).__name__})
@@ -465,7 +500,9 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
             f"Gemini response must be a JSON object, got {type(data).__name__}."
         )
 
-    is_home = bool(data.get("is_home_environment", True))
+    _validate_top_level_schema(data)
+
+    is_home = data.get("is_home_environment", True)
     not_applicable_reason = data.get("not_applicable_reason_ja")
     if not_applicable_reason:
         not_applicable_reason = str(not_applicable_reason)
@@ -480,22 +517,25 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
             not_applicable_reason_ja=not_applicable_reason or "住宅内の安全確認対象ではない可能性があります。"
         )
 
-    room = normalize_room_hint(str(data.get("room_type") or fallback_room))
-    observations = data.get("observations") or {}
+    room = normalize_room_hint(data.get("room_type") or fallback_room)
+    observations = data.get("observations", {})
 
     visible_hazards: list[RiskFinding] = []
-    for index, item in enumerate(data.get("visible_hazards") or data.get("findings") or [], start=1):
-        if not isinstance(item, dict):
-            continue
+    raw_hazards = (
+        data["visible_hazards"]
+        if "visible_hazards" in data
+        else data.get("findings", [])
+    )
+    for index, item in enumerate(raw_hazards, start=1):
         try:
             visible_hazards.append(_finding_from_raw(index, item))
-        except Exception as exc:
-            logger.warning("gemini_hazard_parse_error", extra={"index": index, "error": str(exc)[:200]})
+        except Exception:
+            logger.warning("gemini_hazard_parse_error", extra={"index": index})
             continue
 
     missing_safety_features: list[MissingSafetyFeature] = []
-    for item in data.get("missing_safety_features") or []:
-        if not isinstance(item, dict) or "feature_key" not in item:
+    for index, item in enumerate(data.get("missing_safety_features", []), start=1):
+        if "feature_key" not in item:
             continue
         try:
             raw_bbox = item.get("bbox") if isinstance(item.get("bbox"), dict) else {}
@@ -513,8 +553,8 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
                     evidence_ja=str(item.get("evidence_ja") or "写真内で確認できません。")
                 )
             )
-        except Exception as exc:
-            logger.warning("gemini_missing_parse_error", extra={"error": str(exc)[:200]})
+        except Exception:
+            logger.warning("gemini_missing_parse_error", extra={"index": index})
             continue
 
     return VisionResult(
