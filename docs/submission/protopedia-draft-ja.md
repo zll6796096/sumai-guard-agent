@@ -141,7 +141,7 @@ PY
 掲載画像は、SHA-256 が `d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207` の成片を 30 fps でデコードし、次のフレーム番号から抽出しています。
 
 ```bash
-VIDEO=/Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+VIDEO="$HOME/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4"
 
 ffmpeg -i "$VIDEO" -vf "select='eq(n,525)'"  -vsync 0 -frames:v 1 docs/submission/assets/01-photo-input.png
 ffmpeg -i "$VIDEO" -vf "select='eq(n,816)'"  -vsync 0 -frames:v 1 docs/submission/assets/02-real-gemini-analysis.png

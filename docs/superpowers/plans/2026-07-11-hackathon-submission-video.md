@@ -16,9 +16,9 @@
 - Create: scripts/submission/test_video_manifest.py — duration, source-span, scope-boundary, and output-path tests.
 - Create: scripts/submission/render_hackathon_video.py — title/panel rendering, Kyoko narration synthesis, ffmpeg segment composition, and concat-filter final re-encoding.
 - Create: scripts/submission/verify_hackathon_video.py — ffprobe assertions, loudness check, contact-sheet generation, and secret-text guard.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4 — stable copy of the temporary Photos source.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/ — generated cards, narration, segments, and contact sheet.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4 — final upload artifact.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4` — stable copy of the user-selected source recording.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/work/` — generated cards, narration, segments, and contact sheet.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4` — final upload artifact.
 
 ### Task 1: Lock the approved timeline as tested data
 
@@ -200,12 +200,11 @@ git commit -m "test: lock hackathon video timeline"
 Run:
 
 ~~~bash
-mkdir -p /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source
-cp "/private/var/folders/3n/xskbt7rx7g1846vkrw7tvl4w0000gn/T/TemporaryItems/com.apple.Photos.NSItemProvider/uuid=BDD7B771-5249-4024-8273-0FBC79AD93B6&code=001&library=1&type=3&mode=1&loc=true&cap=true.mp4/ScreenRecording_07-11-2026 23-08-22_1.mp4" \
-  /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4
-shasum -a 256 \
-  "/private/var/folders/3n/xskbt7rx7g1846vkrw7tvl4w0000gn/T/TemporaryItems/com.apple.Photos.NSItemProvider/uuid=BDD7B771-5249-4024-8273-0FBC79AD93B6&code=001&library=1&type=3&mode=1&loc=true&cap=true.mp4/ScreenRecording_07-11-2026 23-08-22_1.mp4" \
-  /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4
+SOURCE_EXPORT="<path-to-user-selected-recording>"
+STABLE_SOURCE="$HOME/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4"
+mkdir -p "$(dirname "$STABLE_SOURCE")"
+cp "$SOURCE_EXPORT" "$STABLE_SOURCE"
+shasum -a 256 "$SOURCE_EXPORT" "$STABLE_SOURCE"
 ~~~
 
 Expected: both SHA-256 values are identical.
@@ -449,7 +448,7 @@ PYTHONPATH=scripts/submission python3 scripts/submission/render_hackathon_video.
 Expected final line:
 
 ~~~text
-rendered: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+rendered: <home>/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
 ~~~
 
 - [ ] **Step 4: Commit the renderer**
@@ -598,7 +597,7 @@ PASS video h264 1920x1080
 PASS audio aac
 PASS loudness
 PASS prohibited-text scan (source/manifest/metadata only; pixel OCR is a separate audit)
-contact sheet: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
+contact sheet: <home>/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
 ~~~
 
 The committed verifier remains a coarse artifact gate. Its prohibited-term check covers only the renderer source, manifest source, and container/stream metadata returned by `ffprobe`; it cannot detect text rendered into video pixels and it does not run OCR. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git. Passing the committed verifier is therefore not evidence that the pixels are free of private text.
@@ -666,8 +665,9 @@ Expected: no unstaged or untracked files; only the intentional submission-tool c
 - [ ] **Step 1: Record the exact upload artifact metadata**
 
 ~~~bash
-shasum -a 256 /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
-ls -lh /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+VIDEO="$HOME/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4"
+shasum -a 256 "$VIDEO"
+ls -lh "$VIDEO"
 ~~~
 
 - [ ] **Step 2: Prepare the YouTube draft**

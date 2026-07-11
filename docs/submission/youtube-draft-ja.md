@@ -2,7 +2,7 @@
 
 ## Upload artifact
 
-- File: `/Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4`
+- File: `~/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4`
 - Required SHA-256: `d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207`
 - Duration: about 76 seconds
 

@@ -23,7 +23,7 @@ A YouTube-ready MP4 with these properties:
 - Audio: Japanese synthesized narration plus matching Japanese captions.
 - Source: the user's real 56.676-second iPhone screen recording.
 - Layout: portrait phone capture on the left and a large explanatory panel on the right.
-- Stable local output path outside Git: `/Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4`.
+- Stable local output path outside Git: `~/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4`.
 
 ## 4. Narrative structure
 
@@ -73,7 +73,7 @@ These claims must be rechecked immediately before upload. If any claim changes, 
 
 ## 8. Risks and guardrails
 
-- The source video currently lives in a temporary Photos provider path. Copy it to a stable staging path before editing.
+- The source video initially arrives from an OS-managed temporary import location. Copy it to a stable staging path before editing, without recording the temporary path in Git.
 - The source audio is effectively silent; replace it instead of amplifying noise.
 - Exclude source 3.3–6.0s from every demo segment because it contains unrelated photo-picker library content.
 - Preserve visual evidence that analysis takes time; accelerate the wait visibly rather than deleting all processing state.
@@ -101,7 +101,7 @@ These claims must be rechecked immediately before upload. If any claim changes, 
 ffprobe -v error \
   -show_entries format=duration:stream=codec_name,codec_type,width,height \
   -of json \
-  /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+  "$HOME/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4"
 
 SUMAI_AGENT_URL=https://sumai-agent-sxielk4wua-an.a.run.app \
   python3 scripts/smoke_real_gemini.py

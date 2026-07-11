@@ -1,4 +1,5 @@
 import hashlib
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -222,3 +223,36 @@ def test_media_paths_are_outside_repository(tmp_path: Path) -> None:
         f"actual {expected[:12]}"
     )
     assert str(sample) not in message
+
+
+def test_tracked_files_do_not_publish_local_private_paths() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    tracked_output = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=repo_root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    tracked_files = [
+        repo_root / path.decode()
+        for path in tracked_output.split(b"\0")
+        if path
+    ]
+    forbidden_patterns = (
+        b"/private" + b"/var/folders/",
+        b"NSItem" + b"Provider",
+        b"BDD7B771-5249-4024" + b"-8273-0FBC79AD93B6",
+        b"/Users/" + b"zhanglonglong",
+    )
+
+    violations = {
+        str(path.relative_to(repo_root)): [
+            pattern.decode()
+            for pattern in forbidden_patterns
+            if pattern in path.read_bytes()
+        ]
+        for path in tracked_files
+    }
+    violations = {path: matches for path, matches in violations.items() if matches}
+
+    assert violations == {}
