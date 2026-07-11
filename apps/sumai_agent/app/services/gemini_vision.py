@@ -467,6 +467,79 @@ def _raise_schema_error(field: str, expected: str) -> None:
     raise ValueError(f"Gemini response field '{field}' must be {expected}.")
 
 
+CANONICAL_REQUIRED_FIELDS = (
+    "is_home_environment",
+    "room_type",
+    "observations",
+    "visible_hazards",
+    "missing_safety_features",
+)
+CANONICAL_MARKER_FIELDS = (
+    "is_home_environment",
+    "observations",
+    "visible_hazards",
+    "missing_safety_features",
+)
+CANONICAL_HAZARD_FIELDS = (
+    "risk_type",
+    "label_ja",
+    "description_ja",
+    "severity",
+    "confidence",
+    "bbox",
+    "evidence_ja",
+)
+CANONICAL_MISSING_FEATURE_FIELDS = (
+    "feature_key",
+    "confidence",
+    "bbox",
+    "evidence_ja",
+)
+
+
+def _validate_bbox_schema(field: str, bbox: object) -> None:
+    if not isinstance(bbox, dict):
+        _raise_schema_error(field, "an object")
+    for coordinate in ("x", "y", "w", "h"):
+        coordinate_field = f"{field}.{coordinate}"
+        if coordinate not in bbox:
+            _raise_schema_error(coordinate_field, "present")
+        value = bbox[coordinate]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            _raise_schema_error(coordinate_field, "a number")
+
+
+def _validate_canonical_item(
+    collection: str,
+    index: int,
+    item: dict[str, Any],
+    required_fields: tuple[str, ...],
+) -> None:
+    item_path = f"{collection}[{index}]"
+    for field in required_fields:
+        if field not in item:
+            _raise_schema_error(f"{item_path}.{field}", "present")
+
+    string_fields = (
+        ("risk_type", "label_ja", "description_ja", "evidence_ja")
+        if collection == "visible_hazards"
+        else ("feature_key", "evidence_ja")
+    )
+    for field in string_fields:
+        if not isinstance(item[field], str):
+            _raise_schema_error(f"{item_path}.{field}", "a string")
+
+    if collection == "visible_hazards":
+        if type(item["severity"]) is not int:
+            _raise_schema_error(f"{item_path}.severity", "an integer")
+
+    confidence = item["confidence"]
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        _raise_schema_error(f"{item_path}.confidence", "a number")
+
+    _validate_bbox_schema(f"{item_path}.bbox", item["bbox"])
+
+
 def _validate_top_level_schema(data: dict[str, Any]) -> None:
     if "is_home_environment" in data and type(data["is_home_environment"]) is not bool:
         _raise_schema_error("is_home_environment", "a boolean")
@@ -485,6 +558,38 @@ def _validate_top_level_schema(data: dict[str, Any]) -> None:
             _raise_schema_error(field, "a list")
         if any(not isinstance(item, dict) for item in value):
             _raise_schema_error(field, "a list of objects")
+
+    is_legacy = "findings" in data and "visible_hazards" not in data
+    if is_legacy:
+        if "room_type" not in data:
+            _raise_schema_error("room_type", "present in a legacy response")
+        return
+
+    is_canonical = any(field in data for field in CANONICAL_MARKER_FIELDS)
+    if is_canonical:
+        for field in CANONICAL_REQUIRED_FIELDS:
+            if field not in data:
+                _raise_schema_error(field, "present in a canonical response")
+        for index, item in enumerate(data["visible_hazards"]):
+            _validate_canonical_item(
+                "visible_hazards",
+                index,
+                item,
+                CANONICAL_HAZARD_FIELDS,
+            )
+        for index, item in enumerate(data["missing_safety_features"]):
+            _validate_canonical_item(
+                "missing_safety_features",
+                index,
+                item,
+                CANONICAL_MISSING_FEATURE_FIELDS,
+            )
+        return
+
+    _raise_schema_error(
+        "response",
+        "a complete canonical response or legacy room_type/findings response",
+    )
 
 
 def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:

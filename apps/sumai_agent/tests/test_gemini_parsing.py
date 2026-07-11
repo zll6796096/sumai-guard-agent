@@ -57,11 +57,42 @@ def test_parse_invalid_or_non_object_json_raises_value_error(raw_json: str) -> N
         parse_vision_json(raw_json, fallback_room="bathroom")
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({}, id="empty-object"),
+        pytest.param({"visible_hazards": [{}]}, id="empty-canonical-hazard"),
+    ],
+)
+def test_parse_rejects_objects_without_a_complete_response_shape(
+    payload: dict[str, object],
+) -> None:
+    with pytest.raises(ValueError, match="Gemini response"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
 def test_parse_empty_findings_returns_empty() -> None:
     result = parse_vision_json('{"room_type": "hallway", "findings": []}', fallback_room="auto")
 
     assert result.room_type == "hallway"
     assert result.findings == []
+
+
+def test_parse_legacy_findings_allows_supplemental_observations() -> None:
+    raw_json = json.dumps(
+        {
+            "is_home_environment": True,
+            "room_type": "hallway",
+            "observations": {"clear_path": True},
+            "findings": [],
+        }
+    )
+
+    result = parse_vision_json(raw_json, fallback_room="auto")
+
+    assert result.room_type == "hallway"
+    assert result.observations == {"clear_path": True}
+    assert result.visible_hazards == []
 
 
 @pytest.mark.parametrize(
@@ -102,8 +133,11 @@ def test_parse_rejects_non_object_list_elements(field: str) -> None:
 def test_explicit_empty_visible_hazards_overrides_legacy_findings() -> None:
     raw_json = json.dumps(
         {
+            "is_home_environment": True,
             "room_type": "hallway",
+            "observations": {},
             "visible_hazards": [],
+            "missing_safety_features": [],
             "findings": [
                 {
                     "risk_type": "legacy_risk",
@@ -121,6 +155,193 @@ def test_explicit_empty_visible_hazards_overrides_legacy_findings() -> None:
     result = parse_vision_json(raw_json, fallback_room="auto")
 
     assert result.visible_hazards == []
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "is_home_environment",
+        "room_type",
+        "observations",
+        "visible_hazards",
+        "missing_safety_features",
+    ],
+)
+def test_parse_canonical_response_requires_explicit_top_level_fields(
+    missing_field: str,
+) -> None:
+    payload: dict[str, object] = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+    del payload[missing_field]
+
+    with pytest.raises(ValueError, match=missing_field):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    [
+        "risk_type",
+        "label_ja",
+        "description_ja",
+        "severity",
+        "confidence",
+        "bbox",
+        "evidence_ja",
+    ],
+)
+def test_parse_canonical_hazard_requires_explicit_item_fields(
+    missing_field: str,
+) -> None:
+    hazard: dict[str, object] = {
+        "risk_type": "floor_clutter",
+        "label_ja": "床の物",
+        "description_ja": "通路に物があります。",
+        "severity": 3,
+        "confidence": 0.8,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "床に物が見えます。",
+    }
+    del hazard[missing_field]
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [hazard],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match=missing_field):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("risk_type", None),
+        ("label_ja", 123),
+        ("description_ja", None),
+        ("severity", True),
+        ("confidence", "0.8"),
+        ("bbox", []),
+        ("evidence_ja", None),
+    ],
+)
+def test_parse_canonical_hazard_rejects_non_schema_values(
+    field: str,
+    invalid_value: object,
+) -> None:
+    hazard: dict[str, object] = {
+        "risk_type": "floor_clutter",
+        "label_ja": "床の物",
+        "description_ja": "通路に物があります。",
+        "severity": 3,
+        "confidence": 0.8,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "床に物が見えます。",
+    }
+    hazard[field] = invalid_value
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [hazard],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match=field):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize("missing_coordinate", ["x", "y", "w", "h"])
+def test_parse_canonical_hazard_requires_complete_bbox(
+    missing_coordinate: str,
+) -> None:
+    bbox = {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
+    del bbox[missing_coordinate]
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [
+            {
+                "risk_type": "floor_clutter",
+                "label_ja": "床の物",
+                "description_ja": "通路に物があります。",
+                "severity": 3,
+                "confidence": 0.8,
+                "bbox": bbox,
+                "evidence_ja": "床に物が見えます。",
+            }
+        ],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match=f"bbox.{missing_coordinate}"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ["feature_key", "confidence", "bbox", "evidence_ja"],
+)
+def test_parse_canonical_missing_feature_requires_explicit_item_fields(
+    missing_field: str,
+) -> None:
+    feature: dict[str, object] = {
+        "feature_key": "has_handrail",
+        "confidence": 0.7,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "手すりが確認できません。",
+    }
+    del feature[missing_field]
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [feature],
+    }
+
+    with pytest.raises(ValueError, match=missing_field):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("feature_key", None),
+        ("confidence", "0.7"),
+        ("bbox", []),
+        ("evidence_ja", None),
+    ],
+)
+def test_parse_canonical_missing_feature_rejects_non_schema_values(
+    field: str,
+    invalid_value: object,
+) -> None:
+    feature: dict[str, object] = {
+        "feature_key": "has_handrail",
+        "confidence": 0.7,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "手すりが確認できません。",
+    }
+    feature[field] = invalid_value
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [],
+        "missing_safety_features": [feature],
+    }
+
+    with pytest.raises(ValueError, match=field):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
 
 
 def test_parse_canonical_empty_lists_remain_valid() -> None:

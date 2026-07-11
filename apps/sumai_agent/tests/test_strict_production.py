@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 from unittest.mock import AsyncMock, patch
 
@@ -11,10 +12,27 @@ from PIL import Image
 from app.main import app
 from app.config import Settings
 from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
+from app.services.gemini_vision import parse_vision_json
 from app.services.rule_engine import RuleEngine
 
 
 SENTINEL = "SECRET_PROVIDER_DETAIL_12345"
+
+MALFORMED_GEMINI_RESPONSES = [
+    pytest.param(json.dumps({"provider_detail": SENTINEL}), id="empty-response-shape"),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [{"provider_detail": SENTINEL}],
+                "missing_safety_features": [],
+            }
+        ),
+        id="empty-visible-hazard",
+    ),
+]
 
 
 def _captured_log_details(caplog: pytest.LogCaptureFixture) -> str:
@@ -63,12 +81,18 @@ def test_strict_mode_without_api_key() -> None:
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+@pytest.mark.parametrize("raw_json", MALFORMED_GEMINI_RESPONSES)
 def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
     mock_call_gemini: AsyncMock,
+    raw_json: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
-    mock_call_gemini.side_effect = ValueError(f"Invalid response: {SENTINEL}")
+
+    async def parse_provider_response(*_args: object, **_kwargs: object) -> VisionResult:
+        return parse_vision_json(raw_json, fallback_room="auto")
+
+    mock_call_gemini.side_effect = parse_provider_response
     new_settings = Settings(
         require_real_gemini=True,
         gemini_api_key="dummy_key",
@@ -97,12 +121,18 @@ def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+@pytest.mark.parametrize("raw_json", MALFORMED_GEMINI_RESPONSES)
 def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
     mock_call_gemini: AsyncMock,
+    raw_json: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
-    mock_call_gemini.side_effect = ValueError(f"Invalid response: {SENTINEL}")
+
+    async def parse_provider_response(*_args: object, **_kwargs: object) -> VisionResult:
+        return parse_vision_json(raw_json, fallback_room="auto")
+
+    mock_call_gemini.side_effect = parse_provider_response
     new_settings = Settings(
         require_real_gemini=False,
         gemini_api_key="dummy_key",
