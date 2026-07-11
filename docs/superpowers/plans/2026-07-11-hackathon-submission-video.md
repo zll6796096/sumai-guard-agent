@@ -586,13 +586,13 @@ PASS duration
 PASS video h264 1920x1080
 PASS audio aac
 PASS loudness
-PASS prohibited-text scan
+PASS prohibited-text scan (source/manifest/metadata only; pixel OCR is a separate audit)
 contact sheet: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
 ~~~
 
-The committed verifier remains a coarse artifact gate. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git.
+The committed verifier remains a coarse artifact gate. Its prohibited-term check covers only the renderer source, manifest source, and container/stream metadata returned by `ffprobe`; it cannot detect text rendered into video pixels and it does not run OCR. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git. Passing the committed verifier is therefore not evidence that the pixels are free of private text.
 
-Personal or release-specific scan terms must not be committed. Supply them only at verification time as newline-separated values in `SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS`; the verifier combines those values with its generic UI guard terms.
+Personal or release-specific scan terms must not be committed. Supply them only at verification time as newline-separated values in `SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS`; the verifier combines those values with its generic UI guard terms for the source/manifest/metadata scan. Failure output reports only a match count and never echoes the supplied values. These runtime terms still do not scan rendered pixels; use the separate dense visual and Vision OCR audit for that layer.
 
 - [ ] **Step 3: Visually inspect the contact sheet and three review frames**
 

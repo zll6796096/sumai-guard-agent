@@ -159,6 +159,7 @@ def verify_prohibited_text(
     *,
     extra_terms: tuple[str, ...] = (),
 ) -> None:
+    """Scan textual inputs and media metadata, not rendered pixels or OCR."""
     sources = (RENDERER, MANIFEST)
     missing = [path for path in sources if not path.exists()]
     if missing:
@@ -171,10 +172,13 @@ def verify_prohibited_text(
         not matches,
         (
             "prohibited text found in renderer, manifest, or media metadata: "
-            f"{matches}"
+            f"{len(matches)} prohibited term(s)"
         ),
     )
-    print("PASS prohibited-text scan")
+    print(
+        "PASS prohibited-text scan "
+        "(source/manifest/metadata only; pixel OCR is a separate audit)"
+    )
 
 
 def runtime_extra_prohibited_terms() -> tuple[str, ...]:

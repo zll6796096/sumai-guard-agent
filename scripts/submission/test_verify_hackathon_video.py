@@ -22,11 +22,15 @@ def test_prohibited_text_scan_accepts_runtime_terms(
     monkeypatch.setattr(verifier, "RENDERER", renderer)
     monkeypatch.setattr(verifier, "MANIFEST", manifest)
 
-    with pytest.raises(AssertionError, match="runtime-private-marker"):
+    with pytest.raises(AssertionError) as exc_info:
         verifier.verify_prohibited_text(
             "",
             extra_terms=("runtime-private-marker",),
         )
+
+    failure_text = str(exc_info.value)
+    assert "runtime-private-marker" not in failure_text
+    assert "1 prohibited term" in failure_text
 
 
 def test_runtime_private_terms_are_read_from_environment(
