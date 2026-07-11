@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
 from typing import Any
 
@@ -479,6 +480,7 @@ CANONICAL_MARKER_FIELDS = (
     "observations",
     "visible_hazards",
     "missing_safety_features",
+    "not_applicable_reason_ja",
 )
 CANONICAL_HAZARD_FIELDS = (
     "risk_type",
@@ -507,6 +509,11 @@ def _validate_bbox_schema(field: str, bbox: object) -> None:
         value = bbox[coordinate]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             _raise_schema_error(coordinate_field, "a number")
+        numeric_value = float(value)
+        if not math.isfinite(numeric_value) or not 0.0 <= numeric_value <= 1.0:
+            _raise_schema_error(coordinate_field, "a finite number from 0 to 1")
+        if coordinate in ("w", "h") and numeric_value <= 0.0:
+            _raise_schema_error(coordinate_field, "greater than 0")
 
 
 def _validate_canonical_item(
@@ -532,10 +539,17 @@ def _validate_canonical_item(
     if collection == "visible_hazards":
         if type(item["severity"]) is not int:
             _raise_schema_error(f"{item_path}.severity", "an integer")
+        if not 1 <= item["severity"] <= 5:
+            _raise_schema_error(f"{item_path}.severity", "from 1 to 5")
 
     confidence = item["confidence"]
     if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
         _raise_schema_error(f"{item_path}.confidence", "a number")
+    if not math.isfinite(float(confidence)) or not 0.0 <= confidence <= 1.0:
+        _raise_schema_error(
+            f"{item_path}.confidence",
+            "a finite number from 0 to 1",
+        )
 
     _validate_bbox_schema(f"{item_path}.bbox", item["bbox"])
 
@@ -559,7 +573,9 @@ def _validate_top_level_schema(data: dict[str, Any]) -> None:
         if any(not isinstance(item, dict) for item in value):
             _raise_schema_error(field, "a list of objects")
 
-    is_legacy = "findings" in data and "visible_hazards" not in data
+    is_legacy = "findings" in data and not any(
+        field in data for field in CANONICAL_MARKER_FIELDS
+    )
     if is_legacy:
         if "room_type" not in data:
             _raise_schema_error("room_type", "present in a legacy response")
@@ -567,23 +583,29 @@ def _validate_top_level_schema(data: dict[str, Any]) -> None:
 
     is_canonical = any(field in data for field in CANONICAL_MARKER_FIELDS)
     if is_canonical:
-        for field in CANONICAL_REQUIRED_FIELDS:
-            if field not in data:
-                _raise_schema_error(field, "present in a canonical response")
-        for index, item in enumerate(data["visible_hazards"]):
+        for observation, value in data.get("observations", {}).items():
+            if value is not None and type(value) is not bool:
+                _raise_schema_error(
+                    f"observations.{observation}",
+                    "a boolean or null",
+                )
+        for index, item in enumerate(data.get("visible_hazards", [])):
             _validate_canonical_item(
                 "visible_hazards",
                 index,
                 item,
                 CANONICAL_HAZARD_FIELDS,
             )
-        for index, item in enumerate(data["missing_safety_features"]):
+        for index, item in enumerate(data.get("missing_safety_features", [])):
             _validate_canonical_item(
                 "missing_safety_features",
                 index,
                 item,
                 CANONICAL_MISSING_FEATURE_FIELDS,
             )
+        for field in CANONICAL_REQUIRED_FIELDS:
+            if field not in data:
+                _raise_schema_error(field, "present in a canonical response")
         return
 
     _raise_schema_error(

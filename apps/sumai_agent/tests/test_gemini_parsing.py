@@ -78,7 +78,7 @@ def test_parse_empty_findings_returns_empty() -> None:
     assert result.findings == []
 
 
-def test_parse_legacy_findings_allows_supplemental_observations() -> None:
+def test_parse_mixed_findings_and_canonical_markers_requires_canonical_shape() -> None:
     raw_json = json.dumps(
         {
             "is_home_environment": True,
@@ -88,11 +88,8 @@ def test_parse_legacy_findings_allows_supplemental_observations() -> None:
         }
     )
 
-    result = parse_vision_json(raw_json, fallback_room="auto")
-
-    assert result.room_type == "hallway"
-    assert result.observations == {"clear_path": True}
-    assert result.visible_hazards == []
+    with pytest.raises(ValueError, match="visible_hazards"):
+        parse_vision_json(raw_json, fallback_room="auto")
 
 
 @pytest.mark.parametrize(
@@ -342,6 +339,166 @@ def test_parse_canonical_missing_feature_rejects_non_schema_values(
 
     with pytest.raises(ValueError, match=field):
         parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize("invalid_value", ["false", 0, 1, []])
+def test_parse_canonical_observations_require_boolean_or_null_values(
+    invalid_value: object,
+) -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {"clear_path": invalid_value},
+        "visible_hazards": [],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match="observations.clear_path"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize("invalid_severity", [0, 6, 1.5])
+def test_parse_canonical_hazard_rejects_severity_outside_integer_domain(
+    invalid_severity: object,
+) -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [
+            {
+                "risk_type": "floor_clutter",
+                "label_ja": "床の物",
+                "description_ja": "通路に物があります。",
+                "severity": invalid_severity,
+                "confidence": 0.8,
+                "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                "evidence_ja": "床に物が見えます。",
+            }
+        ],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match="severity"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    ("collection", "invalid_confidence"),
+    [
+        ("visible_hazards", -0.1),
+        ("visible_hazards", 1.1),
+        ("visible_hazards", float("nan")),
+        ("visible_hazards", float("inf")),
+        ("missing_safety_features", float("-inf")),
+        ("missing_safety_features", 1.1),
+    ],
+)
+def test_parse_canonical_items_reject_confidence_outside_finite_unit_interval(
+    collection: str,
+    invalid_confidence: float,
+) -> None:
+    hazard = {
+        "risk_type": "floor_clutter",
+        "label_ja": "床の物",
+        "description_ja": "通路に物があります。",
+        "severity": 3,
+        "confidence": invalid_confidence,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "床に物が見えます。",
+    }
+    feature = {
+        "feature_key": "has_handrail",
+        "confidence": invalid_confidence,
+        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "evidence_ja": "手すりが確認できません。",
+    }
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [hazard] if collection == "visible_hazards" else [],
+        "missing_safety_features": (
+            [feature] if collection == "missing_safety_features" else []
+        ),
+    }
+
+    with pytest.raises(ValueError, match="confidence"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+@pytest.mark.parametrize(
+    ("coordinate", "invalid_value"),
+    [
+        ("x", -0.1),
+        ("y", 1.1),
+        ("w", 0.0),
+        ("h", 0.0),
+        ("x", float("nan")),
+        ("y", float("inf")),
+        ("w", float("-inf")),
+    ],
+)
+def test_parse_canonical_bbox_rejects_non_finite_or_invalid_domain(
+    coordinate: str,
+    invalid_value: float,
+) -> None:
+    bbox = {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
+    bbox[coordinate] = invalid_value
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {},
+        "visible_hazards": [
+            {
+                "risk_type": "floor_clutter",
+                "label_ja": "床の物",
+                "description_ja": "通路に物があります。",
+                "severity": 3,
+                "confidence": 0.8,
+                "bbox": bbox,
+                "evidence_ja": "床に物が見えます。",
+            }
+        ],
+        "missing_safety_features": [],
+    }
+
+    with pytest.raises(ValueError, match=f"bbox.{coordinate}"):
+        parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+
+def test_parse_canonical_domain_boundaries_and_observation_null_remain_valid() -> None:
+    payload = {
+        "is_home_environment": True,
+        "room_type": "hallway",
+        "observations": {"clear_path": True, "lighting_poor": None},
+        "visible_hazards": [
+            {
+                "risk_type": "floor_clutter",
+                "label_ja": "床の物",
+                "description_ja": "通路に物があります。",
+                "severity": 1,
+                "confidence": 0.0,
+                "bbox": {"x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1},
+                "evidence_ja": "床に物が見えます。",
+            }
+        ],
+        "missing_safety_features": [
+            {
+                "feature_key": "has_handrail",
+                "confidence": 1.0,
+                "bbox": {"x": 0.9, "y": 0.9, "w": 0.1, "h": 0.1},
+                "evidence_ja": "手すりが確認できません。",
+            }
+        ],
+    }
+
+    result = parse_vision_json(json.dumps(payload), fallback_room="auto")
+
+    assert result.visible_hazards[0].severity == 1
+    assert result.visible_hazards[0].confidence == 0.0
+    assert result.missing_safety_features[0].confidence == 1.0
+    assert result.observations == {"clear_path": True, "lighting_poor": None}
 
 
 def test_parse_canonical_empty_lists_remain_valid() -> None:

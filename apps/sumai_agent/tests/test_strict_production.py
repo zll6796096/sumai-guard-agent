@@ -32,6 +32,41 @@ MALFORMED_GEMINI_RESPONSES = [
         ),
         id="empty-visible-hazard",
     ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "findings": [],
+                "missing_safety_features": [{"provider_detail": SENTINEL}],
+            }
+        ),
+        id="mixed-malformed-missing-feature",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "floor_clutter",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 99,
+                        "confidence": 0.8,
+                        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-severity-out-of-domain",
+    ),
 ]
 
 
