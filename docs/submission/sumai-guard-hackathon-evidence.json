@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_jst": "2026-07-12T03:00:58+09:00",
+  "artifact": {
+    "basename": "sumai-guard-hackathon-demo-2026.mp4",
+    "sha256": "d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207",
+    "size_bytes": 7792369,
+    "duration_seconds": 76.049,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "resolution": "1920x1080",
+      "fps": "30/1",
+      "pix_fmt": "yuv420p",
+      "color_range": "tv",
+      "color_space": "bt709",
+      "color_transfer": "bt709",
+      "color_primaries": "bt709"
+    },
+    "audio": {
+      "codec": "aac",
+      "profile": "LC",
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "channel_layout": "stereo",
+      "source_audio_mapped": false,
+      "content": "synthesized narration only"
+    },
+    "loudness_db": {
+      "mean": -20.0,
+      "max": -4.5
+    }
+  },
+  "source": {
+    "sha256": "5771d92ce3e8cdf194afafd2353c2bccee729d78c61888e64c07e6332fb16ed6",
+    "protected_excluded_interval_seconds": [
+      3.3,
+      6.0
+    ],
+    "used_intervals_seconds": [
+      [0, 3],
+      [6, 28],
+      [28, 38],
+      [38, 55]
+    ]
+  },
+  "git": {
+    "branch": "codex/hackathon-submission-video",
+    "commits": {
+      "phase_a_renderer": "b8e8a82c7111d9fd3836e1903d6dce9395e1bf72",
+      "segment_boundary_fix": "7c6a038129c22f6a292760d18b33bb8b815c67ad",
+      "manifest_fix": "5fbc0413daab34c46062599aaca3a711110151cd",
+      "privacy_fix": "1a082ac0deb19c9a300dc9c7b03218e28aae1247",
+      "real_gemini_provenance_fix": "09e022a60cdb75c87cfabe02f12dff5b65545896",
+      "backend_source": "d4334ffb48b22c8cf5a442b5ca1d8900898378fa"
+    },
+    "public_base_before_publication": {
+      "ref": "origin/main",
+      "commit": "016533f6c044f31f597de716c5fda02869605da7",
+      "verified_with_remote_read": true
+    }
+  },
+  "cloud_run_point_in_time": {
+    "observed_at_jst": "2026-07-12T02:56:36+09:00",
+    "agent": {
+      "revision": "sumai-agent-00008-r9s",
+      "image_digest": "sha256:8cca4aabf66990bb19e3d58b19053d1cf2c1988ca211ce9deeea4e20e4205006",
+      "source_commit": "d4334ffb48b22c8cf5a442b5ca1d8900898378fa"
+    },
+    "web": {
+      "revision": "sumai-web-00008-7hc",
+      "image_digest": "sha256:de9793132d211a90efd602529b25abfdb29441f2c1c8f3d9bf5ed9f1c8bbc0b0"
+    },
+    "note": "Read-only snapshot; external Cloud Run state can change after generation."
+  },
+  "real_gemini_smoke": {
+    "revision": "sumai-agent-00008-r9s",
+    "model": "gemini-2.5-flash",
+    "mode": "gemini",
+    "mock_mode": false,
+    "require_real_gemini": true,
+    "fresh_run": {
+      "started_at_jst": "2026-07-12T02:58:28+09:00",
+      "finished_at_jst": "2026-07-12T02:58:55+09:00",
+      "home_analysis_id": "sumai_da51d621a1dd",
+      "non_home_analysis_id": "sumai_0e5633480409",
+      "passed": true
+    },
+    "prior_point_in_time_analysis_ids": {
+      "home": "sumai_b2d3da668d5b",
+      "non_home": "sumai_9d89678e0f6e",
+      "observed_on_jst": "2026-07-12",
+      "note": "Previously verified point-in-time IDs; exact earlier timestamp was not retained."
+    },
+    "note": "Analysis IDs and service configuration are point-in-time evidence and do not guarantee future external state."
+  },
+  "verification": {
+    "backend_tests_passed": 73,
+    "manifest_tests_passed": 10,
+    "renderer_integration_tests_passed": 1,
+    "artifact_verifier_passed": true,
+    "full_decode_passed": true,
+    "source_audio_mapped": false,
+    "dense_audit": {
+      "ephemeral_path": "/tmp/sumai-guard-hackathon-audit-20260712T024756-reencoded",
+      "published": false,
+      "one_fps_frames": 76,
+      "scene_threshold": 0.02,
+      "scene_change_frames": 39,
+      "targeted_interval_seconds": [
+        21,
+        26
+      ],
+      "targeted_step_seconds": 0.2,
+      "targeted_frames": 25,
+      "targeted_decode_method": "full linear decode with trim and fps filters",
+      "vision_ocr_languages": [
+        "ja-JP",
+        "en-US"
+      ],
+      "vision_ocr_rows": 140,
+      "vision_ocr_errors": 0,
+      "private_term_hits": 0,
+      "manual_visual_review_passed": true,
+      "manual_review_scope": "no picker grid, private content, black slices, or clipped approved copy"
+    }
+  },
+  "tool_versions": {
+    "python": "3.14.6",
+    "ffmpeg": "8.1.1",
+    "ffprobe": "8.1.1",
+    "macos": "26.5.1 (25F80)"
+  },
+  "limitations": [
+    "Vision OCR may miss tiny or blurred text.",
+    "External cloud service state can drift after this point-in-time receipt.",
+    "Private audit frames and raw OCR output are intentionally not committed."
+  ]
+}
