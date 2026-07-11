@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.0.0",
-  "generated_at_jst": "2026-07-12T03:00:58+09:00",
+  "schema_version": "1.1.0",
+  "generated_at_jst": "2026-07-12T04:15:20+09:00",
   "artifact": {
     "basename": "sumai-guard-hackathon-demo-2026.mp4",
     "sha256": "d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207",
@@ -45,15 +45,17 @@
     ]
   },
   "git": {
-    "branch": "codex/hackathon-submission-video",
-    "commits": {
+    "local_development_branch": "codex/hackathon-submission-video",
+    "local_development_commits": {
       "phase_a_renderer": "b8e8a82c7111d9fd3836e1903d6dce9395e1bf72",
       "segment_boundary_fix": "7c6a038129c22f6a292760d18b33bb8b815c67ad",
       "manifest_fix": "5fbc0413daab34c46062599aaca3a711110151cd",
       "privacy_fix": "1a082ac0deb19c9a300dc9c7b03218e28aae1247",
       "real_gemini_provenance_fix": "09e022a60cdb75c87cfabe02f12dff5b65545896",
-      "backend_source": "d4334ffb48b22c8cf5a442b5ca1d8900898378fa"
+      "backend_source": "16f616c56646f74f9be918170285aed4136f4dde"
     },
+    "backend_source_tree": "cbf701e2ed1763a6600520981eda5dc3b8e3047d",
+    "publication_strategy": "One privacy-clean squash commit directly on origin/main; local development commits are intentionally not published.",
     "public_base_before_publication": {
       "ref": "origin/main",
       "commit": "016533f6c044f31f597de716c5fda02869605da7",
@@ -61,11 +63,12 @@
     }
   },
   "cloud_run_point_in_time": {
-    "observed_at_jst": "2026-07-12T02:56:36+09:00",
+    "observed_at_jst": "2026-07-12T04:15:20+09:00",
     "agent": {
-      "revision": "sumai-agent-00008-r9s",
-      "image_digest": "sha256:8cca4aabf66990bb19e3d58b19053d1cf2c1988ca211ce9deeea4e20e4205006",
-      "source_commit": "d4334ffb48b22c8cf5a442b5ca1d8900898378fa"
+      "revision": "sumai-agent-00010-t9m",
+      "image_digest": "sha256:861d88300454fe1b281aacdccfa17b44f363933f14bdf55996120634d32f2a69",
+      "source_commit_local": "16f616c56646f74f9be918170285aed4136f4dde",
+      "source_tree": "cbf701e2ed1763a6600520981eda5dc3b8e3047d"
     },
     "web": {
       "revision": "sumai-web-00008-7hc",
@@ -74,16 +77,16 @@
     "note": "Read-only snapshot; external Cloud Run state can change after generation."
   },
   "real_gemini_smoke": {
-    "revision": "sumai-agent-00008-r9s",
+    "revision": "sumai-agent-00010-t9m",
     "model": "gemini-2.5-flash",
     "mode": "gemini",
     "mock_mode": false,
     "require_real_gemini": true,
     "fresh_run": {
-      "started_at_jst": "2026-07-12T02:58:28+09:00",
-      "finished_at_jst": "2026-07-12T02:58:55+09:00",
-      "home_analysis_id": "sumai_da51d621a1dd",
-      "non_home_analysis_id": "sumai_0e5633480409",
+      "started_at_jst": "2026-07-12T04:12:48+09:00",
+      "finished_at_jst": "2026-07-12T04:13:13+09:00",
+      "home_analysis_id": "sumai_b6372f257967",
+      "non_home_analysis_id": "sumai_4f711d1702b6",
       "passed": true
     },
     "prior_point_in_time_analysis_ids": {
@@ -95,9 +98,10 @@
     "note": "Analysis IDs and service configuration are point-in-time evidence and do not guarantee future external state."
   },
   "verification": {
-    "backend_tests_passed": 73,
+    "backend_tests_passed": 160,
     "manifest_tests_passed": 10,
-    "renderer_integration_tests_passed": 1,
+    "renderer_integration_tests_passed": 2,
+    "artifact_verifier_tests_passed": 4,
     "artifact_verifier_passed": true,
     "full_decode_passed": true,
     "source_audio_mapped": false,
