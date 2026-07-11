@@ -12,21 +12,19 @@ Open `http://localhost:8081` (local) or the Cloud Run web URL.
 
 Point out that we are on **Screen 1 (Home / Photo Input)**:
 - Background is a dark navy gradient, looking like a native mobile app.
-- Compact design containing icon, title, subtitle.
-- A compact horizontal 3-step instruction row (1. 写真を撮る -> 2. AIリスク確認 -> 3. 修繕提案を見る).
-- A compact room hint dropdown (defaults to "おまかせ").
-- One line of guidance and a tiny POC disclaimer at the bottom.
+- Compact design containing the app tag and message.
+- A six-place guidance grid: 玄関, 廊下, 浴室, トイレ, 寝室, and キッチン.
+- One line of shooting guidance, separate **カメラで撮影** and **ライブラリから選択** buttons, and a tiny POC disclaimer at the bottom.
 - No debug badges or framework chrome in the normal user view.
 
 ## 2. Take or Select a Photo
 
-Select an optional room hint and click **ライブラリから選択** or **カメラで撮影**.
+Click **ライブラリから選択** or **カメラで撮影** and select one photo.
 
 Mention:
 - Selects the image using native controls (separate camera capture vs library).
-- The app shows a compact visual preview on Screen 1.
-- Click the primary **AIで安全チェック** button.
-- The app transitions immediately to the **Analyzing State** displaying a loading preview and step indicators.
+- Photo selection transitions directly to Screen 2 and starts analysis automatically.
+- The **Analyzing State** displays the selected photo, `写真確認中`, and progress indicators.
 - In a few seconds, it transitions to **Screen 2: Visual Diagnosis Result**.
 
 ## 3. Screen 2: Show Visual Diagnosis Result
@@ -35,8 +33,8 @@ On Screen 2, point out:
 - Simple header showing "診断結果" and a Back button (ホーム).
 - Compact summary at the top showing Overall Risk and number of findings.
 - Exactly two images are stacked vertically:
-  - First: 現状写真 (with red boxes and R1/R2/R3 labels).
-  - Second: 改善イメージ (improvement-only image, NOT side-by-side).
+  - First: 危険提示 (with red boxes and R1/R2/R3 labels).
+  - Second: 改善イメージ (improvement-only image shown below the first image).
 - Click the primary CTA: **点検・修繕提案を見る** to navigate to Screen 3.
 
 ## 4. Screen 3: Show Action Suggestions
@@ -66,10 +64,9 @@ On Screen 3, point out:
    - Point out that this badge is completely hidden for normal users.
 
 ### Non-Home Environment Demo
-1. Upload a non-home image (e.g., food, outdoor, animal, document) or generate a solid blue color.
-2. Click **AIで安全チェック**.
-3. Point out that the AI correctly identifies it as a non-home environment (`is_home_environment: false` in the debug panel).
-4. View Screen 2:
+1. Select a non-home image (e.g., food, outdoor, animal, document) or generate a solid blue color; analysis starts automatically.
+2. Point out that the AI correctly identifies it as a non-home environment (`is_home_environment: false` in the debug panel).
+3. View Screen 2:
    - Notice that the image cards are hidden.
    - A warning box is displayed: `住宅内の安全確認対象ではない可能性があります。`
    - Overall risk level is `low` (低) and finding count is `0件`.

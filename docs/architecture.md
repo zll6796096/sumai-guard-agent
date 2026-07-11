@@ -19,7 +19,7 @@ flowchart LR
 ## Services
 
 - `sumai-agent`: FastAPI AI agent. It receives one image, sanitizes it (EXIF strip, resize), gets visible-risk candidates from Gemini or mock mode, applies deterministic action-tier rules, renders red boxes and improvement overlays, and returns JSON with structured analysis.
-- `sumai-web`: FastAPI web service serving an embedded HTML/CSS/vanilla JavaScript frontend. It keeps the Japanese user flow simple: upload or take one photo, choose an optional room hint, analyze, review risk boxes, and repeat after improvements. A hidden `?debug=1` panel can show the analysis mode, model, and backend response details during verification.
+- `sumai-web`: FastAPI web service serving an embedded HTML/CSS/vanilla JavaScript frontend. It keeps the Japanese user flow simple: use the six-place grid as capture guidance, upload or take one photo, begin analysis immediately, review risk boxes, and repeat after improvements. The frontend submits the room hint as `auto`. A hidden `?debug=1` panel can show the analysis mode, model, and backend response details during verification.
 
 ## Local Ports
 
