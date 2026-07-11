@@ -393,6 +393,39 @@ def video_encode_args() -> list[str]:
     ]
 
 
+def compose_final(segment_paths: list[Path], output: Path) -> None:
+    if not segment_paths:
+        raise SystemExit("no rendered segments to compose")
+    input_args = [argument for path in segment_paths for argument in ("-i", str(path))]
+    concat_inputs = "".join(
+        f"[{index}:v:0][{index}:a:0]" for index in range(len(segment_paths))
+    )
+    graph = (
+        f"{concat_inputs}concat=n={len(segment_paths)}:v=1:a=1[joinedv][outa];"
+        f"[joinedv]{BT709_LIMITED_FILTER}[outv]"
+    )
+    temporary = output.with_name(f"{output.stem}-rendering{output.suffix}")
+    run(
+        [
+            "ffmpeg",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            *input_args,
+            "-filter_complex",
+            graph,
+            "-map",
+            "[outv]",
+            "-map",
+            "[outa]",
+            *video_encode_args(),
+            str(temporary),
+        ]
+    )
+    shutil.move(temporary, output)
+
+
 def render_segment(
     segment: dict[str, object],
     frame: Path,
@@ -498,35 +531,7 @@ def main() -> None:
         segment_paths.append(video)
 
     ensure_compatible_segments(segment_paths)
-    concat = WORK / "concat.txt"
-    concat.write_text(
-        "".join(f"file '{path.as_posix()}'\n" for path in segment_paths),
-        encoding="utf-8",
-    )
-    temporary = FINAL_PATH.with_name(f"{FINAL_PATH.stem}-rendering.mp4")
-    run(
-        [
-            "ffmpeg",
-            "-y",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(concat),
-            "-c",
-            "copy",
-            "-map_metadata",
-            "-1",
-            "-movflags",
-            "+faststart",
-            str(temporary),
-        ]
-    )
-    shutil.move(temporary, FINAL_PATH)
+    compose_final(segment_paths, FINAL_PATH)
     print(f"rendered: {FINAL_PATH}")
 
 

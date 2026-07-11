@@ -79,6 +79,7 @@ These claims must be rechecked immediately before upload. If any claim changes, 
 - Preserve visual evidence that analysis takes time; accelerate the wait visibly rather than deleting all processing state.
 - Keep the Gemini/Cloud Run claim conditional on a fresh pre-upload smoke test.
 - Keep all generated media outside Git to avoid committing large binaries.
+- Join rendered segments with the concat filter and one final H.264/AAC encode; concat-demuxer stream copy can corrupt frames at B-frame/GOP timestamp boundaries even when segment signatures match.
 - Use YouTube unlisted visibility initially so the ProtoPedia embed is accessible without exposing the video through channel search. Public visibility can be chosen later if explicitly desired.
 
 ## 9. Acceptance criteria

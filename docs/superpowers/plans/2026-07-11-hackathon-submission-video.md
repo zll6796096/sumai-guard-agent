@@ -4,7 +4,7 @@
 
 **Goal:** Generate and verify a 70–80 second Japanese YouTube-ready SumaiGuard hackathon demo from the user's real iPhone recording.
 
-**Architecture:** Keep product code untouched. Store a small reproducible media manifest and renderer under scripts/submission, render all large intermediates and the MP4 under the user's Movies folder, and use ffmpeg/ffprobe plus the live smoke test as acceptance evidence.
+**Architecture:** Keep product code untouched. Store a small reproducible media manifest and renderer under scripts/submission, render all large intermediates and the MP4 under the user's Movies folder, compose segments with ffmpeg's concat filter and a final H.264/AAC encode, and use ffmpeg/ffprobe plus the live smoke test as acceptance evidence.
 
 **Tech Stack:** Python 3.13, Pillow, macOS say with the Kyoko Japanese voice, ffmpeg/ffprobe, pytest, Cloud Run, Gemini 2.5 Flash.
 
@@ -14,7 +14,7 @@
 
 - Create: scripts/submission/video_manifest.py — approved timeline, source spans, narration, visible claims, and stable output paths.
 - Create: scripts/submission/test_video_manifest.py — duration, source-span, scope-boundary, and output-path tests.
-- Create: scripts/submission/render_hackathon_video.py — title/panel rendering, Kyoko narration synthesis, ffmpeg segment composition, and final concatenation.
+- Create: scripts/submission/render_hackathon_video.py — title/panel rendering, Kyoko narration synthesis, ffmpeg segment composition, and concat-filter final re-encoding.
 - Create: scripts/submission/verify_hackathon_video.py — ffprobe assertions, loudness check, contact-sheet generation, and secret-text guard.
 - Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4 — stable copy of the temporary Photos source.
 - Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/ — generated cards, narration, segments, and contact sheet.
@@ -427,24 +427,16 @@ def main() -> None:
         render_segment(segment, frame, audio, video)
         segments.append(video)
 
-    concat = WORK / "concat.txt"
-    concat.write_text(
-        "".join(f"file '{path.as_posix()}'\n" for path in segments),
-        encoding="utf-8",
-    )
-    temporary = FINAL_PATH.with_name(FINAL_PATH.stem + "-rendering.mp4")
-    run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-f", "concat", "-safe", "0", "-i", str(concat),
-        "-c", "copy", "-movflags", "+faststart", str(temporary),
-    ])
-    shutil.move(temporary, FINAL_PATH)
+    ensure_compatible_segments(segments)
+    compose_final(segments, FINAL_PATH)
     print(f"rendered: {FINAL_PATH}")
 
 
 if __name__ == "__main__":
     main()
 ~~~
+
+`compose_final` opens every segment as a separate input, joins video and audio with the concat filter, and performs one final H.264/AAC encode. This avoids the B-frame/GOP timestamp-boundary corruption observed with concat-demuxer stream copy.
 
 - [ ] **Step 3: Run the renderer**
 
