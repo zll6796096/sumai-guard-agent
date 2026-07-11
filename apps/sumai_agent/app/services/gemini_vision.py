@@ -32,6 +32,91 @@ VALID_OBSERVATION_KEYS: frozenset[str] = frozenset(
 )
 
 
+def _bbox_response_json_schema() -> dict[str, Any]:
+    coordinate = {"type": "number", "minimum": 0, "maximum": 1}
+    positive_extent = {"type": "number", "minimum": 0.000001, "maximum": 1}
+    return {
+        "type": "object",
+        "properties": {
+            "x": coordinate,
+            "y": coordinate,
+            "w": positive_extent,
+            "h": positive_extent,
+        },
+        "required": ["x", "y", "w", "h"],
+        "additionalProperties": False,
+    }
+
+
+GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "is_home_environment": {"type": "boolean"},
+        "room_type": {"type": "string", "enum": sorted(VALID_ROOMS)},
+        "observations": {
+            "type": "object",
+            "properties": {
+                key: {"anyOf": [{"type": "boolean"}, {"type": "null"}]}
+                for key in sorted(VALID_OBSERVATION_KEYS)
+            },
+            # Empty and partial observations are intentionally valid when the
+            # photo does not show enough of the relevant room area.
+            "additionalProperties": False,
+        },
+        "visible_hazards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "risk_type": {"type": "string"},
+                    "label_ja": {"type": "string"},
+                    "description_ja": {"type": "string"},
+                    "severity": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "bbox": _bbox_response_json_schema(),
+                    "evidence_ja": {"type": "string"},
+                },
+                "required": [
+                    "risk_type",
+                    "label_ja",
+                    "description_ja",
+                    "severity",
+                    "confidence",
+                    "bbox",
+                    "evidence_ja",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "missing_safety_features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "feature_key": {"type": "string"},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "bbox": _bbox_response_json_schema(),
+                    "evidence_ja": {"type": "string"},
+                },
+                "required": ["feature_key", "confidence", "bbox", "evidence_ja"],
+                "additionalProperties": False,
+            },
+        },
+        "not_applicable_reason_ja": {
+            "anyOf": [{"type": "string"}, {"type": "null"}]
+        },
+    },
+    "required": [
+        "is_home_environment",
+        "room_type",
+        "observations",
+        "visible_hazards",
+        "missing_safety_features",
+    ],
+    "additionalProperties": False,
+}
+
+
 VISION_PROMPT = """You are a Japanese elderly home safety risk assessor.
 Analyze one photo for general elderly fall/slip/trip risks visible in the image.
 Do not ask user profile questions.
@@ -43,45 +128,6 @@ Safety Boundary Guidelines:
 4. Do not mark normal furniture as a risk unless it visibly blocks walking, transfer, standing, bathing, toilet use, or floor movement.
 5. Correct the room_type if the image clearly shows another room than room_hint.
 
-Output strict JSON only using this shape:
-{
-  "is_home_environment": true,
-  "room_type": "genkan|hallway|bathroom|toilet|bedroom|kitchen|auto",
-  "observations": {
-    "has_handrail": true/false/null,
-    "has_emergency_call_button": true/false/null,
-    "has_non_slip_floor_or_mat": true/false/null,
-    "has_bath_transfer_support": true/false/null,
-    "has_floor_clutter": true/false/null,
-    "has_loose_mat": true/false/null,
-    "has_visible_threshold": true/false/null,
-    "looks_slippery_floor": true/false/null,
-    "lighting_poor": true/false/null,
-    "space_looks_narrow": true/false/null,
-    "clear_path": true/false/null
-  },
-  "visible_hazards": [
-    {
-      "risk_type": "string",
-      "label_ja": "string",
-      "description_ja": "string",
-      "severity": 1,
-      "confidence": 0.0,
-      "bbox": {"x":0.0,"y":0.0,"w":0.0,"h":0.0},
-      "evidence_ja": "string"
-    }
-  ],
-  "missing_safety_features": [
-    {
-      "feature_key": "has_handrail",
-      "confidence": 0.0,
-      "bbox": {"x":0.0,"y":0.0,"w":0.0,"h":0.0},
-      "evidence_ja": "写真内に手すりが確認できません。"
-    }
-  ],
-  "not_applicable_reason_ja": null
-}
-
 Observations Rules:
 - true means feature is visible.
 - false means feature is not visible in the relevant room area.
@@ -89,7 +135,7 @@ Observations Rules:
 - Do not treat null as strong missing risk.
 - Do not invent objects.
 - Do not claim legal violation. Use "確認できません", "可能性があります", "相談候補です", "専門確認が必要です". Never say "違反", "必須".
-Each item in visible_hazards and missing_safety_features must include normalized bbox x,y,w,h from 0 to 1.
+- For every reported hazard or missing safety feature, tightly bound the visible evidence in its bbox. Do not use the full image as a generic bbox.
 """
 
 
@@ -253,7 +299,10 @@ class GeminiVisionService:
                 prompt,
                 types.Part.from_bytes(data=image_png, mime_type="image/png"),
             ],
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=GEMINI_RESPONSE_JSON_SCHEMA,
+            ),
         )
         return parse_vision_json(response.text or "", fallback_room=room_hint)
 

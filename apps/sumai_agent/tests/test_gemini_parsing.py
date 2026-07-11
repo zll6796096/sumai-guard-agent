@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest
 
 from app.services.gemini_vision import (
+    GEMINI_RESPONSE_JSON_SCHEMA,
     GeminiVisionService,
+    VISION_PROMPT,
     _normalize_bbox,
     mock_vision_result,
     parse_vision_json,
@@ -739,6 +741,107 @@ def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None
     ):
         with pytest.raises(ValueError, match="Gemini response"):
             asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
+
+
+def test_call_gemini_passes_canonical_response_json_schema() -> None:
+    captured: dict[str, object] = {}
+
+    def generate_content(**kwargs: object) -> SimpleNamespace:
+        captured.update(kwargs)
+        return SimpleNamespace(
+            text=json.dumps(
+                {
+                    "is_home_environment": True,
+                    "room_type": "hallway",
+                    "observations": {},
+                    "visible_hazards": [],
+                    "missing_safety_features": [],
+                }
+            )
+        )
+
+    client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
+    google_module = ModuleType("google")
+    genai_module = ModuleType("google.genai")
+    types_module = ModuleType("google.genai.types")
+    genai_module.Client = lambda **_kwargs: client  # type: ignore[attr-defined]
+    types_module.Part = SimpleNamespace(  # type: ignore[attr-defined]
+        from_bytes=lambda **_kwargs: object()
+    )
+    types_module.GenerateContentConfig = (  # type: ignore[attr-defined]
+        lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    google_module.genai = genai_module  # type: ignore[attr-defined]
+    genai_module.types = types_module  # type: ignore[attr-defined]
+
+    with patch.dict(
+        sys.modules,
+        {
+            "google": google_module,
+            "google.genai": genai_module,
+            "google.genai.types": types_module,
+        },
+    ):
+        asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
+
+    config = captured["config"]
+    assert config.response_mime_type == "application/json"
+    assert config.response_json_schema is GEMINI_RESPONSE_JSON_SCHEMA
+
+    schema = config.response_json_schema
+    assert schema["required"] == [
+        "is_home_environment",
+        "room_type",
+        "observations",
+        "visible_hazards",
+        "missing_safety_features",
+    ]
+    assert schema["properties"]["room_type"]["enum"] == sorted(
+        {
+            "genkan",
+            "hallway",
+            "bathroom",
+            "toilet",
+            "bedroom",
+            "kitchen",
+            "auto",
+        }
+    )
+    assert schema["properties"]["observations"]["additionalProperties"] is False
+    hazard_schema = schema["properties"]["visible_hazards"]["items"]
+    assert hazard_schema["required"] == [
+        "risk_type",
+        "label_ja",
+        "description_ja",
+        "severity",
+        "confidence",
+        "bbox",
+        "evidence_ja",
+    ]
+    missing_schema = schema["properties"]["missing_safety_features"]["items"]
+    assert missing_schema["required"] == [
+        "feature_key",
+        "confidence",
+        "bbox",
+        "evidence_ja",
+    ]
+    for item_schema in (hazard_schema, missing_schema):
+        bbox_schema = item_schema["properties"]["bbox"]
+        assert bbox_schema["required"] == ["x", "y", "w", "h"]
+        assert bbox_schema["properties"]["w"]["minimum"] > 0
+        assert bbox_schema["properties"]["h"]["minimum"] > 0
+        assert bbox_schema["properties"]["x"]["minimum"] == 0
+        assert bbox_schema["properties"]["x"]["maximum"] == 1
+
+
+def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None:
+    assert "If the photo is NOT a home/residential interior" in VISION_PROMPT
+    assert "Do not invent objects" in VISION_PROMPT
+    assert '"visible_hazards"' not in VISION_PROMPT
+    assert '"missing_safety_features"' not in VISION_PROMPT
+    assert "Output strict JSON only using this shape" not in VISION_PROMPT
 
 
 def test_bbox_1000_range_normalization() -> None:
