@@ -472,6 +472,7 @@ Create scripts/submission/verify_hackathon_video.py with:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -479,7 +480,8 @@ from pathlib import Path
 from video_manifest import FINAL_PATH, WORK
 
 RENDERER = Path(__file__).with_name("render_hackathon_video.py")
-PROHIBITED = ("GEMINI_API_KEY", "zll6796096@gmail.com", "key.json")
+PROHIBITED_UI_TERMS = ("GEMINI_API_KEY", "key.json")
+EXTRA_PROHIBITED_TERMS_ENV = "SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS"
 
 
 def capture(args: list[str]) -> str:
@@ -533,7 +535,12 @@ def main() -> None:
     print(f"PASS loudness mean={mean_db:.1f}dB max={max_db:.1f}dB")
 
     scan_text = RENDERER.read_text(encoding="utf-8") + probe_text
-    for term in PROHIBITED:
+    extra_terms = tuple(
+        term.strip()
+        for term in os.environ.get(EXTRA_PROHIBITED_TERMS_ENV, "").splitlines()
+        if term.strip()
+    )
+    for term in (*PROHIBITED_UI_TERMS, *extra_terms):
         assert term not in scan_text, term
     print("PASS prohibited-text scan")
 
@@ -584,6 +591,8 @@ contact sheet: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/contac
 ~~~
 
 The committed verifier remains a coarse artifact gate. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git.
+
+Personal or release-specific scan terms must not be committed. Supply them only at verification time as newline-separated values in `SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS`; the verifier combines those values with its generic UI guard terms.
 
 - [ ] **Step 3: Visually inspect the contact sheet and three review frames**
 

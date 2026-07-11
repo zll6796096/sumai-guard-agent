@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -11,7 +12,8 @@ from video_manifest import FINAL_PATH, WORK
 
 RENDERER = Path(__file__).with_name("render_hackathon_video.py")
 MANIFEST = Path(__file__).with_name("video_manifest.py")
-PROHIBITED = ("GEMINI_API_KEY", "zll6796096@gmail.com", "key.json")
+PROHIBITED_UI_TERMS = ("GEMINI_API_KEY", "key.json")
+EXTRA_PROHIBITED_TERMS_ENV = "SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS"
 
 
 def run_capture(args: list[str], *, output: str) -> str:
@@ -152,14 +154,19 @@ def verify_loudness() -> None:
     print(f"PASS loudness mean={mean_db:.1f}dB max={max_db:.1f}dB")
 
 
-def verify_prohibited_text(probe_text: str) -> None:
+def verify_prohibited_text(
+    probe_text: str,
+    *,
+    extra_terms: tuple[str, ...] = (),
+) -> None:
     sources = (RENDERER, MANIFEST)
     missing = [path for path in sources if not path.exists()]
     if missing:
         raise SystemExit(f"missing source for prohibited-text scan: {missing}")
     source_text = "\n".join(path.read_text(encoding="utf-8") for path in sources)
     scan_text = f"{source_text}\n{probe_text}"
-    matches = [term for term in PROHIBITED if term in scan_text]
+    prohibited_terms = (*PROHIBITED_UI_TERMS, *extra_terms)
+    matches = [term for term in prohibited_terms if term and term in scan_text]
     require(
         not matches,
         (
@@ -168,6 +175,14 @@ def verify_prohibited_text(probe_text: str) -> None:
         ),
     )
     print("PASS prohibited-text scan")
+
+
+def runtime_extra_prohibited_terms() -> tuple[str, ...]:
+    return tuple(
+        term.strip()
+        for term in os.environ.get(EXTRA_PROHIBITED_TERMS_ENV, "").splitlines()
+        if term.strip()
+    )
 
 
 def verify_image_asset(path: Path, expected_size: tuple[int, int]) -> None:
@@ -270,7 +285,10 @@ def main() -> None:
     probe, probe_text = probe_final()
     verify_media_contract(probe)
     verify_loudness()
-    verify_prohibited_text(probe_text)
+    verify_prohibited_text(
+        probe_text,
+        extra_terms=runtime_extra_prohibited_terms(),
+    )
     contact, *review_frames = generate_review_assets()
     print(f"contact sheet: {contact}")
     for frame in review_frames:
