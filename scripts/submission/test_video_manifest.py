@@ -93,7 +93,7 @@ FORBIDDEN_LOCAL_LITERALS = (
     ("Photos provider path component", b"NSItem" + b"Provider"),
 )
 MACOS_USER_PATH = re.compile(
-    rb"/Users" + rb"/(?!<)[^/\x00\s]+(?:/|$)"
+    rb"/Users" + rb"/(?!<)[^/\x00\s]+"
 )
 UUID_SHAPE = re.compile(
     rb"(?<![0-9a-fA-F])"
@@ -282,3 +282,17 @@ def test_uuid_shape_detector_does_not_need_a_real_identifier() -> None:
     assert tracked_blob_privacy_markers(synthetic_uuid) == [
         "UUID-shaped identifier"
     ]
+
+
+def test_macos_user_path_detector_handles_prose_and_safe_placeholder() -> None:
+    user_path_prefix = b"/Users" + b"/"
+
+    assert tracked_blob_privacy_markers(
+        user_path_prefix + b"alice is a local path"
+    ) == ["macOS user path"]
+    assert tracked_blob_privacy_markers(
+        b"(" + user_path_prefix + b"alice), then continue"
+    ) == ["macOS user path"]
+    assert tracked_blob_privacy_markers(
+        user_path_prefix + b"<username>/Movies/demo.mp4"
+    ) == []
