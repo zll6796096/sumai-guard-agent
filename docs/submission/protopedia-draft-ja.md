@@ -6,7 +6,7 @@
 
 - **作品タイトル**: 親の家 安全チェックAI：1枚の写真から転倒リスクと次の行動を整理
 - **ステータス**: 開発中（動作する POC / Cloud Run 公開デモ）
-- **ひとこと概要**: 写真1枚から見える転倒リスクを赤枠化し、家族・福祉用具・専門施工の3段階へ整理するAIエージェント。
+- **ひとこと概要**: 写真1枚から見える転倒リスクを赤枠で可視化し、家族・福祉用具・専門施工の3段階へ整理するAIエージェント。
 - **カテゴリ候補**: アプリケーション / データサイエンス・AI・BOT
 - **関連イベント**: DevOps × AI Agent Hackathon 最新ツールでAIエージェント開発を体験しよう（2026）
 - **公開範囲**: 一般公開
@@ -14,7 +14,7 @@
 
 ## タグ
 
-`findy_hackathon` `AI` `生成AI` `AIエージェント` `Gemini` `GoogleCloud` `CloudRun` `FastAPI` `Gradio` `Python` `高齢者住宅` `転倒予防`
+`findy_hackathon` `AI` `生成AI` `AIエージェント` `Gemini` `GoogleCloud` `CloudRun` `FastAPI` `HTML` `JavaScript` `Python` `高齢者住宅` `転倒予防`
 
 必須タグ `findy_hackathon` は表記を変えずに登録します。
 
@@ -24,7 +24,7 @@
 - Gemini 2.5 Flash（Gemini API）
 - Python
 - FastAPI
-- Gradio
+- HTML / CSS / Vanilla JavaScript
 - Pydantic
 - Pillow
 - Docker / Docker Compose
@@ -56,7 +56,7 @@
    高齢者本人の年齢、病歴、介護度、転倒歴などを尋ねず、室内写真と任意の部屋ヒントだけで点検を始めます。
 
 2. **見える根拠を可視化**
-   写真で確認できる危険候補を赤枠と R1 / R2 / R3 のラベルで示し、根拠を慎重な日本語で説明します。写真が住宅内部でない場合や、明確な危険を確認できない場合も扱います。
+   写真で確認できる危険候補を赤枠と日本語ラベルで示し、根拠を慎重な日本語で説明します。写真が住宅内部でない場合や、明確な危険を確認できない場合も扱います。
 
 3. **AI抽出と行動判断を分離**
    Gemini は写真から見える候補の抽出を担当します。返却 JSON は Pydantic スキーマで検証し、その後の行動区分は決定論ルールが担当します。Gemini が「家族でできること」「福祉用具の相談」「専門施工」の境界を上書きしない設計です。
@@ -71,7 +71,7 @@
 
 ## AIエージェントと技術構成
 
-ブラウザから Cloud Run 上の `sumai-web`（Gradio）へ写真を送り、`sumai-agent`（FastAPI）が次の処理を順に実行します。
+ブラウザから Cloud Run 上の `sumai-web`（FastAPI が配信する HTML / CSS / Vanilla JavaScript UI）へ写真を送り、`sumai-agent`（FastAPI）が次の処理を順に実行します。
 
 1. 画像をメモリ上で読み込み、EXIF 除去、向き補正、RGB 化、最大 1600 px への縮小を実施
 2. Gemini 2.5 Flash が住宅内部かを確認し、写真で見える危険候補と正規化座標を構造化 JSON で抽出
@@ -105,8 +105,9 @@
 ## システム構成画像
 
 - **ファイル**: `docs/submission/assets/sumai-guard-architecture.png`
+- **編集可能な原本**: `docs/submission/assets/sumai-guard-architecture.svg`
 - **サイズ**: 1920×1080
-- **説明文**: Browser → Cloud Run（sumai-web / sumai-agent）→ EXIF除去・リサイズ → Gemini 2.5 Flash → Pydantic スキーマ検証 → 決定論ルール → 赤枠画像・レポート、という責務分離を示しています。
+- **説明文**: Browser → Cloud Run（FastAPI + HTML / JavaScript の sumai-web、FastAPI の sumai-agent）→ EXIF除去・リサイズ → Gemini 2.5 Flash → Pydantic スキーマ検証 → 決定論ルール → 赤枠画像・レポート、という責務分離を示しています。
 
 ## 掲載画像候補
 
@@ -114,10 +115,39 @@
 |---|---|---|---:|
 | 1 | `docs/submission/assets/01-photo-input.png` | 質問票なし、写真1枚から始める入力画面 | 17.5 秒 |
 | 2 | `docs/submission/assets/02-real-gemini-analysis.png` | Cloud Run × Gemini 2.5 Flash の分析状態 | 27.2 秒 |
-| 3 | `docs/submission/assets/03-visible-risk-result.png` | 赤枠と根拠説明による可視化 | 36.0 秒 |
+| 3 | `docs/submission/assets/03-visible-risk-result.png` | 赤枠と根拠説明による可視化 | 31.5 秒 |
 | 4 | `docs/submission/assets/04-action-tiers.png` | 決定論ルールによる3段階の次の行動 | 51.5 秒 |
 
 4枚はいずれも、SHA-256 が `d55207a2…6207` の最終成片から 1920×1080 のまま抽出しています。
+
+## 素材の再生成
+
+システム構成 PNG は、編集可能な SVG 原本を macOS 標準の `sips` で描画し、Pillow で変換時のメタデータを除去して再生成できます。
+
+```bash
+TMP_PNG=/tmp/sumai-guard-architecture-render.png
+rm -f "$TMP_PNG"
+sips -s format png docs/submission/assets/sumai-guard-architecture.svg --out "$TMP_PNG"
+
+python - "$TMP_PNG" docs/submission/assets/sumai-guard-architecture.png <<'PY'
+import sys
+from PIL import Image
+
+with Image.open(sys.argv[1]) as image:
+    image.convert("RGBA").save(sys.argv[2], format="PNG", optimize=True)
+PY
+```
+
+掲載画像は、SHA-256 が `d55207a29593cac08d85411fd8a0222f9bd673a382e3bb32545f87ed338b6207` の成片を 30 fps でデコードし、次のフレーム番号から抽出しています。
+
+```bash
+VIDEO=/Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+
+ffmpeg -i "$VIDEO" -vf "select='eq(n,525)'"  -vsync 0 -frames:v 1 docs/submission/assets/01-photo-input.png
+ffmpeg -i "$VIDEO" -vf "select='eq(n,816)'"  -vsync 0 -frames:v 1 docs/submission/assets/02-real-gemini-analysis.png
+ffmpeg -i "$VIDEO" -vf "select='eq(n,945)'"  -vsync 0 -frames:v 1 docs/submission/assets/03-visible-risk-result.png
+ffmpeg -i "$VIDEO" -vf "select='eq(n,1545)'" -vsync 0 -frames:v 1 docs/submission/assets/04-action-tiers.png
+```
 
 ## 免責・制約
 
