@@ -1,14 +1,184 @@
 from __future__ import annotations
 
 import io
+import json
+import logging
 from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from app.main import app
 from app.config import Settings
 from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
+from app.services.gemini_vision import parse_vision_json
 from app.services.rule_engine import RuleEngine
+
+
+SENTINEL = "SECRET_PROVIDER_DETAIL_12345"
+HUGE_INTEGER = 10**400
+
+MALFORMED_GEMINI_RESPONSES = [
+    pytest.param(json.dumps({"provider_detail": SENTINEL}), id="empty-response-shape"),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [{"provider_detail": SENTINEL}],
+                "missing_safety_features": [],
+            }
+        ),
+        id="empty-visible-hazard",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "findings": [],
+                "missing_safety_features": [{"provider_detail": SENTINEL}],
+            }
+        ),
+        id="mixed-malformed-missing-feature",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "cluttered_path",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 99,
+                        "confidence": 0.8,
+                        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-severity-out-of-domain",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": SENTINEL,
+                "observations": {},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-room-out-of-domain",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": False,
+                "room_type": "auto",
+                "observations": {},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+                "not_applicable_reason_ja": {"provider_detail": SENTINEL},
+            }
+        ),
+        id="canonical-reason-wrong-type",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "cluttered_path",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": 0.8,
+                        "bbox": {"x": 0.9, "y": 0.2, "w": 0.2, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-bbox-exceeds-image",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "cluttered_path",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": HUGE_INTEGER,
+                        "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-huge-confidence",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {},
+                "visible_hazards": [
+                    {
+                        "risk_type": "cluttered_path",
+                        "label_ja": "床の物",
+                        "description_ja": "通路に物があります。",
+                        "severity": 3,
+                        "confidence": 0.8,
+                        "bbox": {"x": HUGE_INTEGER, "y": 0.2, "w": 0.3, "h": 0.4},
+                        "evidence_ja": "床に物が見えます。",
+                        "provider_detail": SENTINEL,
+                    }
+                ],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-huge-bbox",
+    ),
+    pytest.param(
+        json.dumps(
+            {
+                "is_home_environment": True,
+                "room_type": "hallway",
+                "observations": {SENTINEL: True},
+                "visible_hazards": [],
+                "missing_safety_features": [],
+            }
+        ),
+        id="canonical-provider-observation-key",
+    ),
+]
+
+
+def _captured_log_details(caplog: pytest.LogCaptureFixture) -> str:
+    return "\n".join(repr(record.__dict__) for record in caplog.records)
 
 
 def _create_mock_image() -> bytes:
@@ -50,6 +220,153 @@ def test_strict_mode_without_api_key() -> None:
         data = response.json()
         assert data["error"] == "gemini_unavailable"
         assert "unavailable" in data["message"]
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+@pytest.mark.parametrize("raw_json", MALFORMED_GEMINI_RESPONSES)
+def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    raw_json: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+
+    async def parse_provider_response(*_args: object, **_kwargs: object) -> VisionResult:
+        return parse_vision_json(raw_json, fallback_room="auto")
+
+    mock_call_gemini.side_effect = parse_provider_response
+    new_settings = Settings(
+        require_real_gemini=True,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "auto", "mock": "false"},
+        )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": "gemini_unavailable",
+        "message": "Real Gemini analysis is required but unavailable.",
+    }
+    assert SENTINEL not in response.text
+    assert str(HUGE_INTEGER) not in response.text
+    log_details = _captured_log_details(caplog)
+    assert SENTINEL not in log_details
+    assert str(HUGE_INTEGER) not in log_details
+    assert "invalid_response" in log_details
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+@pytest.mark.parametrize("raw_json", MALFORMED_GEMINI_RESPONSES)
+def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
+    mock_call_gemini: AsyncMock,
+    raw_json: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+
+    async def parse_provider_response(*_args: object, **_kwargs: object) -> VisionResult:
+        return parse_vision_json(raw_json, fallback_room="auto")
+
+    mock_call_gemini.side_effect = parse_provider_response
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "bathroom", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "gemini_fallback(invalid_response)"
+    assert SENTINEL not in response.text
+    assert str(HUGE_INTEGER) not in response.text
+    log_details = _captured_log_details(caplog)
+    assert SENTINEL not in log_details
+    assert str(HUGE_INTEGER) not in log_details
+    assert data["room_type"] == "bathroom"
+    assert [finding["risk_type"] for finding in data["findings"]] == [
+        "bathroom_missing_handrail",
+        "bathroom_missing_non_slip",
+        "bathroom_missing_transfer_support",
+        "bathroom_slip",
+        "bathtub_stepover",
+    ]
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_non_strict_provider_error_uses_stable_code_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = RuntimeError(f"Provider failed: {SENTINEL}")
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "hallway", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "gemini_fallback(provider_error)"
+    assert SENTINEL not in response.text
+    assert SENTINEL not in _captured_log_details(caplog)
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_non_strict_timeout_uses_stable_code_without_detail_leakage(
+    mock_call_gemini: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.gemini_vision")
+    mock_call_gemini.side_effect = TimeoutError(f"Timed out: {SENTINEL}")
+    new_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", new_settings), \
+         patch("app.services.gemini_vision.settings", new_settings), \
+         patch("app.config.settings", new_settings):
+        client = TestClient(app)
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", _create_mock_image(), "image/png")},
+            data={"room_hint": "hallway", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "gemini_fallback(gemini_timeout)"
+    assert SENTINEL not in response.text
+    assert SENTINEL not in _captured_log_details(caplog)
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")

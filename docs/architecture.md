@@ -4,7 +4,7 @@ SumaiGuard Agent is a two-service application for preventive elderly home safety
 
 ```mermaid
 flowchart LR
-    Browser[Browser] --> Web[sumai-web<br/>Gradio]
+    Browser[Browser] --> Web[sumai-web<br/>FastAPI + embedded HTML/CSS/JS]
     Web --> Agent[sumai-agent<br/>FastAPI]
     Agent --> Intake[image intake<br/>EXIF strip + resize]
     Intake --> Vision[Gemini/mock vision]
@@ -19,7 +19,7 @@ flowchart LR
 ## Services
 
 - `sumai-agent`: FastAPI AI agent. It receives one image, sanitizes it (EXIF strip, resize), gets visible-risk candidates from Gemini or mock mode, applies deterministic action-tier rules, renders red boxes and improvement overlays, and returns JSON with structured analysis.
-- `sumai-web`: Gradio frontend. It keeps the Japanese user flow simple: upload or take one photo, choose an optional room hint, analyze, review risk boxes, and repeat after improvements. Shows mode badge (MOCK/GEMINI) and backend connection status.
+- `sumai-web`: FastAPI web service serving an embedded HTML/CSS/vanilla JavaScript frontend. It keeps the Japanese user flow simple: use the six-place grid as capture guidance, upload or take one photo, begin analysis immediately, review risk boxes, and repeat after improvements. The frontend submits the room hint as `auto`. A hidden `?debug=1` panel can show the analysis mode, model, and backend response details during verification.
 
 ## Local Ports
 
@@ -40,7 +40,7 @@ flowchart LR
 Both services are deployed to Cloud Run in `asia-northeast1`:
 
 - `sumai-agent`: Processes images, calls Gemini API, applies rules.
-- `sumai-web`: Serves the Gradio UI, proxies analysis requests to the agent.
+- `sumai-web`: Serves the embedded HTML/CSS/vanilla JavaScript UI and proxies analysis requests to the agent.
 
 The web service discovers the agent URL via the `SUMAI_AGENT_URL` environment variable set during deployment.
 

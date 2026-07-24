@@ -4,7 +4,7 @@
 
 **Goal:** Generate and verify a 70–80 second Japanese YouTube-ready SumaiGuard hackathon demo from the user's real iPhone recording.
 
-**Architecture:** Keep product code untouched. Store a small reproducible media manifest and renderer under scripts/submission, render all large intermediates and the MP4 under the user's Movies folder, and use ffmpeg/ffprobe plus the live smoke test as acceptance evidence.
+**Architecture:** Keep product code untouched. Store a small reproducible media manifest and renderer under scripts/submission, render all large intermediates and the MP4 under the user's Movies folder, compose segments with ffmpeg's concat filter and a final H.264/AAC encode, and use ffmpeg/ffprobe plus the live smoke test as acceptance evidence.
 
 **Tech Stack:** Python 3.13, Pillow, macOS say with the Kyoko Japanese voice, ffmpeg/ffprobe, pytest, Cloud Run, Gemini 2.5 Flash.
 
@@ -14,13 +14,15 @@
 
 - Create: scripts/submission/video_manifest.py — approved timeline, source spans, narration, visible claims, and stable output paths.
 - Create: scripts/submission/test_video_manifest.py — duration, source-span, scope-boundary, and output-path tests.
-- Create: scripts/submission/render_hackathon_video.py — title/panel rendering, Kyoko narration synthesis, ffmpeg segment composition, and final concatenation.
+- Create: scripts/submission/render_hackathon_video.py — title/panel rendering, Kyoko narration synthesis, ffmpeg segment composition, and concat-filter final re-encoding.
 - Create: scripts/submission/verify_hackathon_video.py — ffprobe assertions, loudness check, contact-sheet generation, and secret-text guard.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4 — stable copy of the temporary Photos source.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/ — generated cards, narration, segments, and contact sheet.
-- Create outside Git: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4 — final upload artifact.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4` — stable copy of the user-selected source recording.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/work/` — generated cards, narration, segments, and contact sheet.
+- Create outside Git: `~/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4` — final upload artifact.
 
 ### Task 1: Lock the approved timeline as tested data
+
+Source 3.3–6.0s is intentionally excluded from all demo segments because the photo picker exposes unrelated library content in that interval.
 
 **Files:**
 - Create: scripts/submission/test_video_manifest.py
@@ -42,7 +44,7 @@ def test_total_duration_is_submission_target() -> None:
 
 def test_source_spans_fit_the_real_recording() -> None:
     for segment in SEGMENTS:
-        if segment["kind"] == "demo":
+        if segment["type"] == "demo":
             assert 0 <= segment["source_start"] < 56.676667
             assert segment["source_start"] + segment["source_duration"] <= 56.676667
 
@@ -90,7 +92,7 @@ FINAL_PATH = BASE / "sumai-guard-hackathon-demo-2026.mp4"
 SEGMENTS = [
     {
         "id": "01_problem",
-        "kind": "card",
+        "type": "card",
         "duration": 7,
         "heading": "転倒する前に、親の家を一枚で点検",
         "body": "離れて暮らす家族が、事故の前に安全対話を始めるためのAIエージェント",
@@ -99,7 +101,7 @@ SEGMENTS = [
     },
     {
         "id": "02_agent",
-        "kind": "card",
+        "type": "card",
         "duration": 8,
         "heading": "一枚の写真から、次の行動まで",
         "body": "見える危険を抽出 → 決定論ルールで判断 → 3段階の行動へ",
@@ -108,10 +110,10 @@ SEGMENTS = [
     },
     {
         "id": "03_input",
-        "kind": "demo",
+        "type": "demo",
         "duration": 9,
         "source_start": 0,
-        "source_duration": 4,
+        "source_duration": 3,
         "heading": "質問票なし。写真を一枚。",
         "body": "部屋を選び、カメラまたはライブラリから入力",
         "caption_ja": "1 PHOTO IN",
@@ -119,10 +121,10 @@ SEGMENTS = [
     },
     {
         "id": "04_analysis",
-        "kind": "demo",
+        "type": "demo",
         "duration": 6,
-        "source_start": 4,
-        "source_duration": 24,
+        "source_start": 6,
+        "source_duration": 22,
         "heading": "Cloud Run × Gemini 2.5 Flash",
         "body": "転倒・滑り・つまずきの候補を抽出",
         "caption_ja": "REAL GEMINI / STRICT MODE",
@@ -130,7 +132,7 @@ SEGMENTS = [
     },
     {
         "id": "05_visible_risk",
-        "kind": "demo",
+        "type": "demo",
         "duration": 14,
         "source_start": 28,
         "source_duration": 10,
@@ -141,7 +143,7 @@ SEGMENTS = [
     },
     {
         "id": "06_actions",
-        "kind": "demo",
+        "type": "demo",
         "duration": 17,
         "source_start": 38,
         "source_duration": 17,
@@ -152,19 +154,19 @@ SEGMENTS = [
     },
     {
         "id": "07_boundary",
-        "kind": "card",
+        "type": "card",
         "duration": 8,
         "heading": "安全のための境界",
-        "body": "画像保存なし / EXIF除去 / 専門家への相談を促す",
+        "body": "アプリ内に永続保存しない / Gemini送信前にEXIF除去 / 専門家への相談を促す",
         "caption_ja": "医療・介護・保険・施工判断を置き換えません",
-        "narration_ja": "画像は保存せず、位置情報を除去。医療、介護、保険、施工判断の代わりにはなりません。",
+        "narration_ja": "画像はアプリ内に永続保存せず、Geminiへ送る前にEXIF情報を除去。医療、介護、保険、施工判断の代わりにはなりません。",
     },
     {
         "id": "08_evidence",
-        "kind": "card",
+        "type": "card",
         "duration": 7,
         "heading": "つくる。まわす。とどける。",
-        "body": "Public GitHub / Cloud Run / Gemini strict mode / 34 tests passed",
+        "body": "Public GitHub / Cloud Run / Gemini strict mode / 73 tests passed",
         "caption_ja": "事故の前に、家族の安全対話を。",
         "narration_ja": "公開コードと動作デモはこちら。事故の前に、家族の安全対話を始めます。",
     },
@@ -179,7 +181,7 @@ Run:
 PYTHONPATH=scripts/submission python3 -m pytest scripts/submission/test_video_manifest.py -v
 ~~~
 
-Expected: 5 passed.
+Expected: 10 passed.
 
 - [ ] **Step 5: Commit the tested manifest**
 
@@ -198,12 +200,11 @@ git commit -m "test: lock hackathon video timeline"
 Run:
 
 ~~~bash
-mkdir -p /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source
-cp "/private/var/folders/3n/xskbt7rx7g1846vkrw7tvl4w0000gn/T/TemporaryItems/com.apple.Photos.NSItemProvider/uuid=BDD7B771-5249-4024-8273-0FBC79AD93B6&code=001&library=1&type=3&mode=1&loc=true&cap=true.mp4/ScreenRecording_07-11-2026 23-08-22_1.mp4" \
-  /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4
-shasum -a 256 \
-  "/private/var/folders/3n/xskbt7rx7g1846vkrw7tvl4w0000gn/T/TemporaryItems/com.apple.Photos.NSItemProvider/uuid=BDD7B771-5249-4024-8273-0FBC79AD93B6&code=001&library=1&type=3&mode=1&loc=true&cap=true.mp4/ScreenRecording_07-11-2026 23-08-22_1.mp4" \
-  /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4
+SOURCE_EXPORT="<path-to-user-selected-recording>"
+STABLE_SOURCE="$HOME/Movies/SumaiGuard-Hackathon-2026/source/screen-recording.mp4"
+mkdir -p "$(dirname "$STABLE_SOURCE")"
+cp "$SOURCE_EXPORT" "$STABLE_SOURCE"
+shasum -a 256 "$SOURCE_EXPORT" "$STABLE_SOURCE"
 ~~~
 
 Expected: both SHA-256 values are identical.
@@ -233,6 +234,11 @@ WHITE = "#F7F8FA"
 MUTED = "#B8C2DC"
 BLUE = "#4C7DFF"
 VIOLET = "#6C5CE7"
+PRIVACY_PILLS = (
+    "アプリ内に永続保存しない",
+    "送信前にEXIF除去",
+    "専門家へ相談",
+)
 
 
 def run(args: list[str]) -> None:
@@ -303,7 +309,7 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
     body = str(segment["body"])
     caption = str(segment["caption_ja"])
 
-    if segment["kind"] == "card":
+    if segment["type"] == "card":
         draw.rounded_rectangle((135, 120, 1785, 870), 38, fill=PANEL)
         draw.text((190, 175), "親の家 安全チェックAI", font=font(30, True), fill=BLUE)
         y = draw_lines(draw, heading, (190, 270), font(65, True), WHITE, 1460, 18)
@@ -317,14 +323,13 @@ def render_frame(segment: dict[str, object], output: Path) -> None:
                 if index < 2:
                     draw.text((x + 435, 675), "→", font=font(42, True), fill=VIOLET)
         elif segment["id"] == "07_boundary":
-            pill(draw, (190, 665), "画像保存なし")
-            pill(draw, (500, 665), "EXIF除去")
-            pill(draw, (750, 665), "専門家へ相談")
+            for x, label in zip((190, 650, 1030), PRIVACY_PILLS, strict=True):
+                pill(draw, (x, 665), label)
         elif segment["id"] == "08_evidence":
             pill(draw, (190, 665), "Public GitHub")
             pill(draw, (500, 665), "Cloud Run")
             pill(draw, (750, 665), "Gemini strict")
-            pill(draw, (1070, 665), "34 tests PASS")
+            pill(draw, (1070, 665), "73 tests PASS")
     else:
         draw.rounded_rectangle((75, 55, 605, 1005), 42, fill="#070A16")
         draw.rounded_rectangle((690, 110, 1810, 850), 34, fill=PANEL)
@@ -374,7 +379,7 @@ def video_encode_args() -> list[str]:
 
 def render_segment(segment: dict[str, object], frame: Path, audio: Path, output: Path) -> None:
     duration = float(segment["duration"])
-    if segment["kind"] == "card":
+    if segment["type"] == "card":
         args = [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
             "-loop", "1", "-framerate", "30", "-t", str(duration), "-i", str(frame),
@@ -421,24 +426,16 @@ def main() -> None:
         render_segment(segment, frame, audio, video)
         segments.append(video)
 
-    concat = WORK / "concat.txt"
-    concat.write_text(
-        "".join(f"file '{path.as_posix()}'\n" for path in segments),
-        encoding="utf-8",
-    )
-    temporary = FINAL_PATH.with_name(FINAL_PATH.stem + "-rendering.mp4")
-    run([
-        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-        "-f", "concat", "-safe", "0", "-i", str(concat),
-        "-c", "copy", "-movflags", "+faststart", str(temporary),
-    ])
-    shutil.move(temporary, FINAL_PATH)
+    ensure_compatible_segments(segments)
+    compose_final(segments, FINAL_PATH)
     print(f"rendered: {FINAL_PATH}")
 
 
 if __name__ == "__main__":
     main()
 ~~~
+
+`compose_final` opens every segment as a separate input, joins video and audio with the concat filter, and performs one final H.264/AAC encode. This avoids the B-frame/GOP timestamp-boundary corruption observed with concat-demuxer stream copy.
 
 - [ ] **Step 3: Run the renderer**
 
@@ -451,7 +448,7 @@ PYTHONPATH=scripts/submission python3 scripts/submission/render_hackathon_video.
 Expected final line:
 
 ~~~text
-rendered: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+rendered: <home>/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
 ~~~
 
 - [ ] **Step 4: Commit the renderer**
@@ -474,6 +471,7 @@ Create scripts/submission/verify_hackathon_video.py with:
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -481,7 +479,9 @@ from pathlib import Path
 from video_manifest import FINAL_PATH, WORK
 
 RENDERER = Path(__file__).with_name("render_hackathon_video.py")
-PROHIBITED = ("GEMINI_API_KEY", "zll6796096@gmail.com", "key.json")
+MANIFEST = Path(__file__).with_name("video_manifest.py")
+PROHIBITED_UI_TERMS = ("GEMINI_API_KEY", "key.json")
+EXTRA_PROHIBITED_TERMS_ENV = "SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS"
 
 
 def capture(args: list[str]) -> str:
@@ -534,10 +534,25 @@ def main() -> None:
     assert max_db <= -1, max_db
     print(f"PASS loudness mean={mean_db:.1f}dB max={max_db:.1f}dB")
 
-    scan_text = RENDERER.read_text(encoding="utf-8") + probe_text
-    for term in PROHIBITED:
-        assert term not in scan_text, term
-    print("PASS prohibited-text scan")
+    source_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in (RENDERER, MANIFEST)
+    )
+    scan_text = f"{source_text}\n{probe_text}"
+    extra_terms = tuple(
+        term.strip()
+        for term in os.environ.get(EXTRA_PROHIBITED_TERMS_ENV, "").splitlines()
+        if term.strip()
+    )
+    prohibited_terms = (*PROHIBITED_UI_TERMS, *extra_terms)
+    matches = [term for term in prohibited_terms if term and term in scan_text]
+    assert not matches, (
+        "prohibited text found in renderer, manifest, or media metadata: "
+        f"{len(matches)} prohibited term(s)"
+    )
+    print(
+        "PASS prohibited-text scan "
+        "(source/manifest/metadata only; pixel OCR is a separate audit)"
+    )
 
     WORK.mkdir(parents=True, exist_ok=True)
     contact = WORK / "contact-sheet.jpg"
@@ -581,9 +596,13 @@ PASS duration
 PASS video h264 1920x1080
 PASS audio aac
 PASS loudness
-PASS prohibited-text scan
-contact sheet: /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
+PASS prohibited-text scan (source/manifest/metadata only; pixel OCR is a separate audit)
+contact sheet: <home>/Movies/SumaiGuard-Hackathon-2026/work/contact-sheet.jpg
 ~~~
+
+The committed verifier remains a coarse artifact gate. Its prohibited-term check covers only the renderer source, manifest source, and container/stream metadata returned by `ffprobe`; it cannot detect text rendered into video pixels and it does not run OCR. The release audit is separate: dense 1fps, scene-change, and targeted-transition frames receive visual and Vision OCR review, and the private raw frames/OCR output remain outside Git. Passing the committed verifier is therefore not evidence that the pixels are free of private text.
+
+Personal or release-specific scan terms must not be committed. Supply them only at verification time as newline-separated values in `SUMAI_VIDEO_EXTRA_PROHIBITED_TERMS`; the verifier combines those values with its generic UI guard terms for the source/manifest/metadata scan. Failure output reports only a match count and never echoes the supplied values. These runtime terms still do not scan rendered pixels; use the separate dense visual and Vision OCR audit for that layer.
 
 - [ ] **Step 3: Visually inspect the contact sheet and three review frames**
 
@@ -607,7 +626,7 @@ git commit -m "test: verify hackathon video artifact"
 ./scripts/test_all.sh
 ~~~
 
-Expected: 34 backend tests pass, frontend import passes, and Docker Compose config passes.
+Expected: 73 backend tests pass, frontend import passes, and Docker Compose config passes.
 
 - [ ] **Step 2: Prove real Gemini participation on Cloud Run**
 
@@ -646,8 +665,9 @@ Expected: no unstaged or untracked files; only the intentional submission-tool c
 - [ ] **Step 1: Record the exact upload artifact metadata**
 
 ~~~bash
-shasum -a 256 /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
-ls -lh /Users/zhanglonglong/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4
+VIDEO="$HOME/Movies/SumaiGuard-Hackathon-2026/sumai-guard-hackathon-demo-2026.mp4"
+shasum -a 256 "$VIDEO"
+ls -lh "$VIDEO"
 ~~~
 
 - [ ] **Step 2: Prepare the YouTube draft**

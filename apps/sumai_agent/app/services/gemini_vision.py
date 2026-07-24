@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 from app.config import settings
 from app.errors import GeminiUnavailableError
@@ -14,6 +15,154 @@ from app.models import BoundingBox, RiskFinding, RoomType, VisionResult, Missing
 logger = logging.getLogger("sumai.gemini_vision")
 
 VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
+CHECKLIST_EXPECTED_FEATURE_KEYS: frozenset[str] = frozenset(
+    {
+        "bedside_light",
+        "clear_floor",
+        "clear_path",
+        "clear_path_from_bed",
+        "has_bath_transfer_support",
+        "has_emergency_call_button",
+        "has_handrail",
+        "has_handrail_or_support",
+        "has_non_slip_floor_or_mat",
+        "stable_bedside_support",
+        "stable_working_path",
+        "step_visible_marking",
+        "sufficient_lighting",
+    }
+)
+CHECKLIST_VISIBLE_OBSERVATION_KEYS: frozenset[str] = frozenset(
+    {
+        "bathtub_stepover",
+        "cluttered_floor",
+        "cluttered_path",
+        "genkan_step",
+        "hallway_cord",
+        "has_floor_clutter",
+        "has_loose_mat",
+        "kitchen_slip",
+        "lighting_poor",
+        "looks_slippery_floor",
+        "loose_mat",
+        "loose_shoes",
+        "no_shower_chair",
+        "poor_lighting",
+        "reachable_storage_issue",
+        "space_looks_narrow",
+        "wet_floor",
+    }
+)
+CHECKLIST_VISIBLE_RISK_TYPES: frozenset[str] = frozenset(
+    {
+        "bathroom_no_shower_chair",
+        "bathroom_slip",
+        "bathtub_stepover",
+        "cluttered_path",
+        "genkan_step",
+        "hallway_cord",
+        "kitchen_slip",
+        "kitchen_unreachable_storage",
+        "loose_mat",
+        "poor_lighting",
+        "toilet_slip",
+        "toilet_transfer_support",
+    }
+)
+VALID_OBSERVATION_KEYS: frozenset[str] = (
+    CHECKLIST_EXPECTED_FEATURE_KEYS | CHECKLIST_VISIBLE_OBSERVATION_KEYS
+)
+
+
+def _bbox_response_json_schema() -> dict[str, Any]:
+    coordinate = {"type": "number", "minimum": 0, "maximum": 1}
+    positive_extent = {"type": "number", "minimum": 0.000001, "maximum": 1}
+    return {
+        "type": "object",
+        "properties": {
+            "x": coordinate,
+            "y": coordinate,
+            "w": positive_extent,
+            "h": positive_extent,
+        },
+        "required": ["x", "y", "w", "h"],
+        "additionalProperties": False,
+    }
+
+
+GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "is_home_environment": {"type": "boolean"},
+        "room_type": {"type": "string", "enum": sorted(VALID_ROOMS)},
+        "observations": {
+            "type": "object",
+            "properties": {
+                key: {"anyOf": [{"type": "boolean"}, {"type": "null"}]}
+                for key in sorted(VALID_OBSERVATION_KEYS)
+            },
+            # Empty and partial observations are intentionally valid when the
+            # photo does not show enough of the relevant room area.
+            "additionalProperties": False,
+        },
+        "visible_hazards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "risk_type": {
+                        "type": "string",
+                        "enum": sorted(CHECKLIST_VISIBLE_RISK_TYPES),
+                    },
+                    "label_ja": {"type": "string"},
+                    "description_ja": {"type": "string"},
+                    "severity": {"type": "integer", "minimum": 1, "maximum": 5},
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "bbox": _bbox_response_json_schema(),
+                    "evidence_ja": {"type": "string"},
+                },
+                "required": [
+                    "risk_type",
+                    "label_ja",
+                    "description_ja",
+                    "severity",
+                    "confidence",
+                    "bbox",
+                    "evidence_ja",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        "missing_safety_features": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "feature_key": {
+                        "type": "string",
+                        "enum": sorted(CHECKLIST_EXPECTED_FEATURE_KEYS),
+                    },
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                    "bbox": _bbox_response_json_schema(),
+                    "evidence_ja": {"type": "string"},
+                },
+                "required": ["feature_key", "confidence", "bbox", "evidence_ja"],
+                "additionalProperties": False,
+            },
+        },
+        "not_applicable_reason_ja": {
+            "anyOf": [{"type": "string"}, {"type": "null"}]
+        },
+    },
+    "required": [
+        "is_home_environment",
+        "room_type",
+        "observations",
+        "visible_hazards",
+        "missing_safety_features",
+    ],
+    "additionalProperties": False,
+}
 
 
 VISION_PROMPT = """You are a Japanese elderly home safety risk assessor.
@@ -27,45 +176,6 @@ Safety Boundary Guidelines:
 4. Do not mark normal furniture as a risk unless it visibly blocks walking, transfer, standing, bathing, toilet use, or floor movement.
 5. Correct the room_type if the image clearly shows another room than room_hint.
 
-Output strict JSON only using this shape:
-{
-  "is_home_environment": true,
-  "room_type": "genkan|hallway|bathroom|toilet|bedroom|kitchen|auto",
-  "observations": {
-    "has_handrail": true/false/null,
-    "has_emergency_call_button": true/false/null,
-    "has_non_slip_floor_or_mat": true/false/null,
-    "has_bath_transfer_support": true/false/null,
-    "has_floor_clutter": true/false/null,
-    "has_loose_mat": true/false/null,
-    "has_visible_threshold": true/false/null,
-    "looks_slippery_floor": true/false/null,
-    "lighting_poor": true/false/null,
-    "space_looks_narrow": true/false/null,
-    "clear_path": true/false/null
-  },
-  "visible_hazards": [
-    {
-      "risk_type": "string",
-      "label_ja": "string",
-      "description_ja": "string",
-      "severity": 1,
-      "confidence": 0.0,
-      "bbox": {"x":0.0,"y":0.0,"w":0.0,"h":0.0},
-      "evidence_ja": "string"
-    }
-  ],
-  "missing_safety_features": [
-    {
-      "feature_key": "has_handrail",
-      "confidence": 0.0,
-      "bbox": {"x":0.0,"y":0.0,"w":0.0,"h":0.0},
-      "evidence_ja": "写真内に手すりが確認できません。"
-    }
-  ],
-  "not_applicable_reason_ja": null
-}
-
 Observations Rules:
 - true means feature is visible.
 - false means feature is not visible in the relevant room area.
@@ -73,8 +183,17 @@ Observations Rules:
 - Do not treat null as strong missing risk.
 - Do not invent objects.
 - Do not claim legal violation. Use "確認できません", "可能性があります", "相談候補です", "専門確認が必要です". Never say "違反", "必須".
-Each item in visible_hazards and missing_safety_features must include normalized bbox x,y,w,h from 0 to 1.
+- For every reported hazard or missing safety feature, tightly bound the visible evidence in its bbox. Do not use the full image as a generic bbox.
+- Every bbox must fit entirely inside the image: x + w must be at most 1, and y + h must be at most 1.
 """
+
+
+def _gemini_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, TimeoutError):
+        return "gemini_timeout"
+    if isinstance(exc, ValueError):
+        return "invalid_response"
+    return "provider_error"
 
 
 class GeminiVisionService:
@@ -155,15 +274,16 @@ class GeminiVisionService:
             return result, "gemini"
         except Exception as exc:
             latency_ms = int((time.monotonic() - start_time) * 1000)
+            fallback_reason = _gemini_failure_reason(exc)
             logger.error(
                 "vision_failed_strict",
                 extra={
                     "analysis_id": analysis_id,
-                    "error": str(exc),
+                    "fallback_reason": fallback_reason,
                     "latency_ms": latency_ms,
                 },
             )
-            raise GeminiUnavailableError(f"Real Gemini analysis failed: {str(exc)}")
+            raise GeminiUnavailableError("Real Gemini analysis failed.") from None
 
     async def _analyze_with_gemini(
         self,
@@ -201,10 +321,8 @@ class GeminiVisionService:
             )
             return result, "gemini"
 
-        except TimeoutError:
-            fallback_reason = "gemini_timeout"
         except Exception as exc:
-            fallback_reason = f"gemini_error: {type(exc).__name__}: {str(exc)[:200]}"
+            fallback_reason = _gemini_failure_reason(exc)
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
         logger.warning(
@@ -230,9 +348,12 @@ class GeminiVisionService:
                 prompt,
                 types.Part.from_bytes(data=image_png, mime_type="image/png"),
             ],
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_json_schema=GEMINI_RESPONSE_JSON_SCHEMA,
+            ),
         )
-        return parse_vision_json(response.text or "{}", fallback_room=room_hint)
+        return parse_vision_json(response.text or "", fallback_room=room_hint)
 
 
 def normalize_room_hint(room_hint: str | None) -> RoomType:
@@ -452,21 +573,217 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
     )
 
 
+def _raise_schema_error(field: str, expected: str) -> NoReturn:
+    logger.warning(
+        "gemini_schema_validation_error schema_field=%s schema_expected=%s",
+        field,
+        expected,
+        extra={"field": field, "expected": expected},
+    )
+    raise ValueError(f"Gemini response field '{field}' must be {expected}.")
+
+
+CANONICAL_REQUIRED_FIELDS = (
+    "is_home_environment",
+    "room_type",
+    "observations",
+    "visible_hazards",
+    "missing_safety_features",
+)
+CANONICAL_MARKER_FIELDS = (
+    "is_home_environment",
+    "observations",
+    "visible_hazards",
+    "missing_safety_features",
+    "not_applicable_reason_ja",
+)
+CANONICAL_HAZARD_FIELDS = (
+    "risk_type",
+    "label_ja",
+    "description_ja",
+    "severity",
+    "confidence",
+    "bbox",
+    "evidence_ja",
+)
+CANONICAL_MISSING_FEATURE_FIELDS = (
+    "feature_key",
+    "confidence",
+    "bbox",
+    "evidence_ja",
+)
+
+
+def _canonical_number(field: str, value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _raise_schema_error(field, "a number")
+    try:
+        numeric_value = float(value)
+    except (OverflowError, TypeError, ValueError):
+        _raise_schema_error(field, "a finite number")
+    if not math.isfinite(numeric_value):
+        _raise_schema_error(field, "a finite number")
+    return numeric_value
+
+
+def _validate_bbox_schema(field: str, bbox: object) -> None:
+    if not isinstance(bbox, dict):
+        _raise_schema_error(field, "an object")
+    numeric_values: dict[str, float] = {}
+    for coordinate in ("x", "y", "w", "h"):
+        coordinate_field = f"{field}.{coordinate}"
+        if coordinate not in bbox:
+            _raise_schema_error(coordinate_field, "present")
+        numeric_value = _canonical_number(coordinate_field, bbox[coordinate])
+        numeric_values[coordinate] = numeric_value
+        if not 0.0 <= numeric_value <= 1.0:
+            _raise_schema_error(coordinate_field, "a finite number from 0 to 1")
+        if coordinate in ("w", "h") and numeric_value <= 0.0:
+            _raise_schema_error(coordinate_field, "greater than 0")
+
+    if numeric_values["x"] + numeric_values["w"] > 1.0:
+        _raise_schema_error(field, "fully inside the image width")
+    if numeric_values["y"] + numeric_values["h"] > 1.0:
+        _raise_schema_error(field, "fully inside the image height")
+
+
+def _validate_canonical_item(
+    collection: str,
+    index: int,
+    item: dict[str, Any],
+    required_fields: tuple[str, ...],
+) -> None:
+    item_path = f"{collection}[{index}]"
+    for field in required_fields:
+        if field not in item:
+            _raise_schema_error(f"{item_path}.{field}", "present")
+
+    string_fields = (
+        ("risk_type", "label_ja", "description_ja", "evidence_ja")
+        if collection == "visible_hazards"
+        else ("feature_key", "evidence_ja")
+    )
+    for field in string_fields:
+        if not isinstance(item[field], str):
+            _raise_schema_error(f"{item_path}.{field}", "a string")
+
+    if collection == "visible_hazards":
+        if item["risk_type"] not in CHECKLIST_VISIBLE_RISK_TYPES:
+            _raise_schema_error(
+                f"{item_path}.risk_type",
+                "an exact supported checklist risk type",
+            )
+        if type(item["severity"]) is not int:
+            _raise_schema_error(f"{item_path}.severity", "an integer")
+        if not 1 <= item["severity"] <= 5:
+            _raise_schema_error(f"{item_path}.severity", "from 1 to 5")
+    elif item["feature_key"] not in CHECKLIST_EXPECTED_FEATURE_KEYS:
+        _raise_schema_error(
+            f"{item_path}.feature_key",
+            "an exact supported checklist feature key",
+        )
+
+    confidence_field = f"{item_path}.confidence"
+    confidence = _canonical_number(confidence_field, item["confidence"])
+    if not 0.0 <= confidence <= 1.0:
+        _raise_schema_error(
+            confidence_field,
+            "a finite number from 0 to 1",
+        )
+
+    _validate_bbox_schema(f"{item_path}.bbox", item["bbox"])
+
+
+def _validate_top_level_schema(data: dict[str, Any]) -> None:
+    if "is_home_environment" in data and type(data["is_home_environment"]) is not bool:
+        _raise_schema_error("is_home_environment", "a boolean")
+
+    if "room_type" in data and not isinstance(data["room_type"], str):
+        _raise_schema_error("room_type", "a string")
+
+    if "observations" in data and not isinstance(data["observations"], dict):
+        _raise_schema_error("observations", "an object")
+
+    for field in ("visible_hazards", "findings", "missing_safety_features"):
+        if field not in data:
+            continue
+        value = data[field]
+        if not isinstance(value, list):
+            _raise_schema_error(field, "a list")
+        if any(not isinstance(item, dict) for item in value):
+            _raise_schema_error(field, "a list of objects")
+
+    is_legacy = "findings" in data and not any(
+        field in data for field in CANONICAL_MARKER_FIELDS
+    )
+    if is_legacy:
+        if "room_type" not in data:
+            _raise_schema_error("room_type", "present in a legacy response")
+        return
+
+    is_canonical = any(field in data for field in CANONICAL_MARKER_FIELDS)
+    if is_canonical:
+        if "room_type" in data and data["room_type"] not in VALID_ROOMS:
+            _raise_schema_error("room_type", "an exact supported room value")
+        if (
+            "not_applicable_reason_ja" in data
+            and data["not_applicable_reason_ja"] is not None
+            and not isinstance(data["not_applicable_reason_ja"], str)
+        ):
+            _raise_schema_error("not_applicable_reason_ja", "a string or null")
+        for observation, value in data.get("observations", {}).items():
+            if observation not in VALID_OBSERVATION_KEYS:
+                _raise_schema_error(
+                    "observations.<invalid_key>",
+                    "a supported prompt observation",
+                )
+            if value is not None and type(value) is not bool:
+                _raise_schema_error(
+                    f"observations.{observation}",
+                    "a boolean or null",
+                )
+        for index, item in enumerate(data.get("visible_hazards", [])):
+            _validate_canonical_item(
+                "visible_hazards",
+                index,
+                item,
+                CANONICAL_HAZARD_FIELDS,
+            )
+        for index, item in enumerate(data.get("missing_safety_features", [])):
+            _validate_canonical_item(
+                "missing_safety_features",
+                index,
+                item,
+                CANONICAL_MISSING_FEATURE_FIELDS,
+            )
+        for field in CANONICAL_REQUIRED_FIELDS:
+            if field not in data:
+                _raise_schema_error(field, "present in a canonical response")
+        return
+
+    _raise_schema_error(
+        "response",
+        "a complete canonical response or legacy room_type/findings response",
+    )
+
+
 def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
     try:
         data = json.loads(raw_json)
     except json.JSONDecodeError:
         logger.warning("gemini_json_decode_error", extra={"raw_length": len(raw_json)})
-        return mock_vision_result(fallback_room)
+        raise ValueError("Gemini response is empty or not valid JSON.") from None
 
     if not isinstance(data, dict):
         logger.warning("gemini_unexpected_json_type", extra={"type": type(data).__name__})
-        return mock_vision_result(fallback_room)
+        raise ValueError(
+            f"Gemini response must be a JSON object, got {type(data).__name__}."
+        )
 
-    is_home = bool(data.get("is_home_environment", True))
+    _validate_top_level_schema(data)
+
+    is_home = data.get("is_home_environment", True)
     not_applicable_reason = data.get("not_applicable_reason_ja")
-    if not_applicable_reason:
-        not_applicable_reason = str(not_applicable_reason)
 
     if not is_home:
         return VisionResult(
@@ -478,22 +795,25 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
             not_applicable_reason_ja=not_applicable_reason or "住宅内の安全確認対象ではない可能性があります。"
         )
 
-    room = normalize_room_hint(str(data.get("room_type") or fallback_room))
-    observations = data.get("observations") or {}
+    room = normalize_room_hint(data.get("room_type") or fallback_room)
+    observations = data.get("observations", {})
 
     visible_hazards: list[RiskFinding] = []
-    for index, item in enumerate(data.get("visible_hazards") or data.get("findings") or [], start=1):
-        if not isinstance(item, dict):
-            continue
+    raw_hazards = (
+        data["visible_hazards"]
+        if "visible_hazards" in data
+        else data.get("findings", [])
+    )
+    for index, item in enumerate(raw_hazards, start=1):
         try:
             visible_hazards.append(_finding_from_raw(index, item))
-        except Exception as exc:
-            logger.warning("gemini_hazard_parse_error", extra={"index": index, "error": str(exc)[:200]})
+        except Exception:
+            logger.warning("gemini_hazard_parse_error", extra={"index": index})
             continue
 
     missing_safety_features: list[MissingSafetyFeature] = []
-    for item in data.get("missing_safety_features") or []:
-        if not isinstance(item, dict) or "feature_key" not in item:
+    for index, item in enumerate(data.get("missing_safety_features", []), start=1):
+        if "feature_key" not in item:
             continue
         try:
             raw_bbox = item.get("bbox") if isinstance(item.get("bbox"), dict) else {}
@@ -511,8 +831,8 @@ def parse_vision_json(raw_json: str, fallback_room: RoomType) -> VisionResult:
                     evidence_ja=str(item.get("evidence_ja") or "写真内で確認できません。")
                 )
             )
-        except Exception as exc:
-            logger.warning("gemini_missing_parse_error", extra={"error": str(exc)[:200]})
+        except Exception:
+            logger.warning("gemini_missing_parse_error", extra={"index": index})
             continue
 
     return VisionResult(
