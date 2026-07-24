@@ -48,16 +48,28 @@ steps:
 
   - id: push-agent
     name: gcr.io/cloud-builders/docker
+    entrypoint: bash
     args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
+      - -ceu
+      - |
+        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
+        docker push "$$agent_ref" | tee /workspace/sumai-agent-push.log
+        awk '/digest: sha256:/{print $$3}' /workspace/sumai-agent-push.log |
+          tail -1 > /workspace/sumai-agent.digest
+        grep -Eq '^sha256:[0-9a-f]{64}$$' /workspace/sumai-agent.digest
     waitFor: [build-agent]
 
   - id: push-web
     name: gcr.io/cloud-builders/docker
+    entrypoint: bash
     args:
-      - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}
+      - -ceu
+      - |
+        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
+        docker push "$$web_ref" | tee /workspace/sumai-web-push.log
+        awk '/digest: sha256:/{print $$3}' /workspace/sumai-web-push.log |
+          tail -1 > /workspace/sumai-web.digest
+        grep -Eq '^sha256:[0-9a-f]{64}$$' /workspace/sumai-web.digest
     waitFor: [build-web]
 
   - id: deploy-agent-candidate
@@ -67,10 +79,8 @@ steps:
       - -ceu
       - |
         agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
-        agent_digest="$$(gcloud artifacts docker images describe "$$agent_ref" \
-          --project="$PROJECT_ID" \
-          --format='value(image_summary.digest)')"
-        test -n "$$agent_digest"
+        agent_digest="$$(cat /workspace/sumai-agent.digest)"
+        printf '%s' "$$agent_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
 
         build_token="$$(printf '%s' "$BUILD_ID" | tr -cd 'a-z0-9' | cut -c1-4)"
         agent_tag="candidate-${SHORT_SHA}-$${build_token}"
@@ -166,10 +176,8 @@ steps:
       - |
         source /workspace/sumai-deploy.env
         web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
-        web_digest="$$(gcloud artifacts docker images describe "$$web_ref" \
-          --project="$PROJECT_ID" \
-          --format='value(image_summary.digest)')"
-        test -n "$$web_digest"
+        web_digest="$$(cat /workspace/sumai-web.digest)"
+        printf '%s' "$$web_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
         web_tag="candidate-${SHORT_SHA}-$${build_token}"
         web_suffix="${SHORT_SHA}-$${build_token}-can"
 
