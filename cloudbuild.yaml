@@ -1,0 +1,394 @@
+steps:
+  - id: test
+    name: python:3.12
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        pip install --disable-pip-version-check \
+          -r apps/sumai_agent/requirements.txt \
+          -r apps/sumai_web/requirements.txt
+        python -m pytest apps/sumai_agent/tests -v
+        python - <<'PY'
+        import importlib.util
+        from pathlib import Path
+
+        path = Path("apps/sumai_web/app.py")
+        spec = importlib.util.spec_from_file_location("sumai_web_app", path)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        PY
+        python scripts/test_cloudbuild_config.py
+
+  - id: compose-config
+    name: docker:27-cli
+    entrypoint: docker
+    args: [compose, -f, docker-compose.yml, config]
+
+  - id: build-agent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --label=org.opencontainers.image.revision=${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
+      - apps/sumai_agent
+    waitFor: [test, compose-config]
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --label=org.opencontainers.image.revision=${COMMIT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}
+      - apps/sumai_web
+    waitFor: [test, compose-config]
+
+  - id: push-agent
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
+    waitFor: [build-agent]
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}
+    waitFor: [build-web]
+
+  - id: deploy-agent-candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
+        agent_digest="$$(gcloud artifacts docker images describe "$$agent_ref" \
+          --project="$PROJECT_ID" \
+          --format='value(image_summary.digest)')"
+        test -n "$$agent_digest"
+
+        build_token="$$(printf '%s' "$BUILD_ID" | tr -cd 'a-z0-9' | cut -c1-4)"
+        agent_tag="candidate-${SHORT_SHA}-$${build_token}"
+        agent_suffix="${SHORT_SHA}-$${build_token}"
+        old_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
+        old_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
+
+        cleanup_agent_tag() {
+          gcloud run services update-traffic "${_AGENT_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+        }
+        trap cleanup_agent_tag ERR
+        gcloud run deploy "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="$${agent_ref%:*}@$${agent_digest}" \
+          --no-traffic \
+          --tag="$$agent_tag" \
+          --revision-suffix="$$agent_suffix" \
+          --memory=1Gi \
+          --cpu=1 \
+          --timeout=120 \
+          --max-instances=20 \
+          --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
+          --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO" \
+          --update-secrets=GEMINI_API_KEY=sumai-gemini-api-key:2
+
+        service_json="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
+        agent_revision="$$(printf '%s' "$$service_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$agent_tag")"
+        agent_url="$$(printf '%s' "$$service_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$agent_tag")"
+        test -n "$$agent_revision"
+        test -n "$$agent_url"
+
+        umask 077
+        {
+          printf 'agent_ref=%q\n' "$$agent_ref"
+          printf 'agent_digest=%q\n' "$$agent_digest"
+          printf 'agent_tag=%q\n' "$$agent_tag"
+          printf 'agent_revision=%q\n' "$$agent_revision"
+          printf 'agent_url=%q\n' "$$agent_url"
+          printf 'old_agent=%q\n' "$$old_agent"
+          printf 'old_web=%q\n' "$$old_web"
+          printf 'build_token=%q\n' "$$build_token"
+        } > /workspace/sumai-deploy.env
+        trap - ERR
+    waitFor: [push-agent]
+
+  - id: probe-agent-candidate
+    name: python:3.12
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+        pip install --disable-pip-version-check requests Pillow
+        set +e
+        SUMAI_AGENT_URL="$$agent_url" \
+          GEMINI_MODEL=gemini-2.5-flash \
+          python scripts/smoke_real_gemini.py
+        probe_rc="$$?"
+        set -e
+        printf '%s\n' "$$probe_rc" > /workspace/sumai-agent-probe.rc
+    waitFor: [deploy-agent-candidate]
+
+  - id: gate-agent-candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+        test "$$(cat /workspace/sumai-agent-probe.rc)" = 0 || {
+          gcloud run services update-traffic "${_AGENT_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+          exit 1
+        }
+    waitFor: [probe-agent-candidate]
+
+  - id: deploy-web-candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
+        web_digest="$$(gcloud artifacts docker images describe "$$web_ref" \
+          --project="$PROJECT_ID" \
+          --format='value(image_summary.digest)')"
+        test -n "$$web_digest"
+        web_tag="candidate-${SHORT_SHA}-$${build_token}"
+        web_suffix="${SHORT_SHA}-$${build_token}-can"
+
+        cleanup_candidate_tags() {
+          gcloud run services update-traffic "${_WEB_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$web_tag" >/dev/null 2>&1 || true
+          gcloud run services update-traffic "${_AGENT_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+        }
+        trap cleanup_candidate_tags ERR
+        gcloud run deploy "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="$${web_ref%:*}@$${web_digest}" \
+          --no-traffic \
+          --tag="$$web_tag" \
+          --revision-suffix="$$web_suffix" \
+          --memory=1Gi \
+          --cpu=1 \
+          --timeout=120 \
+          --max-instances=20 \
+          --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
+          --update-env-vars="SUMAI_AGENT_URL=$${agent_url},SUMAI_WEB_PORT=8080,MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,LOG_LEVEL=INFO"
+
+        service_json="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
+        web_candidate_revision="$$(printf '%s' "$$service_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$web_tag")"
+        web_candidate_url="$$(printf '%s' "$$service_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$web_tag")"
+        test -n "$$web_candidate_revision"
+        test -n "$$web_candidate_url"
+        {
+          printf 'web_ref=%q\n' "$$web_ref"
+          printf 'web_digest=%q\n' "$$web_digest"
+          printf 'web_tag=%q\n' "$$web_tag"
+          printf 'web_candidate_revision=%q\n' "$$web_candidate_revision"
+          printf 'web_candidate_url=%q\n' "$$web_candidate_url"
+        } >> /workspace/sumai-deploy.env
+        trap - ERR
+    waitFor: [push-web, gate-agent-candidate]
+
+  - id: probe-web-candidate
+    name: curlimages/curl:8.12.1
+    entrypoint: sh
+    args:
+      - -ceu
+      - |
+        . /workspace/sumai-deploy.env
+        set +e
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$web_candidate_url/" >/dev/null &&
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$web_candidate_url/healthz" >/dev/null
+        probe_rc="$$?"
+        set -e
+        printf '%s\n' "$$probe_rc" > /workspace/sumai-web-probe.rc
+    waitFor: [deploy-web-candidate]
+
+  - id: gate-web-candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+        test "$$(cat /workspace/sumai-web-probe.rc)" = 0 || {
+          gcloud run services update-traffic "${_WEB_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$web_tag" >/dev/null 2>&1 || true
+          gcloud run services update-traffic "${_AGENT_SERVICE}" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+          exit 1
+        }
+    waitFor: [probe-web-candidate]
+
+  - id: promote
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+        web_final_tag="final-${SHORT_SHA}-$${build_token}"
+        web_final_suffix="${SHORT_SHA}-$${build_token}-fin"
+
+        service_revision_at_100() {
+          gcloud run services describe "$$1" \
+            --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+            python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))'
+        }
+        service_lock() {
+          gcloud run services describe "$$1" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --format='value(metadata.labels.deployment-lock)'
+        }
+        owns_locks() {
+          test "$$(service_lock "${_AGENT_SERVICE}")" = "${COMMIT_SHA}" &&
+          test "$$(service_lock "${_WEB_SERVICE}")" = "${COMMIT_SHA}"
+        }
+        assert_current_build() {
+          trigger_id="$$(gcloud builds describe "$BUILD_ID" \
+            --project="$PROJECT_ID" --format='value(buildTriggerId)')"
+          test -n "$$trigger_id"
+          latest_build="$$(gcloud builds list \
+            --project="$PROJECT_ID" \
+            --filter="buildTriggerId=$${trigger_id}" \
+            --sort-by=~createTime \
+            --limit=1 \
+            --format='value(id)')"
+          test "$$latest_build" = "$BUILD_ID"
+        }
+        remove_tag() {
+          gcloud run services update-traffic "$$1" \
+            --project="$PROJECT_ID" --region="${_REGION}" \
+            --remove-tags="$$2" >/dev/null 2>&1 || true
+        }
+        cleanup_tags() {
+          remove_tag "${_WEB_SERVICE}" "$$web_tag"
+          remove_tag "${_WEB_SERVICE}" "$$web_final_tag"
+          remove_tag "${_AGENT_SERVICE}" "$$agent_tag"
+        }
+        rollback() {
+          if owns_locks; then
+            gcloud run services update-traffic "${_WEB_SERVICE}" \
+              --project="$PROJECT_ID" --region="${_REGION}" \
+              --to-revisions="$${old_web}=100" || true
+            gcloud run services update-traffic "${_AGENT_SERVICE}" \
+              --project="$PROJECT_ID" --region="${_REGION}" \
+              --to-revisions="$${old_agent}=100" || true
+          else
+            echo "Deployment lock changed; a newer build owns rollback decisions." >&2
+          fi
+          cleanup_tags
+        }
+        trap rollback ERR
+
+        assert_current_build
+        owns_locks
+        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$old_agent"
+        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$old_web"
+
+        gcloud run services update-traffic "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --to-revisions="$${agent_revision}=100"
+
+        stable_agent_url="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(status.url)')"
+        gcloud run deploy "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" \
+          --region="${_REGION}" \
+          --image="$${web_ref%:*}@$${web_digest}" \
+          --no-traffic \
+          --tag="$$web_final_tag" \
+          --revision-suffix="$$web_final_suffix" \
+          --memory=1Gi \
+          --cpu=1 \
+          --timeout=120 \
+          --max-instances=20 \
+          --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
+          --update-env-vars="SUMAI_AGENT_URL=$${stable_agent_url},SUMAI_WEB_PORT=8080,MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,LOG_LEVEL=INFO"
+
+        final_json="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
+        web_final_revision="$$(printf '%s' "$$final_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$web_final_tag")"
+        web_final_url="$$(printf '%s' "$$final_json" |
+          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$web_final_tag")"
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$web_final_url/" >/dev/null
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$web_final_url/healthz" >/dev/null
+
+        assert_current_build
+        owns_locks
+        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$agent_revision"
+        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$old_web"
+        gcloud run services update-traffic "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --to-revisions="$${web_final_revision}=100"
+
+        python3 - "$$stable_agent_url" <<'PY'
+        import json
+        import sys
+        from urllib.request import urlopen
+
+        status = json.load(urlopen(sys.argv[1] + "/status", timeout=30))
+        assert status["mock_mode"] is False, status
+        assert status["require_real_gemini"] is True, status
+        assert status["has_gemini_api_key"] is True, status
+        assert status["mock_allowed"] is False, status
+        PY
+        stable_web_url="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(status.url)')"
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$stable_web_url/" >/dev/null
+        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
+          "$$stable_web_url/healthz" >/dev/null
+
+        cleanup_tags
+        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$agent_revision"
+        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$web_final_revision"
+        trap - ERR
+    waitFor: [gate-web-candidate]
+
+substitutions:
+  _REGION: asia-northeast1
+  _AR_REPO: apps
+  _AGENT_SERVICE: sumai-agent
+  _WEB_SERVICE: sumai-web
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}
