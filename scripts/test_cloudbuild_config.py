@@ -13,6 +13,7 @@ for required in (
     "--no-traffic",
     "candidate-${SHORT_SHA}",
     "sumai-gemini-api-key:2",
+    "--remove-env-vars=GEMINI_API_KEY",
     "REQUIRE_REAL_GEMINI=true",
     "smoke_real_gemini.py",
     "update-traffic",

@@ -85,6 +85,7 @@ steps:
         build_token="$$(printf '%s' "$BUILD_ID" | tr -cd 'a-z0-9' | cut -c1-4)"
         agent_tag="candidate-${SHORT_SHA}-$${build_token}"
         agent_suffix="${SHORT_SHA}-$${build_token}"
+        migration_tag=""
         old_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" --format=json |
           python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
@@ -92,10 +93,46 @@ steps:
           --project="$PROJECT_ID" --region="${_REGION}" --format=json |
           python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
 
+        credential_shape="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='json(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].valueFrom.secretKeyRef.secret)' |
+          python3 -c '
+        import json
+        import sys
+
+        rows = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
+        match = next((row for row in rows if row.get("name") == "GEMINI_API_KEY"), None)
+        if match is None:
+            print("absent")
+        elif match.get("valueFrom", {}).get("secretKeyRef", {}).get("secret"):
+            print("secret")
+        else:
+            print("plaintext")
+        ')"
+        case "$$credential_shape" in
+          plaintext)
+            migration_tag="migration-${SHORT_SHA}-$${build_token}"
+            gcloud run services update "${_AGENT_SERVICE}" \
+              --project="$PROJECT_ID" \
+              --region="${_REGION}" \
+              --no-traffic \
+              --tag="$$migration_tag" \
+              --revision-suffix="${SHORT_SHA}-$${build_token}-rm" \
+              --remove-env-vars=GEMINI_API_KEY
+            ;;
+          absent|secret) ;;
+          *) echo "Unexpected Gemini credential shape" >&2; exit 1 ;;
+        esac
+
         cleanup_agent_tag() {
           gcloud run services update-traffic "${_AGENT_SERVICE}" \
             --project="$PROJECT_ID" --region="${_REGION}" \
             --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+          if [[ -n "$$migration_tag" ]]; then
+            gcloud run services update-traffic "${_AGENT_SERVICE}" \
+              --project="$PROJECT_ID" --region="${_REGION}" \
+              --remove-tags="$$migration_tag" >/dev/null 2>&1 || true
+          fi
         }
         trap cleanup_agent_tag ERR
         gcloud run deploy "${_AGENT_SERVICE}" \
@@ -132,6 +169,7 @@ steps:
           printf 'old_agent=%q\n' "$$old_agent"
           printf 'old_web=%q\n' "$$old_web"
           printf 'build_token=%q\n' "$$build_token"
+          printf 'migration_tag=%q\n' "$$migration_tag"
         } > /workspace/sumai-deploy.env
         trap - ERR
     waitFor: [push-agent]
@@ -188,6 +226,11 @@ steps:
           gcloud run services update-traffic "${_AGENT_SERVICE}" \
             --project="$PROJECT_ID" --region="${_REGION}" \
             --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+          if [[ -n "$$migration_tag" ]]; then
+            gcloud run services update-traffic "${_AGENT_SERVICE}" \
+              --project="$PROJECT_ID" --region="${_REGION}" \
+              --remove-tags="$$migration_tag" >/dev/null 2>&1 || true
+          fi
         }
         trap cleanup_candidate_tags ERR
         gcloud run deploy "${_WEB_SERVICE}" \
@@ -302,6 +345,9 @@ steps:
           remove_tag "${_WEB_SERVICE}" "$$web_tag"
           remove_tag "${_WEB_SERVICE}" "$$web_final_tag"
           remove_tag "${_AGENT_SERVICE}" "$$agent_tag"
+          if [[ -n "$$migration_tag" ]]; then
+            remove_tag "${_AGENT_SERVICE}" "$$migration_tag"
+          fi
         }
         rollback() {
           if owns_locks; then
