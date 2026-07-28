@@ -200,7 +200,6 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .place-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
             grid-template-columns: repeat(3, 1fr);
             gap: 8px;
             margin-bottom: 12px;
@@ -953,7 +952,7 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
         </div>
 
-        <!-- SCREEN 2: Visual Diagnosis Result / Analyzing -->
+        <!-- SCREEN 2: Safety Check Result / Analyzing -->
         <div id="screen-result" class="screen" aria-hidden="true">
             <div class="screen-nav">
                 <button class="nav-back btn-back-home">
