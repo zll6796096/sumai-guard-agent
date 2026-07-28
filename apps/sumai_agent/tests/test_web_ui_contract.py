@@ -66,3 +66,9 @@ def test_interactive_controls_have_accessible_target_sizes() -> None:
     assert "--control-min-height: 44px;" in html
     assert "min-height: var(--control-min-height);" in html
     assert ":focus-visible" in html
+
+
+def test_action_cards_hide_redundant_report_scaffolding() -> None:
+    html = _home_html()
+    assert ".action-report > h2" in html
+    assert ".action-report > ul > li:nth-child(-n + 2)" in html

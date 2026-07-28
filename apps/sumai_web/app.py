@@ -145,6 +145,10 @@ INDEX_HTML = """<!DOCTYPE html>
             outline-offset: 3px;
         }
 
+        [data-screen-title]:focus {
+            outline: none;
+        }
+
         /* Screen 1: Home */
         #screen-home {
             overflow-y: auto;
@@ -831,6 +835,17 @@ INDEX_HTML = """<!DOCTYPE html>
             margin-bottom: 5px;
         }
 
+        .action-report > h2,
+        .action-report > ul > li:nth-child(-n + 2) {
+            display: none;
+        }
+
+        .action-report > h3 {
+            margin-top: 14px;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+        }
+
         @media (prefers-reduced-motion: reduce) {
             *, *::before, *::after {
                 scroll-behavior: auto !important;
@@ -1061,7 +1076,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         </svg>
                     </button>
                     <div id="accordion-family" class="accordion-card-content">
-                        <div id="action-family-content" class="card-body markdown-body"></div>
+                        <div id="action-family-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
@@ -1085,7 +1100,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         </svg>
                     </button>
                     <div id="accordion-care" class="accordion-card-content" hidden>
-                        <div id="action-care-content" class="card-body markdown-body"></div>
+                        <div id="action-care-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
@@ -1109,7 +1124,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         </svg>
                     </button>
                     <div id="accordion-contractor" class="accordion-card-content" hidden>
-                        <div id="action-contractor-content" class="card-body markdown-body"></div>
+                        <div id="action-contractor-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
