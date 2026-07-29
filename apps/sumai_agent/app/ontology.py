@@ -30,7 +30,7 @@ class OntologyRepository:
     def __init__(
         self,
         *,
-        version: str,
+        ontology_version: str,
         schema_version: str,
         inference_config_version: str,
         relationships: tuple[str, ...],
@@ -41,7 +41,8 @@ class OntologyRepository:
     ) -> None:
         if not rooms:
             raise ValueError("Ontology rooms must not be empty")
-        self.version = version
+        self.ontology_version = ontology_version
+        self.version = ontology_version
         self.schema_version = schema_version
         self.inference_config_version = inference_config_version
         self.relationships = relationships
@@ -53,6 +54,10 @@ class OntologyRepository:
     @classmethod
     def load_default(cls) -> "OntologyRepository":
         path = Path(__file__).resolve().parent / "knowledge_base" / "room_checklists.yaml"
+        return cls.load(path)
+
+    @classmethod
+    def load(cls, path: Path) -> "OntologyRepository":
         with path.open("r", encoding="utf-8") as handle:
             data = yaml.safe_load(handle)
         if not isinstance(data, dict):
@@ -71,7 +76,7 @@ class OntologyRepository:
         raw_basis_map = data.get("basis_source_map", {})
         raw_policy = data.get("action_policy", {})
         return cls(
-            version=str(data.get("ontology_version", "")),
+            ontology_version=str(data.get("ontology_version", "")),
             schema_version=str(data.get("schema_version", "")),
             inference_config_version=str(data.get("inference_config_version", "")),
             relationships=tuple(str(item) for item in data.get("relationships", [])),

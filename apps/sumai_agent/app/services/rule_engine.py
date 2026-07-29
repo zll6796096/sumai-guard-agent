@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from app.models import ActionItem, ActionPlan, RiskFinding
 from app.ontology import OntologyRepository, OntologyRiskRule
@@ -17,8 +18,21 @@ PROFESSIONAL_CONFIRMATION_RISKS = {
 }
 
 class RuleEngine:
-    def __init__(self) -> None:
-        self.ontology = OntologyRepository.load_default()
+    def __init__(
+        self,
+        checklists_path: Path | None = None,
+        ontology: OntologyRepository | None = None,
+    ) -> None:
+        if checklists_path is not None and ontology is not None:
+            raise ValueError("Pass either checklists_path or ontology, not both")
+        self.checklists_path = checklists_path
+        self.ontology = (
+            ontology
+            if ontology is not None
+            else OntologyRepository.load(checklists_path)
+            if checklists_path is not None
+            else OntologyRepository.load_default()
+        )
 
     def _find_checklist_item(
         self, room_type: str, risk_type: str
