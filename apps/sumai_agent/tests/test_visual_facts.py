@@ -129,6 +129,12 @@ def test_facts_schema_room_enum_matches_ontology_rooms() -> None:
     assert room_enum == [*ONTOLOGY.room_names, "unknown"]
 
 
+def test_facts_schema_visible_regions_enum_matches_ontology() -> None:
+    region_enum = GEMINI_FACTS_JSON_SCHEMA["properties"]["visible_regions"]["items"]["enum"]
+
+    assert region_enum == list(ONTOLOGY.visible_region_keys)
+
+
 @pytest.mark.parametrize(
     ("path", "invalid_value"),
     [
@@ -161,6 +167,31 @@ def test_parse_rejects_unknown_ontology_vocabulary(
 def test_parse_rejects_schema_numeric_values_encoded_as_strings(
     mutate: object,
 ) -> None:
+    payload = _valid_facts()
+    mutate(payload)  # type: ignore[operator]
+
+    with pytest.raises(ValueError, match="Gemini facts"):
+        parse_vision_facts_json(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["entities"].append(payload["entities"][0].copy()),  # type: ignore[index]
+        lambda payload: payload["feature_observations"].append(payload["feature_observations"][0].copy()),  # type: ignore[index]
+        lambda payload: payload["relationships"][0].update({"subject": "missing-ref"}),  # type: ignore[index]
+        lambda payload: payload["relationships"][0].update({"object": "missing-region"}),  # type: ignore[index]
+        lambda payload: payload.__setitem__("visible_regions", ["unknown-region"]),
+    ],
+    ids=[
+        "duplicate-entity-ref",
+        "duplicate-feature-observation",
+        "dangling-relationship-subject",
+        "dangling-relationship-object",
+        "unknown-visible-region",
+    ],
+)
+def test_parse_rejects_incomplete_or_ambiguous_evidence_references(mutate: object) -> None:
     payload = _valid_facts()
     mutate(payload)  # type: ignore[operator]
 

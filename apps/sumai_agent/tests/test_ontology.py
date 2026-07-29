@@ -18,9 +18,37 @@ def test_visible_observation_keys_have_exact_relationship_requirements() -> None
 
     assert set(ontology.relationship_requirements) == set(ontology.visible_observation_keys)
     assert set(ontology.relationship_requirements.values()) <= set(ontology.relationships)
+    assert ontology.required_targets("hallway_cord") == ("walking_path",)
+    assert set(ontology.relationship_targets) == set(ontology.visible_observation_keys)
+    assert set(ontology.visible_region_keys) == {
+        "floor", "room", "storage", "transfer_zone", "walking_path"
+    }
     assert ontology.required_predicate("hallway_cord") == "intersects"
     with pytest.raises(KeyError):
         ontology.required_predicate("not_an_observation")
+    with pytest.raises(KeyError):
+        ontology.required_targets("not_an_observation")
+
+
+def test_shower_chair_is_an_expected_feature_not_a_visible_hazard() -> None:
+    ontology = OntologyRepository.load_default()
+
+    assert "has_shower_chair" in ontology.expected_feature_keys
+    assert "no_shower_chair" not in ontology.visible_observation_keys
+    assert "no_shower_chair" not in ontology.relationship_requirements
+
+
+def test_load_rejects_incomplete_relationship_target_coverage(tmp_path: Path) -> None:
+    source_path = Path(__file__).resolve().parents[1] / "app" / "knowledge_base" / "room_checklists.yaml"
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    del document["relationship_targets"]["hallway_cord"]
+    malformed_path = tmp_path / "missing-relationship-target.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="relationship_targets"):
+        OntologyRepository.load(malformed_path)
 
 
 def test_default_ontology_has_the_required_version_and_rooms() -> None:

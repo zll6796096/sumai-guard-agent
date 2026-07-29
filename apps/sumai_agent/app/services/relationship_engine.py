@@ -14,6 +14,23 @@ class RelationshipEngine:
         if facts.environment != "home" or facts.room_type not in self.ontology.room_names:
             return []
 
+        entity_refs = [entity.ref for entity in facts.entities]
+        feature_keys = [feature.feature_key for feature in facts.feature_observations]
+        visible_regions = set(facts.visible_regions)
+        if (
+            len(entity_refs) != len(set(entity_refs))
+            or len(feature_keys) != len(set(feature_keys))
+            or not visible_regions <= set(self.ontology.visible_region_keys)
+        ):
+            return []
+        valid_reference_objects = set(entity_refs) | visible_regions
+        if any(
+            relationship.subject not in set(entity_refs)
+            or relationship.object not in valid_reference_objects
+            for relationship in facts.relationships
+        ):
+            return []
+
         room = facts.room_type
         room_data = self.ontology.room(room)
         if room_data is None:
@@ -23,8 +40,8 @@ class RelationshipEngine:
             item["key"]: item
             for item in room_data["visible_hazards"]
         }
-        relationship_pairs = {
-            (relationship.subject, relationship.predicate)
+        relationship_triples = {
+            (relationship.subject, relationship.predicate, relationship.object)
             for relationship in facts.relationships
         }
 
@@ -32,8 +49,15 @@ class RelationshipEngine:
             if (
                 entity.ontology_key not in visible_hazards
                 or entity.visibility != "clear"
-                or (entity.ref, self.ontology.required_predicate(entity.ontology_key))
-                not in relationship_pairs
+                or not any(
+                    (
+                        entity.ref,
+                        self.ontology.required_predicate(entity.ontology_key),
+                        target,
+                    )
+                    in relationship_triples
+                    for target in self.ontology.required_targets(entity.ontology_key)
+                )
             ):
                 continue
             risk_type = visible_hazards[entity.ontology_key]["risk_type"]

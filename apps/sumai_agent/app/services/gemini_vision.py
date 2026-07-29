@@ -130,6 +130,7 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
 
 
 _FACTS_ROOM_TYPES = [*ONTOLOGY.room_names, "unknown"]
+_FACTS_VISIBLE_REGIONS = list(ONTOLOGY.visible_region_keys)
 _FACTS_REQUIRED_FIELDS = [
     "environment",
     "room_type",
@@ -146,7 +147,10 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
     "properties": {
         "environment": {"type": "string", "enum": ["home", "non_home", "uncertain"]},
         "room_type": {"type": "string", "enum": _FACTS_ROOM_TYPES},
-        "visible_regions": {"type": "array", "items": {"type": "string"}},
+        "visible_regions": {
+            "type": "array",
+            "items": {"type": "string", "enum": _FACTS_VISIBLE_REGIONS},
+        },
         "entities": {
             "type": "array",
             "items": {
@@ -207,7 +211,7 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
-VISION_PROMPT = """Extract only minimal visual evidence from one photo of a possible home.
+VISION_PROMPT = f"""Extract only minimal visual evidence from one photo of a possible home.
 Return facts that are directly visible; do not assess risk, severity, action tiers, Japanese reports,
 recommendations, legal compliance, care needs, or construction. Do not ask user profile questions.
 
@@ -221,7 +225,7 @@ Environment and coverage rules:
    Use cannot_determine for cropped, obscured, or ambiguous areas. Never infer an absence from a
    missing or out-of-frame region.
 5. Relationships must use supplied ontology predicates and refer to visible entity refs or named
-   visible regions. Do not invent objects or relationships.
+   visible regions. Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
 """
 
 
@@ -261,14 +265,27 @@ def parse_vision_facts_json(raw_json: str) -> VisionFacts:
         if entity.ontology_key not in ONTOLOGY.visible_observation_keys:
             _raise_facts_error("unknown_entity_ontology_key")
         _validate_facts_bbox("entity_bbox", entity.bbox)
+    entity_refs = [entity.ref for entity in facts.entities]
+    if len(entity_refs) != len(set(entity_refs)):
+        _raise_facts_error("duplicate_entity_ref")
     for feature in facts.feature_observations:
         if feature.feature_key not in ONTOLOGY.expected_feature_keys:
             _raise_facts_error("unknown_feature_ontology_key")
         if feature.evidence_bbox is not None:
             _validate_facts_bbox("feature_evidence_bbox", feature.evidence_bbox)
+    feature_keys = [feature.feature_key for feature in facts.feature_observations]
+    if len(feature_keys) != len(set(feature_keys)):
+        _raise_facts_error("duplicate_feature_observation")
+    if any(region not in ONTOLOGY.visible_region_keys for region in facts.visible_regions):
+        _raise_facts_error("unknown_visible_region")
+    valid_relationship_objects = set(entity_refs) | set(facts.visible_regions)
     for relationship in facts.relationships:
         if relationship.predicate not in ONTOLOGY.relationships:
             _raise_facts_error("unknown_relationship_predicate")
+        if relationship.subject not in entity_refs:
+            _raise_facts_error("dangling_relationship_subject")
+        if relationship.object not in valid_relationship_objects:
+            _raise_facts_error("dangling_relationship_object")
     return facts
 
 

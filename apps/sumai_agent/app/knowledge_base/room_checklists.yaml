@@ -8,6 +8,23 @@ relationships:
   - expected_in
   - supports_transfer_at
   - requires_confirmation
+relationship_targets:
+  hallway_cord: [walking_path]
+  cluttered_path: [walking_path]
+  cluttered_floor: [walking_path]
+  has_floor_clutter: [walking_path]
+  loose_mat: [floor]
+  has_loose_mat: [floor]
+  looks_slippery_floor: [floor]
+  wet_floor: [floor]
+  kitchen_slip: [floor]
+  poor_lighting: [room]
+  lighting_poor: [room]
+  genkan_step: [floor]
+  bathtub_stepover: [transfer_zone]
+  space_looks_narrow: [walking_path]
+  loose_shoes: [walking_path]
+  reachable_storage_issue: [storage]
 source_registry:
   MHLW_WELFARE_HOUSING:
     title_ja: 福祉用具・住宅改修
@@ -204,6 +221,20 @@ rooms:
           - 緊急通報装置やワイヤレス呼出機の導入を相談する
         contractor_actions: []
 
+      - key: has_shower_chair
+        label_ja: シャワーチェア
+        missing_risk_type: bathroom_no_shower_chair
+        missing_label_ja: 浴室内の立ち座り負荷
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: シャワーチェアがないと、床からの立ち座り動作の負担が大きく、ふらつきを招きます。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 洗面器やボトルの床置きを避ける
+        care_manager_actions:
+          - シャワーチェアなどの入浴補助用具を相談する
+        contractor_actions: []
+
     visible_hazards:
       - key: wet_floor
         risk_type: bathroom_slip
@@ -232,19 +263,6 @@ rooms:
           - 浴槽台や入浴補助用具の相談を行う
         contractor_actions:
           - 固定手すりの設置や浴槽埋め込み改修を相談する
-
-      - key: no_shower_chair
-        risk_type: bathroom_no_shower_chair
-        label_ja: 浴室内の立ち座り負荷
-        severity: 3
-        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-        basis_summary_ja: シャワーチェアがないと、床からの立ち座り動作の負担が大きく、ふらつきを招きます。
-        measure_label_ja: 動線確保
-        family_actions:
-          - 洗面器やボトルの床置きを避ける
-        care_manager_actions:
-          - シャワーチェアなどの入浴補助用具を相談する
-        contractor_actions: []
 
       - key: cluttered_floor
         risk_type: cluttered_path

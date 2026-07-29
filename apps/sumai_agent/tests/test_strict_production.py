@@ -364,7 +364,7 @@ def test_non_strict_timeout_uses_stable_code_without_detail_leakage(
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
-def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -> None:
+def test_non_home_environment_returns_neutral_not_applicable_response(mock_call_gemini: AsyncMock) -> None:
     mock_call_gemini.return_value = VisionFacts(
         environment="non_home",
         room_type="unknown",
@@ -394,10 +394,28 @@ def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -
         assert data["is_home_environment"] is False
         assert data["not_applicable_reason_ja"] == "住宅内の安全確認対象ではない可能性があります。"
         assert len(data["findings"]) == 0
+        assert data["action_plan"] == {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }
         assert data["overall_risk_level"] == "low"
+        assert data["annotated_image_base64"] == data["improvement_image_base64"]
+        visible_output = "\n".join(
+            [
+                data["risk_summary_markdown"],
+                data["family_actions_markdown"],
+                data["care_manager_actions_markdown"],
+                data["contractor_actions_markdown"],
+            ]
+        )
+        assert "判定できません" in visible_output
+        assert "安全または低リスクという意味ではない" in visible_output
+        assert "リスクは検出されませんでした" not in visible_output
+        assert "総合リスク: 低" not in visible_output
 
 
-def test_empty_findings_behavior() -> None:
+def test_unknown_room_returns_neutral_not_applicable_response() -> None:
     client = TestClient(app)
     img_bytes = _create_mock_image()
     
@@ -424,10 +442,24 @@ def test_empty_findings_behavior() -> None:
         data = response.json()
         assert data["overall_risk_level"] == "low"
         assert len(data["findings"]) == 0
-        msg = "写真内に明確な転倒リスクは検出されませんでした。必要に応じて別角度で撮影してください。"
-        assert data["family_actions_markdown"] == msg
-        assert data["care_manager_actions_markdown"] == msg
-        assert data["contractor_actions_markdown"] == msg
+        assert data["not_applicable_reason_ja"] == "写真から確認対象の部屋を特定できないため、結果を表示していません。"
+        assert data["action_plan"] == {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }
+        assert data["annotated_image_base64"] == data["improvement_image_base64"]
+        visible_output = "\n".join(
+            [
+                data["risk_summary_markdown"],
+                data["family_actions_markdown"],
+                data["care_manager_actions_markdown"],
+                data["contractor_actions_markdown"],
+            ]
+        )
+        assert "対象外または判定不能" in visible_output
+        assert "リスクは検出されませんでした" not in visible_output
+        assert "総合リスク: 低" not in visible_output
 
 
 def test_rule_engine_confidence_filtering() -> None:

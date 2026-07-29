@@ -177,6 +177,11 @@ class VisualRenderer:
         improvement = self._improvement_image(image, selected_findings)
         return _to_base64_png(annotated), _to_base64_png(improvement)
 
+    def render_not_applicable(self, image: Image.Image) -> tuple[str, str]:
+        """Return the sanitized image without risk or improvement overlays."""
+        encoded = _to_base64_png(image.convert("RGB"))
+        return encoded, encoded
+
     def _annotated_image(
         self, image: Image.Image, selected_findings: list[tuple[RiskFinding, BoundingBox]]
     ) -> Image.Image:

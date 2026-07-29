@@ -34,3 +34,11 @@ def test_visual_renderer_returns_valid_base64_png() -> None:
         assert decoded.format == "PNG"
         assert decoded.width > 0
         assert decoded.height > 0
+
+
+def test_not_applicable_renderer_returns_unannotated_identical_images() -> None:
+    image = Image.new("RGB", (64, 48), "white")
+
+    annotated, improvement = VisualRenderer().render_not_applicable(image)
+
+    assert annotated == improvement

@@ -27,7 +27,6 @@ RELATIONSHIP_REQUIREMENTS = {
     "lighting_poor": "located_in",
     "genkan_step": "located_in",
     "bathtub_stepover": "located_in",
-    "no_shower_chair": "located_in",
     "space_looks_narrow": "obstructs",
     "loose_shoes": "obstructs",
     "reachable_storage_issue": "located_in",
@@ -96,6 +95,7 @@ class _OntologyDocumentSchema(_StrictYamlModel):
     schema_version: str
     inference_config_version: str
     relationships: ActionList
+    relationship_targets: dict[str, list[str]]
     source_registry: dict[str, _SourceSchema]
     basis_source_map: dict[str, ActionList]
     action_policy: _ActionPolicySchema
@@ -126,6 +126,21 @@ class _OntologyDocumentSchema(_StrictYamlModel):
                 "Rules reference unregistered basis labels: "
                 + ", ".join(sorted(unregistered_basis_labels))
             )
+        visible_observation_keys = {
+            rule.key
+            for room in self.rooms.values()
+            for rule in room.visible_hazards
+        }
+        if set(self.relationship_targets) != visible_observation_keys:
+            raise ValueError(
+                "relationship_targets must cover exactly the visible observation keys"
+            )
+        if any(
+            not target.strip()
+            for targets in self.relationship_targets.values()
+            for target in targets
+        ) or any(not targets for targets in self.relationship_targets.values()):
+            raise ValueError("relationship_targets must contain non-empty targets")
         return self
 
 
@@ -155,6 +170,7 @@ class OntologyRepository:
         schema_version: str,
         inference_config_version: str,
         relationships: tuple[str, ...],
+        relationship_targets: dict[str, tuple[str, ...]],
         source_registry: dict[str, dict[str, str]],
         basis_source_map: dict[str, tuple[str, ...]],
         action_policy: dict[str, dict[str, Any]],
@@ -167,18 +183,19 @@ class OntologyRepository:
         self.schema_version = schema_version
         self.inference_config_version = inference_config_version
         self.relationships = relationships
-        self.relationship_requirements = dict(RELATIONSHIP_REQUIREMENTS)
+        self.relationship_targets = relationship_targets
         self.source_registry = source_registry
         self.basis_source_map = basis_source_map
         self.action_policy = action_policy
         self._rooms = rooms
-        missing_relationship_requirements = (
-            set(self.visible_observation_keys) - set(self.relationship_requirements)
-        )
-        if missing_relationship_requirements:
+        self.relationship_requirements = {
+            key: predicate
+            for key, predicate in RELATIONSHIP_REQUIREMENTS.items()
+            if key in self.visible_observation_keys
+        }
+        if set(self.relationship_requirements) != set(self.visible_observation_keys):
             raise ValueError(
-                "Visible observations require relationship requirements: "
-                + ", ".join(sorted(missing_relationship_requirements))
+                "Visible observations require exactly one relationship requirement"
             )
         invalid_predicates = set(self.relationship_requirements.values()) - set(
             self.relationships
@@ -187,6 +204,10 @@ class OntologyRepository:
             raise ValueError(
                 "Relationship requirements reference unknown predicates: "
                 + ", ".join(sorted(invalid_predicates))
+            )
+        if set(self.relationship_targets) != set(self.visible_observation_keys):
+            raise ValueError(
+                "relationship_targets must cover exactly the visible observation keys"
             )
 
     @classmethod
@@ -237,6 +258,17 @@ class OntologyRepository:
         except ValidationError as exc:
             raise ValueError(f"Invalid default ontology YAML: {exc}") from exc
         metadata = default_schema.model_dump(exclude={"rooms"})
+        legacy_visible_observation_keys = {
+            item["key"]
+            for room in document.values()
+            for item in room.get("visible_hazards", [])
+            if isinstance(item, dict) and isinstance(item.get("key"), str)
+        }
+        metadata["relationship_targets"] = {
+            key: targets
+            for key, targets in metadata["relationship_targets"].items()
+            if key in legacy_visible_observation_keys
+        }
         return {**metadata, "rooms": document}
 
     @staticmethod
@@ -252,6 +284,10 @@ class OntologyRepository:
             schema_version=document.schema_version,
             inference_config_version=document.inference_config_version,
             relationships=tuple(document.relationships),
+            relationship_targets={
+                key: tuple(targets)
+                for key, targets in document.relationship_targets.items()
+            },
             source_registry={
                 source_id: source.model_dump()
                 for source_id, source in document.source_registry.items()
@@ -308,6 +344,21 @@ class OntologyRepository:
 
     def required_predicate(self, observation_key: str) -> str:
         return self.relationship_requirements[observation_key]
+
+    def required_targets(self, observation_key: str) -> tuple[str, ...]:
+        return self.relationship_targets[observation_key]
+
+    @cached_property
+    def visible_region_keys(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                {
+                    target
+                    for targets in self.relationship_targets.values()
+                    for target in targets
+                }
+            )
+        )
 
     def _derived_keys(self, collection_name: str, key_name: str) -> tuple[str, ...]:
         values = [

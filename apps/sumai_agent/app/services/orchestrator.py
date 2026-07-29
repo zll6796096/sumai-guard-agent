@@ -7,7 +7,7 @@ import uuid
 from fastapi import UploadFile
 from PIL import Image
 
-from app.models import AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
+from app.models import ActionPlan, AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
 from app.ontology import OntologyRepository
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
 from app.services.checklist_engine import ChecklistEngine
@@ -64,21 +64,29 @@ class AnalysisOrchestrator:
             if vision_facts.room_type in self.ontology.room_names
             else "auto"
         )
-        derived_findings = self.relationship_engine.derive(vision_facts)
-        findings, action_plan = self.rule_engine.apply(derived_findings, response_room)
+        findings: list[RiskFinding] = []
+        action_plan = ActionPlan()
         is_home_environment = vision_facts.environment == "home"
-        if not is_home_environment:
-            findings, action_plan = self.rule_engine.apply([], "auto")
+        is_not_applicable = not is_home_environment or vision_facts.room_type == "unknown"
+        if is_not_applicable:
+            findings, action_plan = [], ActionPlan()
             response_room = "auto"
         not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
         overall_risk = overall_risk_level(findings)
-        annotated, improvement = self.visual_renderer.render(image, findings, response_room)
-        reports = self.report_renderer.render(
-            room_type=response_room,
-            overall_risk_level=overall_risk,
-            findings=findings,
-            action_plan=action_plan,
-        )
+        if is_not_applicable:
+            annotated, improvement = self.visual_renderer.render_not_applicable(image)
+            reports = self.report_renderer.render_not_applicable(not_applicable_reason_ja or "写真から判定できません。")
+        else:
+            derived_findings = self.relationship_engine.derive(vision_facts)
+            findings, action_plan = self.rule_engine.apply(derived_findings, response_room)
+            overall_risk = overall_risk_level(findings)
+            annotated, improvement = self.visual_renderer.render(image, findings, response_room)
+            reports = self.report_renderer.render(
+                room_type=response_room,
+                overall_risk_level=overall_risk,
+                findings=findings,
+                action_plan=action_plan,
+            )
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
         model_name = "N/A" if mode == "mock" else __import__("app.config", fromlist=["settings"]).settings.gemini_model
