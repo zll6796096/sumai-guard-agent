@@ -110,6 +110,28 @@ def test_canonicalize_findings_keeps_rounded_evidence_bbox_in_frame() -> None:
     assert rounded.y + rounded.h <= 1.0
 
 
+def test_canonicalize_findings_uses_display_bbox_as_a_stable_tie_breaker() -> None:
+    base = _finding(
+        risk_type="same",
+        severity=3,
+        confidence=0.8,
+        bbox=BoundingBox(x=0.1, y=0.2, w=0.3, h=0.4),
+    )
+    left = base.model_copy(
+        update={"display_bbox": BoundingBox(x=0.1, y=0.1, w=0.2, h=0.2)}
+    )
+    right = base.model_copy(
+        update={"display_bbox": BoundingBox(x=0.6, y=0.6, w=0.2, h=0.2)}
+    )
+
+    forward = canonicalize_findings([left, right])
+    reverse = canonicalize_findings([right, left])
+
+    assert [item.model_dump(mode="json") for item in forward] == [
+        item.model_dump(mode="json") for item in reverse
+    ]
+
+
 def test_semantic_hash_is_key_order_independent_but_detects_semantic_changes() -> None:
     first = {"room_type": "genkan", "findings": [{"id": "R1", "severity": 4}]}
     reordered = {"findings": [{"severity": 4, "id": "R1"}], "room_type": "genkan"}

@@ -53,9 +53,9 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
 
     def sort_key(finding: RiskFinding) -> tuple[Any, ...]:
         bbox = finding.bbox
-        semantic_dump = finding.model_dump(
-            mode="json", exclude={"id", "display_bbox"}
-        )
+        # display_bbox is presentation-only for semantic hashing, but it must
+        # participate in sorting so canonical output does not depend on input order.
+        semantic_dump = finding.model_dump(mode="json", exclude={"id"})
         return (
             -finding.severity,
             finding.risk_type,
