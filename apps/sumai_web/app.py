@@ -1381,6 +1381,20 @@ def _safe_backend_unavailable() -> JSONResponse:
     )
 
 
+def _safe_backend_client_error(status_code: int) -> JSONResponse:
+    if status_code in {400, 422}:
+        content = {
+            "error": "invalid_upload",
+            "message": "画像または入力内容が無効です。内容を確認して、もう一度お試しください。",
+        }
+    else:
+        content = {
+            "error": "backend_request_rejected",
+            "message": "分析リクエストを処理できませんでした。入力内容を確認してください。",
+        }
+    return JSONResponse(status_code=status_code, content=content)
+
+
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
@@ -1414,16 +1428,39 @@ async def analyze(
                 payload = _build_local_mock(image_bytes, room_hint, "backend_invalid_response")
                 return JSONResponse(content=payload)
 
+        # Client errors describe this request, not backend availability. Preserve
+        # their status without trusting or forwarding the upstream body.
+        if 400 <= response.status_code < 500:
+            logger.warning(
+                "backend_request_rejected",
+                extra={"status_code": response.status_code},
+            )
+            return _safe_backend_client_error(response.status_code)
+
         # A backend 503 always indicates that the strict provider path failed.
         # Its response body is not trusted because it may contain provider details.
         if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
             return _safe_backend_unavailable()
 
-        logger.warning("backend_non_200", extra={"status_code": response.status_code})
-        payload = _build_local_mock(image_bytes, room_hint, "backend_http_error")
-        return JSONResponse(content=payload)
+        if 500 <= response.status_code < 600:
+            logger.warning(
+                "backend_non_200", extra={"status_code": response.status_code}
+            )
+            payload = _build_local_mock(image_bytes, room_hint, "backend_http_error")
+            return JSONResponse(content=payload)
 
-    except Exception as exc:
+        logger.warning(
+            "backend_invalid_status", extra={"status_code": response.status_code}
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": "backend_invalid_response",
+                "message": "分析サービスから有効な応答を受け取れませんでした。",
+            },
+        )
+
+    except httpx.RequestError as exc:
         if FRONTEND_REQUIRE_REAL_GEMINI:
             return _safe_backend_unavailable()
         logger.warning("backend_call_failed", extra={"failure_type": type(exc).__name__})

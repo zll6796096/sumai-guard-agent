@@ -12,6 +12,8 @@ A known home room with `is_not_applicable=false` and ordinary empty findings is 
 
 ## Confidence and known-rule gate
 
+The public field remains named `confidence` for API compatibility, but it carries an uncalibrated model detection score rather than a calibrated probability that a finding is correct. The thresholds below are deterministic routing rules only, and the ordinary report labels the value `モデル検出スコア（未校正）`.
+
 `RuleEngine` applies the following exact order:
 
 - Confidence `< 0.45`: drop the candidate.

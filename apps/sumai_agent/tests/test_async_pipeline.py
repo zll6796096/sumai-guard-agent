@@ -112,6 +112,93 @@ def test_web_backend_client_is_recreated_after_shutdown(monkeypatch) -> None:
     fake_client.aclose.assert_awaited_once()
 
 
+@pytest.mark.parametrize("status_code", [400, 422])
+def test_web_proxy_preserves_invalid_upload_status_without_upstream_detail(
+    status_code: int,
+) -> None:
+    web = _load_web_module()
+    upstream_response = SimpleNamespace(
+        status_code=status_code,
+        json=MagicMock(
+            return_value={
+                "detail": "SECRET_UPSTREAM_VALIDATION_DETAIL",
+                "mode": "local_mock",
+            }
+        ),
+    )
+    web._backend_client = SimpleNamespace(
+        post=AsyncMock(return_value=upstream_response),
+        aclose=AsyncMock(),
+    )
+
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
+
+    assert response.status_code == status_code
+    assert response.json() == {
+        "error": "invalid_upload",
+        "message": "画像または入力内容が無効です。内容を確認して、もう一度お試しください。",
+    }
+    assert "local_mock" not in response.text
+    assert "SECRET_UPSTREAM_VALIDATION_DETAIL" not in response.text
+    upstream_response.json.assert_not_called()
+
+
+def test_web_proxy_preserves_other_4xx_with_safe_message() -> None:
+    web = _load_web_module()
+    upstream_response = SimpleNamespace(
+        status_code=409,
+        json=MagicMock(return_value={"detail": "SECRET_UPSTREAM_CONFLICT"}),
+    )
+    web._backend_client = SimpleNamespace(
+        post=AsyncMock(return_value=upstream_response),
+        aclose=AsyncMock(),
+    )
+
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "error": "backend_request_rejected",
+        "message": "分析リクエストを処理できませんでした。入力内容を確認してください。",
+    }
+    assert "local_mock" not in response.text
+    assert "SECRET_UPSTREAM_CONFLICT" not in response.text
+    upstream_response.json.assert_not_called()
+
+
+def test_web_proxy_non_strict_500_uses_neutral_local_fallback() -> None:
+    web = _load_web_module()
+    upstream_response = SimpleNamespace(
+        status_code=500,
+        json=MagicMock(return_value={"detail": "SECRET_UPSTREAM_FAILURE"}),
+    )
+    web._backend_client = SimpleNamespace(
+        post=AsyncMock(return_value=upstream_response),
+        aclose=AsyncMock(),
+    )
+
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "local_mock"
+    assert response.json()["is_not_applicable"] is True
+    assert "backend_http_error" in response.text
+    assert "SECRET_UPSTREAM_FAILURE" not in response.text
+    upstream_response.json.assert_not_called()
+
+
 def test_web_proxy_timeout_default_exceeds_backend_budget_and_configures_read_timeout(monkeypatch) -> None:
     web = _load_web_module()
     client_factory = MagicMock(return_value=SimpleNamespace())

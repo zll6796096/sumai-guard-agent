@@ -8,13 +8,13 @@ Reason: validate whether a low-friction visual safety conversation is useful wit
 
 ## No RAG or vector database
 
-The POC uses the versioned `room_checklists.yaml` through a typed `OntologyRepository`, not retrieval augmentation. The repository validates rooms, expected features, visible hazards, relationships and targets, source registry, source mappings, schema/version metadata, and action policy.
+The POC uses the versioned `room_checklists.yaml` through a typed `OntologyRepository`, not retrieval augmentation. The repository validates rooms, expected features, visible hazards, relationships and targets, source registry, source mappings, schema/version metadata, and action policy. Within each room, keys must be unique inside each rule kind; the same key across visible and expected rules remains valid because `rule_kind` is part of identity.
 
 Reason: the immediate value is reproducible, room-scoped deterministic policy. A vector database would add storage, retrieval uncertainty, and operations without helping this bounded visual-evidence flow.
 
 ## Gemini supplies facts; Python supplies policy
 
-The provider output is `GEMINI_FACTS_JSON_SCHEMA`: visual environment/room/regions/entities/features/relationships only. `RelationshipEngine` requires a valid subject/predicate/target triple; absence requires `absent_with_full_coverage` and evidence bbox. `RuleEngine` deterministically assigns known-rule severity, Japanese wording, source IDs, confidence treatment, and the three action tiers.
+The provider output is `GEMINI_FACTS_JSON_SCHEMA`: visual environment/room/regions/entities/features/relationships only. `RelationshipEngine` requires a valid subject/predicate/target triple; absence requires `absent_with_full_coverage` and evidence bbox. `RuleEngine` deterministically assigns known-rule severity, Japanese wording, source IDs, model-score threshold treatment, and the three action tiers. The compatible `confidence` API field is not a calibrated correctness probability, so the user report calls it `モデル検出スコア（未校正）`.
 
 Reason: a model must not decide medical/care/insurance/construction meaning, action text, or final risk policy. Unknown/insufficient/non-home inputs render neutral not-applicable output, rather than a low-risk conclusion.
 
@@ -46,7 +46,7 @@ Every request, including a web-local abstention, has a random request-local `ana
 
 Canonicalization clears `display_bbox`, and overlap deduplication uses exact ontology rule identity before falling back to `risk_type` only for two identity-free legacy findings. Thus presentation values cannot choose the retained evidence, while distinct rules sharing a risk type keep separate actions. The memo is bounded TTL/LRU, process-local, stores no image, and is not persistent or cross-process; rendering/report delivery remains per request.
 
-Annotated danger boxes always use positive, in-frame evidence coordinates. Boolean-only legacy observations create no visual finding; coordinate-backed missing features and visible hazards preserve their evidence bbox. Visual-zone and room-anchor mapping is limited to improvement callouts and cannot alter evidence or semantic identity. If the browser cannot reach the backend in non-strict local mode, its `local_mock` response is an empty neutral abstention with unannotated images, not fabricated medium-risk findings or actions.
+Annotated danger boxes always use positive, in-frame evidence coordinates. Boolean-only legacy observations create no visual finding; coordinate-backed missing features and visible hazards preserve their evidence bbox. Visual-zone and room-anchor mapping is limited to improvement callouts and cannot alter evidence or semantic identity. The web proxy preserves safe 400/422 and other 4xx statuses instead of converting input rejection into availability fallback, and never forwards the upstream detail. Non-strict `local_mock` is limited to transport failure, invalid JSON on a 200 response, or explicit 5xx fallback; it remains an empty neutral abstention with unannotated images, not fabricated medium-risk findings or actions.
 
 Reason: distinguish correlation, safe computation reuse, and semantic equality without retaining user images or treating cache behavior as durable state.
 

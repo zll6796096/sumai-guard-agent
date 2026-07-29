@@ -45,6 +45,8 @@ The bathroom safety correction is explicit: the expected feature is `has_shower_
 
 Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`, where `rule_kind` distinguishes a visible hazard from a missing expected feature. `RiskFinding` carries that identity into `RuleEngine`, so duplicate `risk_type` values cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for legacy callers, not the relationship path.
 
+The public `confidence` field remains for API compatibility and deterministic thresholding. Its provider-originated value is an uncalibrated model detection score, not a calibrated probability that the finding is correct. Ordinary reports therefore label it `モデル検出スコア（未校正）`, not confidence.
+
 The public evidence bbox has positive width and height and must remain inside the normalized image frame. Danger selection, overlap suppression, annotated red boxes, canonical semantics, and benchmark validation all use that evidence bbox. Legacy boolean observations without an explicit `MissingSafetyFeature` or `visible_hazards` bbox cannot create a visual finding. Presentation mapping through visual zones or room anchors is improvement-image-only and cannot relocate evidence.
 
 Canonicalization clears render-only `display_bbox` before sorting, winner selection, and semantic output. IoU deduplication at `IoU >= 0.5` first matches exact `(ontology_rule_kind, ontology_key)` identity. A `risk_type` fallback is used only when both findings are legacy findings without exact identity, so distinct ontology rules sharing one risk type retain their separate evidence and actions.
@@ -58,6 +60,8 @@ Canonicalization clears render-only `display_bbox` before sorting, winner select
 - rooms, visible hazards, and expected features;
 - a source registry plus basis-to-source mapping; and
 - action-tier policy and family-tier forbidden wording.
+
+Ontology loading fails closed when a room repeats a key within `visible_hazards` or within `expected_features`. The same key may exist once in each collection because `rule_kind` is part of the exact identity. Validation errors expose safe field locations and messages without echoing the submitted ontology document.
 
 Every generated known finding carries configured evidence source IDs. An empty source-ID list is allowed only for a basis explicitly mapped to no source; it is never invented at runtime. The rule engine, not Gemini, selects Japanese copy, severity, source basis, and the three action tiers:
 
@@ -77,7 +81,7 @@ The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It 
 
 Every completed result also shows the always-visible `analysis-mode-banner`, independent of the optional debug panel. It distinguishes `gemini`, `mock`, `local_mock`, and `gemini_fallback(...)`; mock and fallback wording explicitly says they are not Gemini analysis. Unknown modes receive a warning rather than an inferred provenance label.
 
-If the web proxy cannot reach the backend in non-strict local mode, `local_mock` is a neutral abstention rather than a fabricated analysis: `is_not_applicable=true`, `room_type=auto`, empty findings/actions, a nonblank reason, and identical unannotated sanitized images. Each response gets a request-local `analysis_id`; equal inputs retain equal `result_key` and `semantic_hash`. The UI therefore hides risk summary, images, and suggestions. This availability fallback does not change the backend's ordinary deterministic mock capability.
+Backend 400/422 input errors retain their HTTP status and return a fixed Japanese invalid-upload message; other 4xx responses likewise retain their status with a safe proxy message. Upstream detail is never forwarded. `local_mock` is reserved for non-strict transport failure, an invalid 200 JSON body, or the explicit non-strict 5xx fallback policy. It is a neutral abstention rather than a fabricated analysis: `is_not_applicable=true`, `room_type=auto`, empty findings/actions, a nonblank reason, and identical unannotated sanitized images. Each response gets a request-local `analysis_id`; equal inputs retain equal `result_key` and `semantic_hash`. The UI therefore hides risk summary, images, and suggestions. This availability fallback does not change the backend's ordinary deterministic mock capability.
 
 ## Async lifecycle and timing semantics
 

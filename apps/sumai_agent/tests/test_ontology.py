@@ -51,6 +51,66 @@ def test_load_rejects_incomplete_relationship_target_coverage(tmp_path: Path) ->
         OntologyRepository.load(malformed_path)
 
 
+@pytest.mark.parametrize(
+    ("collection", "duplicate_key"),
+    [
+        ("visible_hazards", "genkan_step"),
+        ("expected_features", "has_handrail_or_support"),
+    ],
+)
+def test_load_rejects_duplicate_room_rule_keys_without_leaking_document_content(
+    tmp_path: Path,
+    collection: str,
+    duplicate_key: str,
+) -> None:
+    source_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    rules = document["rooms"]["genkan"][collection]
+    duplicate = deepcopy(next(rule for rule in rules if rule["key"] == duplicate_key))
+    duplicate["basis_summary_ja"] = "SENSITIVE_ONTOLOGY_DOCUMENT_CONTENT"
+    rules.append(duplicate)
+    malformed_path = tmp_path / f"duplicate-{collection}.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(malformed_path)
+
+    assert "SENSITIVE_ONTOLOGY_DOCUMENT_CONTENT" not in str(error.value)
+
+
+def test_load_allows_the_same_room_key_across_distinct_rule_kinds(
+    tmp_path: Path,
+) -> None:
+    source_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    document["rooms"]["genkan"]["expected_features"][0]["key"] = "genkan_step"
+    overlapping_path = tmp_path / "cross-kind-key.yaml"
+    overlapping_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    ontology = OntologyRepository.load(overlapping_path)
+
+    assert ontology.rule("genkan", "genkan_step", "visible_hazard").rule_kind == (
+        "visible_hazard"
+    )
+    assert ontology.rule("genkan", "genkan_step", "expected_feature").rule_kind == (
+        "expected_feature"
+    )
+
+
 def test_default_ontology_has_the_required_version_and_rooms() -> None:
     ontology = OntologyRepository.load_default()
 
@@ -119,6 +179,41 @@ def test_load_rejects_rule_without_explicit_basis_registration(tmp_path: Path) -
 
     with pytest.raises(ValueError):
         OntologyRepository.load(malformed_path)
+
+
+@pytest.mark.parametrize(
+    "mutate_document",
+    [
+        lambda document: document["basis_source_map"].__setitem__(
+            "厚労省 福祉用具・住宅改修の考え方に関連",
+            ["SENSITIVE_ONTOLOGY_REFERENCE"],
+        ),
+        lambda document: document["rooms"]["toilet"]["visible_hazards"][0].update(
+            {"basis_label_ja": "SENSITIVE_ONTOLOGY_REFERENCE"}
+        ),
+    ],
+)
+def test_load_validation_errors_do_not_echo_unknown_reference_content(
+    tmp_path: Path,
+    mutate_document: Callable[[dict[str, Any]], None],
+) -> None:
+    source_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    mutate_document(document)
+    malformed_path = tmp_path / "sensitive-reference.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(malformed_path)
+
+    assert "SENSITIVE_ONTOLOGY_REFERENCE" not in str(error.value)
 
 
 def test_engines_load_a_custom_ontology_path(tmp_path: Path) -> None:

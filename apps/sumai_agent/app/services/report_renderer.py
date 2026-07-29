@@ -87,7 +87,7 @@ class ReportRenderer:
                     f"- 理由の根拠: {finding.evidence_ja}",
                     f"- 参考根拠: {finding.basis_label_ja}",
                     f"- 根拠の要約: {finding.basis_summary_ja}",
-                    f"- 信頼度: {confidence_percent}%",
+                    f"- モデル検出スコア（未校正）: {confidence_percent}%",
                 ]
             )
             if finding.needs_human_confirmation:

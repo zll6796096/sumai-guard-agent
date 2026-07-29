@@ -69,6 +69,17 @@ class _RoomSchema(_StrictYamlModel):
     expected_features: list[_ExpectedFeatureSchema]
     visible_hazards: list[_VisibleHazardSchema]
 
+    @model_validator(mode="after")
+    def validate_unique_rule_keys(self) -> "_RoomSchema":
+        for collection_name in ("expected_features", "visible_hazards"):
+            rules = getattr(self, collection_name)
+            keys = [rule.key for rule in rules]
+            if len(keys) != len(set(keys)):
+                raise ValueError(
+                    f"{collection_name} rule keys must be unique within a room"
+                )
+        return self
+
 
 class _SourceSchema(_StrictYamlModel):
     title_ja: str
@@ -112,10 +123,7 @@ class _OntologyDocumentSchema(_StrictYamlModel):
         }
         unknown_source_ids = referenced_source_ids - source_ids
         if unknown_source_ids:
-            raise ValueError(
-                "basis_source_map references unknown source IDs: "
-                + ", ".join(sorted(unknown_source_ids))
-            )
+            raise ValueError("basis_source_map references unknown source IDs")
         rule_basis_labels = {
             rule.basis_label_ja
             for room in self.rooms.values()
@@ -123,10 +131,7 @@ class _OntologyDocumentSchema(_StrictYamlModel):
         }
         unregistered_basis_labels = rule_basis_labels - set(self.basis_source_map)
         if unregistered_basis_labels:
-            raise ValueError(
-                "Rules reference unregistered basis labels: "
-                + ", ".join(sorted(unregistered_basis_labels))
-            )
+            raise ValueError("Rules reference unregistered basis labels")
         visible_observation_keys = {
             rule.key
             for room in self.rooms.values()
@@ -225,7 +230,18 @@ class OntologyRepository:
                 normalized_document, strict=True
             )
         except ValidationError as exc:
-            raise ValueError(f"Invalid ontology YAML: {exc}") from exc
+            safe_issues = []
+            for issue in exc.errors(
+                include_url=False,
+                include_context=False,
+                include_input=False,
+            ):
+                location = ".".join(str(part) for part in issue["loc"])
+                message = issue["msg"]
+                safe_issues.append(f"{location}: {message}" if location else message)
+            raise ValueError(
+                "Invalid ontology YAML: " + "; ".join(safe_issues)
+            ) from exc
         return cls._from_document(document)
 
     @classmethod

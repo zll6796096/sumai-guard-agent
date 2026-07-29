@@ -41,6 +41,8 @@ def test_mock_analyze_returns_valid_schema_and_japanese_reports() -> None:
     assert "家族で今日できること" in payload["family_actions_markdown"]
     assert "ケアマネ・福祉用具に相談" in payload["care_manager_actions_markdown"]
     assert "専門施工・現地確認" in payload["contractor_actions_markdown"]
+    assert "モデル検出スコア（未校正）:" in payload["risk_summary_markdown"]
+    assert "信頼度:" not in payload["risk_summary_markdown"]
     assert "医療・介護・施工判断を代替しません" in payload["disclaimer_ja"]
     assert AnalysisResponse.model_validate(payload).is_not_applicable is False
 
