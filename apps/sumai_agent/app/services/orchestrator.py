@@ -7,10 +7,12 @@ import uuid
 from fastapi import UploadFile
 from PIL import Image
 
-from app.models import AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts, VisionResult
-from app.services.gemini_vision import GeminiVisionService, mock_vision_result, normalize_room_hint
+from app.models import AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
+from app.ontology import OntologyRepository
+from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
 from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import read_and_sanitize_image
+from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
 from app.services.rule_engine import RuleEngine
 from app.services.visual_renderer import VisualRenderer
@@ -28,8 +30,10 @@ DISCLAIMER_JA = (
 class AnalysisOrchestrator:
     def __init__(self) -> None:
         self.vision = GeminiVisionService()
-        self.checklist_engine = ChecklistEngine()
-        self.rule_engine = RuleEngine()
+        self.ontology = OntologyRepository.load_default()
+        self.checklist_engine = ChecklistEngine(ontology=self.ontology)
+        self.relationship_engine = RelationshipEngine(self.ontology)
+        self.rule_engine = RuleEngine(ontology=self.ontology)
         self.visual_renderer = VisualRenderer()
         self.report_renderer = ReportRenderer()
 
@@ -55,19 +59,22 @@ class AnalysisOrchestrator:
             force_mock=mock,
             analysis_id=analysis_id,
         )
-        vision_result = _legacy_result_for_checklist(
-            vision_facts,
-            mode=mode,
-            room_hint=normalized_hint,
+        response_room: RoomType = (
+            vision_facts.room_type
+            if vision_facts.room_type in self.ontology.room_names
+            else "auto"
         )
-        checklist_findings = self.checklist_engine.process(vision_result)
-        findings, action_plan = self.rule_engine.apply(
-            checklist_findings, vision_result.room_type
-        )
+        derived_findings = self.relationship_engine.derive(vision_facts)
+        findings, action_plan = self.rule_engine.apply(derived_findings, response_room)
+        is_home_environment = vision_facts.environment == "home"
+        if not is_home_environment:
+            findings, action_plan = self.rule_engine.apply([], "auto")
+            response_room = "auto"
+        not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
         overall_risk = overall_risk_level(findings)
-        annotated, improvement = self.visual_renderer.render(image, findings, vision_result.room_type)
+        annotated, improvement = self.visual_renderer.render(image, findings, response_room)
         reports = self.report_renderer.render(
-            room_type=vision_result.room_type,
+            room_type=response_room,
             overall_risk_level=overall_risk,
             findings=findings,
             action_plan=action_plan,
@@ -89,7 +96,7 @@ class AnalysisOrchestrator:
 
         return AnalysisResponse(
             analysis_id=analysis_id,
-            room_type=vision_result.room_type,
+            room_type=response_room,
             overall_risk_level=overall_risk,
             findings=findings,
             action_plan=action_plan,
@@ -97,8 +104,8 @@ class AnalysisOrchestrator:
             improvement_image_base64=improvement,
             disclaimer_ja=DISCLAIMER_JA,
             mode=mode,
-            is_home_environment=vision_result.is_home_environment,
-            not_applicable_reason_ja=vision_result.not_applicable_reason_ja,
+            is_home_environment=is_home_environment,
+            not_applicable_reason_ja=not_applicable_reason_ja,
             model=model_name,
             **reports,
         )
@@ -115,34 +122,16 @@ def overall_risk_level(findings: list[RiskFinding]) -> RiskLevel:
     return "low"
 
 
-def _legacy_result_for_checklist(
-    vision_facts: VisionFacts | VisionResult,
-    *,
-    mode: str,
-    room_hint: RoomType,
-) -> VisionResult:
-    """Temporary Task 2 bridge until Task 3 derives findings from relationships.
-
-    Gemini facts intentionally do not become risk findings here.  The deterministic
-    demo/fallback fixture remains available so the existing local mock UX and its
-    regression tests retain their established behavior.  This is not a relationship
-    inference engine and must be removed when the formal Task 3 engine is wired in.
-    """
-    if isinstance(vision_facts, VisionResult):
-        # Supports existing callers that inject the legacy model during transition.
-        return vision_facts
-    if mode == "mock" or mode.startswith("gemini_fallback("):
-        return mock_vision_result(room_hint)
+def _not_applicable_reason(
+    vision_facts: VisionFacts, response_room: RoomType
+) -> str | None:
     if vision_facts.environment != "home":
-        return VisionResult(
-            room_type="auto",
-            is_home_environment=False,
-            not_applicable_reason_ja="住宅内の安全確認対象ではない可能性があります。",
-        )
-    room_type: RoomType = (
-        vision_facts.room_type if vision_facts.room_type != "unknown" else "auto"
-    )
-    return VisionResult(room_type=room_type, is_home_environment=True)
+        return "住宅内の安全確認対象ではない可能性があります。"
+    if response_room == "auto":
+        return "写真から確認対象の部屋を特定できないため、結果を表示していません。"
+    if vision_facts.not_applicable_reason_code is not None:
+        return "写真から十分に確認できないため、結果を表示していません。"
+    return None
 
 
 def image_from_png_bytes(image_bytes: bytes) -> Image.Image:

@@ -16,7 +16,6 @@ from app.services.gemini_vision import (
     ONTOLOGY,
     parse_vision_facts_json,
 )
-from app.services.orchestrator import _legacy_result_for_checklist
 
 
 def _valid_facts() -> dict[str, object]:
@@ -55,6 +54,33 @@ def test_vision_facts_parses_typed_visual_evidence() -> None:
     assert facts.entities[0].ontology_key == "hallway_cord"
     assert facts.relationships[0].predicate == "intersects"
     assert facts.feature_observations[0].state == "cannot_determine"
+
+
+@patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
+def test_strict_valid_facts_derive_relationship_backed_finding(
+    mock_call_gemini: AsyncMock,
+) -> None:
+    mock_call_gemini.return_value = parse_vision_facts_json(json.dumps(_valid_facts()))
+    strict_settings = Settings(
+        require_real_gemini=True,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+    )
+
+    with patch("app.main.settings", strict_settings), patch(
+        "app.services.gemini_vision.settings", strict_settings
+    ), patch("app.config.settings", strict_settings):
+        response = TestClient(app).post(
+            "/analyze",
+            files={"image": ("room.png", _png_bytes(), "image/png")},
+            data={"room_hint": "hallway", "mock": "false"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "gemini"
+    assert [finding["risk_type"] for finding in response.json()["findings"]] == [
+        "hallway_cord"
+    ]
 
 
 def test_facts_schema_excludes_policy_and_report_fields() -> None:
@@ -140,18 +166,6 @@ def test_parse_rejects_schema_numeric_values_encoded_as_strings(
 
     with pytest.raises(ValueError, match="Gemini facts"):
         parse_vision_facts_json(json.dumps(payload))
-
-
-def test_legacy_transition_does_not_infer_findings_from_real_provider_facts() -> None:
-    legacy = _legacy_result_for_checklist(
-        parse_vision_facts_json(json.dumps(_valid_facts())),
-        mode="gemini",
-        room_hint="hallway",
-    )
-
-    assert legacy.room_type == "hallway"
-    assert legacy.visible_hazards == []
-    assert legacy.missing_safety_features == []
 
 
 def test_facts_parser_never_logs_raw_provider_payload(

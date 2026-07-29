@@ -458,9 +458,17 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
         "genkan": "genkan_step",
         "hallway": "hallway_cord",
         "bathroom": "wet_floor",
-        "toilet": "cluttered_path",
-        "bedroom": "cluttered_floor",
+        "toilet": "has_floor_clutter",
+        "bedroom": "cluttered_path",
         "kitchen": "kitchen_slip",
+    }
+    relationship_by_room = {
+        "genkan": ("located_in", "floor"),
+        "hallway": ("intersects", "walking_path"),
+        "bathroom": ("located_in", "floor"),
+        "toilet": ("obstructs", "walking_path"),
+        "bedroom": ("obstructs", "walking_path"),
+        "kitchen": ("located_in", "floor"),
     }
     feature_by_room = {
         "genkan": "has_handrail_or_support",
@@ -492,7 +500,13 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
                 "model_score": 0.5,
             }
         ],
-        relationships=[],
+        relationships=[
+            {
+                "subject": "mock-entity-1",
+                "predicate": relationship_by_room[room][0],
+                "object": relationship_by_room[room][1],
+            }
+        ],
         not_applicable_reason_code=None,
     )
 

@@ -13,6 +13,16 @@ from app.services.checklist_engine import ChecklistEngine
 from app.services.rule_engine import RuleEngine
 
 
+def test_visible_observation_keys_have_exact_relationship_requirements() -> None:
+    ontology = OntologyRepository.load_default()
+
+    assert set(ontology.relationship_requirements) == set(ontology.visible_observation_keys)
+    assert set(ontology.relationship_requirements.values()) <= set(ontology.relationships)
+    assert ontology.required_predicate("hallway_cord") == "intersects"
+    with pytest.raises(KeyError):
+        ontology.required_predicate("not_an_observation")
+
+
 def test_default_ontology_has_the_required_version_and_rooms() -> None:
     ontology = OntologyRepository.load_default()
 

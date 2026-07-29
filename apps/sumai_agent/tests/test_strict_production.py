@@ -11,7 +11,7 @@ from PIL import Image
 
 from app.main import app
 from app.config import Settings
-from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
+from app.models import BoundingBox, RiskFinding, RoomType, VisionFacts, VisionResult
 from app.services.gemini_vision import parse_vision_json
 from app.services.rule_engine import RuleEngine
 
@@ -302,13 +302,7 @@ def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
     assert SENTINEL not in log_details
     assert str(HUGE_INTEGER) not in log_details
     assert data["room_type"] == "bathroom"
-    assert [finding["risk_type"] for finding in data["findings"]] == [
-        "bathroom_missing_handrail",
-        "bathroom_missing_non_slip",
-        "bathroom_missing_transfer_support",
-        "bathroom_slip",
-        "bathtub_stepover",
-    ]
+    assert [finding["risk_type"] for finding in data["findings"]] == ["bathroom_slip"]
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
@@ -371,12 +365,14 @@ def test_non_strict_timeout_uses_stable_code_without_detail_leakage(
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
 def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -> None:
-    # Setup mock call to return is_home_environment=False
-    mock_call_gemini.return_value = VisionResult(
-        room_type="auto",
-        findings=[],
-        is_home_environment=False,
-        not_applicable_reason_ja="住宅内の安全確認対象ではない可能性があります。"
+    mock_call_gemini.return_value = VisionFacts(
+        environment="non_home",
+        room_type="unknown",
+        visible_regions=[],
+        entities=[],
+        feature_observations=[],
+        relationships=[],
+        not_applicable_reason_code="non_home",
     )
 
     new_settings = Settings(require_real_gemini=False, gemini_api_key="dummy_key", mock_mode=False)
@@ -407,7 +403,15 @@ def test_empty_findings_behavior() -> None:
     
     with patch("app.services.gemini_vision.GeminiVisionService.analyze") as mock_analyze:
         mock_analyze.return_value = (
-            VisionResult(room_type="auto", findings=[], is_home_environment=True),
+            VisionFacts(
+                environment="home",
+                room_type="unknown",
+                visible_regions=[],
+                entities=[],
+                feature_observations=[],
+                relationships=[],
+                not_applicable_reason_code=None,
+            ),
             "mock"
         )
         

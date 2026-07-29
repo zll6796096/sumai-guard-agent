@@ -13,6 +13,27 @@ RoomName = Literal["toilet", "bathroom", "genkan", "hallway", "bedroom", "kitche
 ActionList = list[str] | tuple[str, ...]
 
 
+RELATIONSHIP_REQUIREMENTS = {
+    "hallway_cord": "intersects",
+    "cluttered_path": "obstructs",
+    "cluttered_floor": "obstructs",
+    "has_floor_clutter": "obstructs",
+    "loose_mat": "located_in",
+    "has_loose_mat": "located_in",
+    "looks_slippery_floor": "located_in",
+    "wet_floor": "located_in",
+    "kitchen_slip": "located_in",
+    "poor_lighting": "located_in",
+    "lighting_poor": "located_in",
+    "genkan_step": "located_in",
+    "bathtub_stepover": "located_in",
+    "no_shower_chair": "located_in",
+    "space_looks_narrow": "obstructs",
+    "loose_shoes": "obstructs",
+    "reachable_storage_issue": "located_in",
+}
+
+
 class _StrictYamlModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -146,10 +167,27 @@ class OntologyRepository:
         self.schema_version = schema_version
         self.inference_config_version = inference_config_version
         self.relationships = relationships
+        self.relationship_requirements = dict(RELATIONSHIP_REQUIREMENTS)
         self.source_registry = source_registry
         self.basis_source_map = basis_source_map
         self.action_policy = action_policy
         self._rooms = rooms
+        missing_relationship_requirements = (
+            set(self.visible_observation_keys) - set(self.relationship_requirements)
+        )
+        if missing_relationship_requirements:
+            raise ValueError(
+                "Visible observations require relationship requirements: "
+                + ", ".join(sorted(missing_relationship_requirements))
+            )
+        invalid_predicates = set(self.relationship_requirements.values()) - set(
+            self.relationships
+        )
+        if invalid_predicates:
+            raise ValueError(
+                "Relationship requirements reference unknown predicates: "
+                + ", ".join(sorted(invalid_predicates))
+            )
 
     @classmethod
     def load_default(cls) -> "OntologyRepository":
@@ -267,6 +305,9 @@ class OntologyRepository:
                     expected_feature_key=item["key"],
                 )
         raise KeyError((room, risk_type))
+
+    def required_predicate(self, observation_key: str) -> str:
+        return self.relationship_requirements[observation_key]
 
     def _derived_keys(self, collection_name: str, key_name: str) -> tuple[str, ...]:
         values = [
