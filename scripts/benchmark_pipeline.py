@@ -181,7 +181,7 @@ def validate_response_schema(payload: object) -> bool:
         return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")
-        if not isinstance(reason, str) or not reason.strip() or findings:
+        if payload.get("overall_risk_level") != "low" or not isinstance(reason, str) or not reason.strip() or findings:
             return False
         if payload.get("action_plan") != {
             "family_no_cost": [],
@@ -189,6 +189,8 @@ def validate_response_schema(payload: object) -> bool:
             "contractor_construction": [],
         }:
             return False
+    elif isinstance(payload.get("not_applicable_reason_ja"), str) and payload["not_applicable_reason_ja"].strip():
+        return False
     finding_ids = [finding["id"] for finding in findings]
     if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):
         return False
@@ -308,6 +310,8 @@ def run_benchmark(
     stages: dict[str, list[int]] = {key: [] for key in sorted(STAGE_TIMING_KEYS)}
     aggregate = {"tp": 0, "fp": 0, "fn": 0}
     schema_valid_count = 0
+    scored_applicable_response_count = 0
+    abstained_not_applicable_response_count = 0
     with client_factory(timeout=httpx.Timeout(timeout_seconds)) as client:
         if real and not _real_status_is_strict(client.get(f"{base_url}/status")):
             raise BenchmarkError("real_status_gate_failed")
@@ -329,22 +333,31 @@ def run_benchmark(
                 if response.status_code != 200 or not validate_response_schema(payload):
                     continue
                 schema_valid_count += 1
-                predicted = {finding["risk_type"] for finding in payload["findings"]}
-                metrics = precision_recall_f1(predicted, set(case["expected_risk_types"]))
-                for key in aggregate:
-                    aggregate[key] += int(metrics[key])
+                if payload["is_not_applicable"]:
+                    abstained_not_applicable_response_count += 1
+                else:
+                    scored_applicable_response_count += 1
+                    predicted = {finding["risk_type"] for finding in payload["findings"]}
+                    metrics = precision_recall_f1(predicted, set(case["expected_risk_types"]))
+                    for key in aggregate:
+                        aggregate[key] += int(metrics[key])
                 timing = payload["stage_timings_ms"]
                 application_samples.append(timing["total"])
                 for key, values in stages.items():
                     values.append(timing[key])
     request_count = len(manifest["cases"]) * repeat
     tp, fp, fn = aggregate["tp"], aggregate["fp"], aggregate["fn"]
-    if schema_valid_count == 0:
+    if scored_applicable_response_count == 0:
         available, precision, recall, f1 = False, None, None, None
+        reason = (
+            "all_schema_valid_responses_not_applicable"
+            if schema_valid_count and abstained_not_applicable_response_count == schema_valid_count
+            else "no_schema_valid_applicable_responses"
+        )
     elif tp == fp == fn == 0:
-        available, precision, recall, f1 = True, 1.0, 1.0, 1.0
+        available, precision, recall, f1, reason = True, 1.0, 1.0, 1.0, None
     else:
-        available = True
+        available, reason = True, None
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
         f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
@@ -360,7 +373,13 @@ def run_benchmark(
         "real_mode": real, "case_count": len(manifest["cases"]), "repeat": repeat,
         "request_count": request_count, "schema_valid_count": schema_valid_count,
         "schema_valid_rate": schema_valid_count / request_count if request_count else 0.0,
-        "risk_metrics": {"available": available, "precision": precision, "recall": recall, "f1": f1, **aggregate},
+        "scored_applicable_response_count": scored_applicable_response_count,
+        "scored_applicable_response_coverage": scored_applicable_response_count / request_count if request_count else 0.0,
+        "abstained_not_applicable_response_count": abstained_not_applicable_response_count,
+        "risk_metrics": {
+            "available": available, "precision": precision, "recall": recall, "f1": f1,
+            "reason": reason, **aggregate,
+        },
         "latency_ms": latency,
         "limitations": _limitations(manifest["classification"], real),
     }
@@ -376,6 +395,7 @@ def _limitations(classification: str, real: bool) -> list[str]:
         evidence,
         "application_total is server stage timing, not HTTP end-to-end latency",
         "invalid responses are excluded from risk metrics and counted in schema_valid_rate",
+        "schema-valid not-applicable responses are abstentions: excluded from risk metrics and counted separately",
     ]
     if not real:
         limitations.append("mock mode cannot measure real model recognition")

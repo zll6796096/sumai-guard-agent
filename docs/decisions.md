@@ -46,7 +46,7 @@ Reason: distinguish correlation, safe computation reuse, and semantic equality w
 
 ## Benchmarks and logs
 
-Synthetic benchmark repetitions are capped at 50. Mock P/R/F1 = 1 means the deterministic pipeline matched the synthetic fixture; it is not recognition accuracy. Real-mode accuracy requires strict status plus reviewed real-photo labels.
+Synthetic benchmark repetitions are capped at 50. Mock P/R/F1 = 1 means the deterministic pipeline matched the synthetic fixture; it is not recognition accuracy. Schema-valid `is_not_applicable=true` output is an abstention, not a risk prediction: it is excluded from P/R/F1 even with an empty gold set. `scored_applicable_response_count` and `scored_applicable_response_coverage` use repeated `request_count` as the coverage denominator, while valid abstentions are reported separately. If no applicable response is scored, risk metrics are unavailable rather than an empty-set accuracy. Real-mode accuracy requires strict status plus reviewed real-photo labels.
 
 Structured completion logs contain final stage timings and private cache metadata. The published `total` is an instrumented application-stage sum, not HTTP end-to-end latency; it excludes Starlette JSON encoding, socket, and network time.
 

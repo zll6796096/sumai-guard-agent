@@ -22,6 +22,8 @@ def test_architecture_documents_the_current_typed_pipeline_and_identity_boundary
         "not HTTP end-to-end",
         "synthetic",
         "not recognition evidence",
+        "scored_applicable_response_coverage",
+        "results are abstentions",
     ):
         assert required in architecture
 
@@ -55,6 +57,7 @@ def test_risk_and_stability_documents_state_the_live_safety_thresholds() -> None
     assert "known home room" in risk_policy
     assert "synthetic" in stability
     assert "not recognition evidence" in stability
+    assert "scored_applicable_response_coverage" in stability
     assert "strict malformed JSON behavior" not in stability
 
 
@@ -65,4 +68,5 @@ def test_decisions_retires_rag_lite_demo_rules_language() -> None:
     assert "OntologyRepository" in decisions
     assert "is_not_applicable" in decisions
     assert "analysis-mode-banner" in decisions
+    assert "scored_applicable_response_coverage" in decisions
     assert "demo_rules.yaml" not in decisions

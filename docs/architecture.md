@@ -83,6 +83,8 @@ The agent timeout defaults to 120 seconds. The local web proxy adds a 30-second 
 
 The benchmark fixtures are synthetic and repeats are bounded to at most 50. In mock mode, P/R/F1 = 1 only checks that the deterministic pipeline matches those fixtures; it is **not recognition evidence** and must not be presented as visual-recognition accuracy. A real-mode benchmark requires strict status, a reviewed real-photo gold set, and reviewed labels before any accuracy claim.
 
+Benchmark output separates schema validity from scoring applicability. `schema_valid_count` includes every schema-valid response. Schema-valid `is_not_applicable=true` results are abstentions, so they do not enter risk P/R/F1, including when the gold risk set is empty. `scored_applicable_response_count` and `scored_applicable_response_coverage` report scored applicable responses, with coverage using the repeated `request_count` as its denominator; `abstained_not_applicable_response_count` reports the excluded valid abstentions. When no applicable response was scored, risk metrics are unavailable with a reason rather than reporting an empty-set accuracy.
+
 ## Cloud Run note
 
 Historical Cloud Run configuration may exist in this repository, but Task9 neither modifies nor verifies deployment. This document is local-POC acceptance documentation, not a production-readiness claim. The existing 120-second deployment request limit and the 150-second local proxy budget remain an out-of-scope timeout compatibility risk; no Cloud Run behavior is asserted as verified here.

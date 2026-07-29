@@ -239,6 +239,7 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     benchmark = _load_module()
     payload = _valid_payload(findings=[])
     payload["is_not_applicable"] = True
+    payload["overall_risk_level"] = "low"
     payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
 
     assert benchmark.validate_response_schema(payload) is True
@@ -254,6 +255,19 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     without_reason = deepcopy(payload)
     without_reason["not_applicable_reason_ja"] = ""
     assert benchmark.validate_response_schema(without_reason) is False
+
+    non_low = deepcopy(payload)
+    non_low["overall_risk_level"] = "medium"
+    assert benchmark.validate_response_schema(non_low) is False
+
+
+def test_applicable_response_cannot_carry_a_neutral_reason() -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
+
+    assert benchmark.validate_response_schema(payload) is False
+    assert benchmark.validate_response_schema(_valid_payload()) is True
 
 
 def test_action_plan_semantics_require_tiers_unique_ids_and_known_risks() -> None:
@@ -336,6 +350,18 @@ class _ValidClient(_Client):
         return _Response(200, _valid_payload())
 
 
+class _PayloadSequenceClient(_ValidClient):
+    def __init__(self, payloads: list[dict[str, object]]) -> None:
+        super().__init__()
+        self._payloads = [deepcopy(payload) for payload in payloads]
+
+    def post(self, _url: str, **kwargs: object) -> _Response:
+        self.analyze_calls += 1
+        self.post_kwargs = kwargs
+        assert self._payloads, "test client received more requests than expected"
+        return _Response(200, self._payloads.pop(0))
+
+
 def test_mock_runner_sends_mock_param_and_summary_omits_sensitive_response_values() -> None:
     benchmark = _load_module()
     client = _ValidClient()
@@ -381,7 +407,7 @@ def test_invalid_response_is_excluded_from_schema_and_risk_metrics() -> None:
     assert summary["schema_valid_count"] == 0
     assert summary["risk_metrics"] == {
         "available": False, "precision": None, "recall": None, "f1": None,
-        "tp": 0, "fp": 0, "fn": 0,
+        "reason": "no_schema_valid_applicable_responses", "tp": 0, "fp": 0, "fn": 0,
     }
 
 
@@ -421,7 +447,71 @@ def test_empty_valid_observation_uses_empty_set_metric_semantics() -> None:
     )
     assert summary["risk_metrics"] == {
         "available": True, "precision": 1.0, "recall": 1.0, "f1": 1.0,
-        "tp": 0, "fp": 0, "fn": 0,
+        "reason": None, "tp": 0, "fp": 0, "fn": 0,
+    }
+
+
+def test_not_applicable_empty_gold_response_is_schema_valid_but_not_risk_scored() -> None:
+    benchmark = _load_module()
+    not_applicable = _valid_payload(findings=[])
+    not_applicable.update({
+        "is_not_applicable": True,
+        "overall_risk_level": "low",
+        "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
+    })
+    client = _PayloadSequenceClient([not_applicable])
+
+    summary = benchmark.run_benchmark(
+        {"version": "1", "classification": "synthetic", "cases": [{
+            "id": "empty", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+            "room_hint": "hallway", "expected_risk_types": [],
+        }]},
+        repeat=1, base_url="http://test", real=False, timeout_seconds=1,
+        client_factory=lambda **_kwargs: client,
+    )
+
+    assert summary["schema_valid_count"] == 1
+    assert summary["scored_applicable_response_count"] == 0
+    assert summary["scored_applicable_response_coverage"] == 0.0
+    assert summary["abstained_not_applicable_response_count"] == 1
+    assert summary["risk_metrics"] == {
+        "available": False, "precision": None, "recall": None, "f1": None,
+        "reason": "all_schema_valid_responses_not_applicable", "tp": 0, "fp": 0, "fn": 0,
+    }
+
+
+def test_mixed_applicability_scores_only_applicable_responses_and_reports_coverage() -> None:
+    benchmark = _load_module()
+    not_applicable = _valid_payload(findings=[])
+    not_applicable.update({
+        "is_not_applicable": True,
+        "overall_risk_level": "low",
+        "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
+    })
+    client = _PayloadSequenceClient([_valid_payload(), not_applicable])
+
+    summary = benchmark.run_benchmark(
+        {"version": "1", "classification": "synthetic", "cases": [
+            {
+                "id": "hallway", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+                "room_hint": "hallway", "expected_risk_types": ["hallway_cord"],
+            },
+            {
+                "id": "abstained", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+                "room_hint": "hallway", "expected_risk_types": [],
+            },
+        ]},
+        repeat=1, base_url="http://test", real=False, timeout_seconds=1,
+        client_factory=lambda **_kwargs: client,
+    )
+
+    assert summary["schema_valid_count"] == 2
+    assert summary["scored_applicable_response_count"] == 1
+    assert summary["scored_applicable_response_coverage"] == 0.5
+    assert summary["abstained_not_applicable_response_count"] == 1
+    assert summary["risk_metrics"] == {
+        "available": True, "precision": 1.0, "recall": 1.0, "f1": 1.0,
+        "reason": None, "tp": 1, "fp": 0, "fn": 0,
     }
 
 

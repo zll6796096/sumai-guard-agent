@@ -19,7 +19,7 @@ Scope: current defenses for the local SumaiGuard POC and the remaining evidence 
 | Memo | Bounded process-local TTL/LRU cache stores semantic output only; fallback is uncached and each request renders again. | No images in memo and no fallback masquerading as stable analysis. |
 | Async/time | Pillow work uses `to_thread`; reusable Gemini and web `httpx` clients close on lifespan shutdown; agent default is 120s and local proxy budget is 150s. | Avoids blocking the event loop and sets a local failure budget. |
 | Timing/logs | Final structured logs carry stage timings and private cache-hit metadata; instrumented total is not HTTP end-to-end. | Diagnostic timing is not misrepresented as browser latency. |
-| Benchmark | Synthetic fixtures have repeat bounded to 50 and mock P/R/F1 verifies deterministic fixture handling. | Synthetic metrics are **not recognition evidence**. |
+| Benchmark | Synthetic fixtures have repeat bounded to 50. Schema-valid `is_not_applicable=true` results are abstentions, excluded from risk P/R/F1; `scored_applicable_response_count` and `scored_applicable_response_coverage` (denominator: repeated `request_count`) report the scoring coverage. | Synthetic metrics are **not recognition evidence**; no applicable scored response leaves metrics unavailable rather than assigning empty-set accuracy. |
 
 The completed result includes an always-visible `analysis-mode-banner`; it does not depend on `?debug=1`. It labels Gemini, mock, local mock, and `gemini_fallback(...)` separately, so fallback and mock output cannot look like Gemini analysis in the ordinary UI.
 
