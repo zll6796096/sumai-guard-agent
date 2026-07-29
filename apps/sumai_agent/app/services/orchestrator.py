@@ -67,7 +67,11 @@ class AnalysisOrchestrator:
         findings: list[RiskFinding] = []
         action_plan = ActionPlan()
         is_home_environment = vision_facts.environment == "home"
-        is_not_applicable = not is_home_environment or vision_facts.room_type == "unknown"
+        is_not_applicable = (
+            not is_home_environment
+            or vision_facts.room_type == "unknown"
+            or vision_facts.not_applicable_reason_code is not None
+        )
         if is_not_applicable:
             findings, action_plan = [], ActionPlan()
             response_room = "auto"

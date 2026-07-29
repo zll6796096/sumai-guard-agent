@@ -462,6 +462,53 @@ def test_unknown_room_returns_neutral_not_applicable_response() -> None:
         assert "総合リスク: 低" not in visible_output
 
 
+def test_not_applicable_reason_code_returns_neutral_response() -> None:
+    client = TestClient(app)
+    img_bytes = _create_mock_image()
+
+    with patch("app.services.gemini_vision.GeminiVisionService.analyze") as mock_analyze:
+        mock_analyze.return_value = (
+            VisionFacts(
+                environment="home",
+                room_type="bathroom",
+                visible_regions=[],
+                entities=[],
+                feature_observations=[],
+                relationships=[],
+                not_applicable_reason_code="insufficient_visibility",
+            ),
+            "mock",
+        )
+
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", img_bytes, "image/png")},
+            data={"room_hint": "bathroom", "mock": "true"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["not_applicable_reason_ja"]
+    assert data["findings"] == []
+    assert data["action_plan"] == {
+        "family_no_cost": [],
+        "care_manager_purchase": [],
+        "contractor_construction": [],
+    }
+    assert data["annotated_image_base64"] == data["improvement_image_base64"]
+    visible_output = "\n".join(
+        [
+            data["risk_summary_markdown"],
+            data["family_actions_markdown"],
+            data["care_manager_actions_markdown"],
+            data["contractor_actions_markdown"],
+        ]
+    )
+    assert "対象外または判定不能" in visible_output
+    assert "リスクは検出されませんでした" not in visible_output
+    assert "総合リスク: 低" not in visible_output
+
+
 def test_rule_engine_confidence_filtering() -> None:
     engine = RuleEngine()
     
