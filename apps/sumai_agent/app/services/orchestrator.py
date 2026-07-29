@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+import unicodedata
 import uuid
 
 from fastapi import UploadFile
@@ -10,7 +11,13 @@ from PIL import Image
 from app.config import settings
 from app.models import ActionPlan, AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
 from app.ontology import OntologyRepository
-from app.services.canonicalization import canonical_pixel_digest, canonicalize_findings, result_key, semantic_hash
+from app.services.canonicalization import (
+    canonical_pixel_digest,
+    canonicalize_findings,
+    normalize_signed_zero,
+    result_key,
+    semantic_hash,
+)
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
 from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
@@ -110,7 +117,13 @@ class AnalysisOrchestrator:
         latency_ms = int((time.monotonic() - start_time) * 1000)
         model_name = "N/A" if mode == "mock" else configured_model
         stable_semantic_hash = semantic_hash(
-            analysis_semantic_payload(response_room, findings, action_plan)
+            analysis_semantic_payload(
+                response_room,
+                findings,
+                action_plan,
+                is_home_environment=is_home_environment,
+                not_applicable_reason_ja=not_applicable_reason_ja,
+            )
         )
         logger.info(
             "analysis_complete",
@@ -155,21 +168,35 @@ def execution_mode_for_request(*, force_mock: bool) -> str:
         return "forced_mock"
     if settings.mock_mode:
         return "configured_mock"
+    if not settings.gemini_api_key:
+        return "missing_key_mock"
     return "gemini_with_fallback"
 
 
 def analysis_semantic_payload(
-    room_type: RoomType, findings: list[RiskFinding], action_plan: ActionPlan
+    room_type: RoomType,
+    findings: list[RiskFinding],
+    action_plan: ActionPlan,
+    *,
+    is_home_environment: bool = True,
+    not_applicable_reason_ja: str | None = None,
 ) -> dict[str, object]:
     """Build semantic output only; request/presentation data are intentionally excluded."""
-    return {
-        "room_type": room_type,
+    payload = {
+        "room_type": room_type.strip().lower(),
+        "is_home_environment": is_home_environment,
+        "not_applicable_reason_ja": (
+            unicodedata.normalize("NFC", not_applicable_reason_ja).strip()
+            if not_applicable_reason_ja is not None
+            else None
+        ),
         "findings": [
             finding.model_dump(mode="json", exclude={"display_bbox"})
             for finding in findings
         ],
         "action_plan": action_plan.model_dump(mode="json"),
     }
+    return normalize_signed_zero(payload)
 
 
 def overall_risk_level(findings: list[RiskFinding]) -> RiskLevel:
@@ -188,10 +215,10 @@ def _not_applicable_reason(
 ) -> str | None:
     if vision_facts.environment != "home":
         return "住宅内の安全確認対象ではない可能性があります。"
-    if response_room == "auto":
-        return "写真から確認対象の部屋を特定できないため、結果を表示していません。"
     if vision_facts.not_applicable_reason_code is not None:
         return "写真から十分に確認できないため、結果を表示していません。"
+    if response_room == "auto":
+        return "写真から確認対象の部屋を特定できないため、結果を表示していません。"
     return None
 
 

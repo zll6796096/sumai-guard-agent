@@ -31,16 +31,19 @@ def result_key(
     inference_config_version: str,
     execution_mode: str = "default",
 ) -> str:
-    values = (
-        pixel_digest,
-        room_hint,
-        preprocess_version,
-        ontology_version,
-        model,
-        inference_config_version,
-        execution_mode,
+    canonical_inputs = {
+        "execution_mode": execution_mode,
+        "inference_config_version": inference_config_version,
+        "model": model,
+        "ontology_version": ontology_version,
+        "pixel_digest": pixel_digest,
+        "preprocess_version": preprocess_version,
+        "room_hint": room_hint,
+    }
+    encoded = json.dumps(
+        canonical_inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
-    return hashlib.sha256("|".join(values).encode("utf-8")).hexdigest()
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
@@ -48,24 +51,28 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
     copied = [finding.model_copy(deep=True) for finding in findings]
     normalized: list[RiskFinding] = []
     for finding in copied:
-        evidence_bbox = _rounded_evidence_bbox(finding.bbox)
-        normalized.append(finding.model_copy(update={"bbox": evidence_bbox}))
+        # Evidence is factual output: preserve its coordinates and extent.  Only
+        # canonicalize signed zero, which has no geometric meaning.
+        updates: dict[str, BoundingBox | None] = {"bbox": _canonical_bbox(finding.bbox)}
+        if finding.display_bbox is not None:
+            updates["display_bbox"] = _canonical_bbox(finding.display_bbox)
+        normalized.append(finding.model_copy(update=updates))
 
     def sort_key(finding: RiskFinding) -> tuple[Any, ...]:
         bbox = finding.bbox
+        # Rounded evidence coordinates group near-identical boxes for ordering;
+        # the complete, unrounded finding below is the final deterministic tie-breaker.
+        rounded_bbox = tuple(round(value, 3) for value in (bbox.x, bbox.y, bbox.w, bbox.h))
         # display_bbox is presentation-only for semantic hashing, but it must
         # participate in sorting so canonical output does not depend on input order.
-        semantic_dump = finding.model_dump(mode="json", exclude={"id"})
+        full_dump = normalize_signed_zero(finding.model_dump(mode="json", exclude={"id"}))
         return (
             -finding.severity,
             finding.risk_type,
-            bbox.x,
-            bbox.y,
-            bbox.w,
-            bbox.h,
+            *rounded_bbox,
             -finding.confidence,
             finding.label_ja,
-            json.dumps(semantic_dump, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            json.dumps(full_dump, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         )
 
     return [
@@ -74,17 +81,31 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
     ]
 
 
-def _rounded_evidence_bbox(bbox: BoundingBox) -> BoundingBox:
-    """Round coordinates without moving a previously in-bounds box out of frame."""
-    x = round(bbox.x, 3)
-    y = round(bbox.y, 3)
-    w = min(round(bbox.w, 3), round(1.0 - x, 3))
-    h = min(round(bbox.h, 3), round(1.0 - y, 3))
-    return BoundingBox(x=x, y=y, w=max(0.0, w), h=max(0.0, h))
+def _canonical_bbox(bbox: BoundingBox) -> BoundingBox:
+    """Keep evidence geometry intact while making signed zero canonical."""
+    return BoundingBox(
+        x=0.0 if bbox.x == 0.0 else bbox.x,
+        y=0.0 if bbox.y == 0.0 else bbox.y,
+        w=0.0 if bbox.w == 0.0 else bbox.w,
+        h=0.0 if bbox.h == 0.0 else bbox.h,
+    )
+
+
+def normalize_signed_zero(payload: Any) -> Any:
+    """Recursively canonicalize -0.0 so semantically equal JSON hashes equally."""
+    if isinstance(payload, float):
+        return 0.0 if payload == 0.0 else payload
+    if isinstance(payload, list):
+        return [normalize_signed_zero(item) for item in payload]
+    if isinstance(payload, tuple):
+        return [normalize_signed_zero(item) for item in payload]
+    if isinstance(payload, dict):
+        return {key: normalize_signed_zero(value) for key, value in payload.items()}
+    return payload
 
 
 def semantic_hash(payload: object) -> str:
     canonical_json = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        normalize_signed_zero(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
