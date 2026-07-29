@@ -175,6 +175,47 @@ def test_result_memo_cleans_failed_and_cancelled_in_flight_work_without_cancelli
     asyncio.run(run())
 
 
+def test_result_memo_observes_failure_after_its_only_waiter_cancels() -> None:
+    async def run() -> None:
+        memo: AsyncResultMemo[str] = AsyncResultMemo(max_items=2, ttl_seconds=5)
+        started = asyncio.Event()
+        release = asyncio.Event()
+        unhandled: list[dict[str, object]] = []
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+
+        def capture_unhandled(
+            _loop: asyncio.AbstractEventLoop, context: dict[str, object]
+        ) -> None:
+            unhandled.append(context)
+
+        async def detached_failure() -> tuple[str, bool]:
+            started.set()
+            await release.wait()
+            raise RuntimeError("detached failure")
+
+        async def retry() -> tuple[str, bool]:
+            return "recovered", True
+
+        loop.set_exception_handler(capture_unhandled)
+        try:
+            waiter = asyncio.create_task(memo.get_or_compute("same", detached_failure))
+            await started.wait()
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+            assert unhandled == []
+            assert await memo.get_or_compute("same", retry) == ("recovered", False)
+        finally:
+            loop.set_exception_handler(previous_handler)
+
+    asyncio.run(run())
+
+
 def test_result_memo_settings_reject_non_positive_limits() -> None:
     with pytest.raises(ValueError, match="result_memo_ttl_seconds"):
         Settings(result_memo_ttl_seconds=0)
