@@ -34,7 +34,7 @@ Reason: availability must not turn a provider failure into a false claim of Gemi
 
 ## Public applicability state
 
-`is_not_applicable` is an additive, strict boolean in every analysis response. It is true for non-home, unknown-room, and explicit insufficient-evidence paths; findings and actions are empty. The older `overall_risk_level` enum remains `low` for empty-response compatibility, but the UI hides that summary, annotations, and suggestion navigation when `is_not_applicable=true`, showing the neutral reason instead.
+`is_not_applicable` is an additive, strict boolean in every analysis response. Only true denotes neutral non-home, unknown-room, or explicit insufficient-evidence output; it requires empty findings/actions and a non-empty reason. The older `overall_risk_level` enum remains `low` for that wire-compatible state, but the UI hides that summary, annotations, and suggestion navigation when `is_not_applicable=true`, showing the neutral reason instead. A known home room with false and ordinary empty findings remains normal low-compatible “no obvious candidate detected” output, not neutral not-applicable.
 
 Reason: a schema-compatible empty response must not visually imply that the photo establishes a low-risk home.
 

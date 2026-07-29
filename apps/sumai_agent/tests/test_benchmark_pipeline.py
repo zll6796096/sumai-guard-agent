@@ -235,6 +235,27 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(payload) is False
 
 
+def test_not_applicable_response_requires_empty_findings_actions_and_reason() -> None:
+    benchmark = _load_module()
+    payload = _valid_payload(findings=[])
+    payload["is_not_applicable"] = True
+    payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
+
+    assert benchmark.validate_response_schema(payload) is True
+
+    with_findings = deepcopy(payload)
+    with_findings["findings"] = _valid_payload()["findings"]
+    assert benchmark.validate_response_schema(with_findings) is False
+
+    with_action = deepcopy(payload)
+    with_action["action_plan"]["family_no_cost"] = _valid_payload()["action_plan"]["family_no_cost"]
+    assert benchmark.validate_response_schema(with_action) is False
+
+    without_reason = deepcopy(payload)
+    without_reason["not_applicable_reason_ja"] = ""
+    assert benchmark.validate_response_schema(without_reason) is False
+
+
 def test_action_plan_semantics_require_tiers_unique_ids_and_known_risks() -> None:
     benchmark = _load_module()
     for mutation in (

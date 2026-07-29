@@ -27,7 +27,9 @@ flowchart LR
 
 The public disclaimer is deliberate: this POC does not replace medical, care, insurance, or construction judgment, and the improvement image is communication material rather than a construction drawing.
 
-The public response has an additive boolean `is_not_applicable`. It is `true` for non-home, unknown-room, or explicit insufficient-evidence facts and is carried through memo copies and the endpoint. `overall_risk_level` remains `low` in those empty responses for wire compatibility, but the web UI must not display it as a low-risk conclusion: it shows the supplied neutral reason and hides risk summary, images, and suggestions.
+The public response has an additive boolean `is_not_applicable`. Only `true` is neutral not-applicable: it is used for non-home, unknown-room, or explicit insufficient-evidence facts, requires empty findings/actions and a non-empty reason, and is carried through memo copies and the endpoint. `overall_risk_level` remains `low` in that wire-compatible response, but the web UI shows the neutral reason and hides risk summary, images, and suggestions.
+
+For a known home room, `is_not_applicable=false` with ordinary empty findings instead means no obvious candidate was detected in the visible, validated scope. That remains the normal low-compatible result, not a neutral not-applicable state and not proof that the home is safe beyond the photo.
 
 ## Evidence and inference method
 

@@ -179,6 +179,16 @@ def validate_response_schema(payload: object) -> bool:
     findings = payload.get("findings")
     if not isinstance(findings, list) or not all(_valid_finding(item) for item in findings):
         return False
+    if payload["is_not_applicable"]:
+        reason = payload.get("not_applicable_reason_ja")
+        if not isinstance(reason, str) or not reason.strip() or findings:
+            return False
+        if payload.get("action_plan") != {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }:
+            return False
     finding_ids = [finding["id"] for finding in findings]
     if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):
         return False

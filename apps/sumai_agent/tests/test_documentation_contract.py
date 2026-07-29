@@ -51,6 +51,8 @@ def test_risk_and_stability_documents_state_the_live_safety_thresholds() -> None
     assert "absent_with_full_coverage" in stability
     assert "is_not_applicable" in stability
     assert "analysis-mode-banner" in stability
+    assert "Only `is_not_applicable=true`" in risk_policy
+    assert "known home room" in risk_policy
     assert "synthetic" in stability
     assert "not recognition evidence" in stability
     assert "strict malformed JSON behavior" not in stability

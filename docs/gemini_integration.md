@@ -59,7 +59,7 @@ With `REQUIRE_REAL_GEMINI=true`, missing key, timeout, provider error, malformed
 
 With strict mode off, a real-call timeout, provider error, or parser rejection returns deterministic mock facts with mode `gemini_fallback(reason)`. Such fallback work is explicitly labelled and is not memoized. If no key is configured, the service enters direct `mock` mode; it does not claim a Gemini call occurred. Forced mock and configured mock are likewise explicit modes.
 
-The public response exposes `is_not_applicable` as a strict boolean. For a true value, the web result screen presents the neutral reason instead of its compatibility `overall_risk_level=low`, and hides risk summary, images, and action navigation. Its non-debug `analysis-mode-banner` always displays whether the result was Gemini, mock, local mock, or fallback; mock/fallback are never labelled as Gemini analysis.
+The public response exposes `is_not_applicable` as a strict boolean. Only a true value is neutral not-applicable: it requires empty findings/actions and a non-empty neutral reason, so the web result screen hides its compatibility `overall_risk_level=low`, risk summary, images, and action navigation. A known home room with false plus ordinary empty findings remains the normal low-compatible “no obvious candidate detected” result, not neutral output. Its non-debug `analysis-mode-banner` always displays whether the result was Gemini, mock, local mock, or fallback; mock/fallback are never labelled as Gemini analysis.
 
 ## Testing and safe operation
 
