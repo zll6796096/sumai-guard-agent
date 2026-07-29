@@ -155,12 +155,23 @@ def test_web_proxy_timeout_rejects_non_finite_or_non_positive_values(monkeypatch
         _load_web_module()
 
 
-def test_web_proxy_timeout_rejects_override_at_or_below_backend_budget(monkeypatch) -> None:
+def test_web_proxy_timeout_rejects_override_below_required_margin(monkeypatch) -> None:
     monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "120")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "30")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "149.999")
 
     with pytest.raises(ValueError, match="SUMAI_AGENT_TIMEOUT_SECONDS"):
         _load_web_module()
+
+
+def test_web_proxy_timeout_accepts_override_at_required_margin(monkeypatch) -> None:
+    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "30")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "150")
+
+    web = _load_web_module()
+
+    assert web.SUMAI_AGENT_TIMEOUT_SECONDS == 150.0
 
 
 def test_gemini_client_close_is_idempotent_and_allows_recreation() -> None:
