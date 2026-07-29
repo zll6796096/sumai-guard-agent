@@ -253,7 +253,7 @@ def parse_vision_facts_json(raw_json: str) -> VisionFacts:
         _raise_facts_error("missing_top_level_field", raw_length=len(raw_json))
 
     try:
-        facts = VisionFacts.model_validate(data)
+        facts = VisionFacts.model_validate(data, strict=True)
     except Exception:
         _raise_facts_error("pydantic_validation", raw_length=len(raw_json))
 

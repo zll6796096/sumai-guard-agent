@@ -124,6 +124,24 @@ def test_parse_rejects_unknown_ontology_vocabulary(
         parse_vision_facts_json(json.dumps(payload))
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["entities"][0].__setitem__("model_score", "0.92"),  # type: ignore[index]
+        lambda payload: payload["entities"][0]["bbox"].__setitem__("x", "0.1"),  # type: ignore[index]
+    ],
+    ids=["string-model-score", "string-bbox-coordinate"],
+)
+def test_parse_rejects_schema_numeric_values_encoded_as_strings(
+    mutate: object,
+) -> None:
+    payload = _valid_facts()
+    mutate(payload)  # type: ignore[operator]
+
+    with pytest.raises(ValueError, match="Gemini facts"):
+        parse_vision_facts_json(json.dumps(payload))
+
+
 def test_legacy_transition_does_not_infer_findings_from_real_provider_facts() -> None:
     legacy = _legacy_result_for_checklist(
         parse_vision_facts_json(json.dumps(_valid_facts())),
@@ -165,7 +183,7 @@ def test_invalid_facts_fail_closed_in_strict_mode(
 ) -> None:
     async def invalid_facts(*_args: object, **_kwargs: object) -> VisionFacts:
         payload = _valid_facts()
-        payload["entities"][0]["ontology_key"] = "FACTS_PROVIDER_SECRET"  # type: ignore[index]
+        payload["entities"][0]["model_score"] = "0.92"  # type: ignore[index]
         return parse_vision_facts_json(json.dumps(payload))
 
     mock_call_gemini.side_effect = invalid_facts
@@ -184,7 +202,7 @@ def test_invalid_facts_fail_closed_in_strict_mode(
         )
 
     assert response.status_code == 503
-    assert "FACTS_PROVIDER_SECRET" not in response.text
+    assert "0.92" not in response.text
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
@@ -193,7 +211,7 @@ def test_invalid_facts_use_labeled_fallback_outside_strict_mode(
 ) -> None:
     async def invalid_facts(*_args: object, **_kwargs: object) -> VisionFacts:
         payload = _valid_facts()
-        payload["relationships"][0]["predicate"] = "FACTS_PROVIDER_SECRET"  # type: ignore[index]
+        payload["entities"][0]["bbox"]["x"] = "0.1"  # type: ignore[index]
         return parse_vision_facts_json(json.dumps(payload))
 
     mock_call_gemini.side_effect = invalid_facts
@@ -213,4 +231,4 @@ def test_invalid_facts_use_labeled_fallback_outside_strict_mode(
 
     assert response.status_code == 200
     assert response.json()["mode"] == "gemini_fallback(invalid_response)"
-    assert "FACTS_PROVIDER_SECRET" not in response.text
+    assert '"x":"0.1"' not in response.text
