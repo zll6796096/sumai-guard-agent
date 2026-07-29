@@ -223,20 +223,7 @@ class AnalysisOrchestrator:
         stage_timings_ms["render"] = elapsed_ms(render_started)
         _set_total(stage_timings_ms)
 
-        logger.info(
-            "analysis_complete",
-            extra={
-                "analysis_id": analysis_id,
-                "room_hint": normalized_hint,
-                "mock_or_gemini": computed.mode,
-                "model": computed.model_name,
-                "number_of_findings": len(computed.findings),
-                "stage_timings_ms": stage_timings_ms,
-                "cache_hit": memo_hit,
-            },
-        )
-
-        return AnalysisResponse(
+        response = AnalysisResponse(
             analysis_id=analysis_id,
             room_type=computed.response_room,
             overall_risk_level=computed.overall_risk,
@@ -258,6 +245,8 @@ class AnalysisOrchestrator:
             stage_timings_ms=stage_timings_ms,
             **computed.reports,
         )
+        response._cache_hit = memo_hit
+        return response
 
 
 def execution_mode_for_request(*, force_mock: bool) -> str:
@@ -343,7 +332,7 @@ def _empty_stage_timings() -> dict[str, int]:
 
 
 def _set_total(stage_timings_ms: dict[str, int]) -> None:
-    """Total is the sum of non-overlapping request stages, not wall-clock time."""
+    """Sum instrumented app stages, excluding JSON encoding, socket, and network latency."""
     stage_timings_ms["total"] = sum(
         value for key, value in stage_timings_ms.items() if key != "total"
     )

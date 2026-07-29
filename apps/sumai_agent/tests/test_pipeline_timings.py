@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import logging
 import re
 from types import SimpleNamespace
@@ -86,7 +87,7 @@ def _subject(monkeypatch: pytest.MonkeyPatch, vision: CountingVision) -> Analysi
     return AnalysisOrchestrator(vision=vision)
 
 
-def test_post_mock_image_returns_complete_non_negative_stage_timings() -> None:
+def test_post_mock_image_returns_instrumented_stage_sum_not_http_end_to_end() -> None:
     response = TestClient(app).post(
         "/analyze",
         data={"room_hint": "genkan", "mock": "true"},
@@ -101,8 +102,52 @@ def test_post_mock_image_returns_complete_non_negative_stage_timings() -> None:
     assert timings["total"] == sum(value for key, value in timings.items() if key != "total")
 
 
-def test_memo_hit_zeroes_shared_stages_renders_again_and_logs_cache_hit(
+def test_endpoint_logs_one_finalized_json_completion_without_sensitive_identity_values(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from app import main
+
+    clock = IncrementingClock()
+    monkeypatch.setattr(main.time, "monotonic", clock)
+    client = TestClient(main.app)
+    with caplog.at_level(logging.INFO):
+        first = client.post(
+            "/analyze",
+            data={"room_hint": "genkan", "mock": "true"},
+            files={"image": ("room.png", _png_bytes(), "image/png")},
+        )
+        caplog.clear()
+        response = client.post(
+            "/analyze",
+            data={"room_hint": "genkan", "mock": "true"},
+            files={"image": ("room.png", _png_bytes(), "image/png")},
+        )
+
+    assert first.status_code == 200
+    assert response.status_code == 200
+    payload = response.json()
+    complete = [record for record in caplog.records if record.message == "analysis_complete"]
+    assert len(complete) == 1
+    formatter = next(
+        handler.formatter
+        for handler in logging.root.handlers
+        if handler.formatter is not None
+    )
+    rendered = json.loads(formatter.format(complete[0]))
+    assert rendered["stage_timings_ms"] == payload["stage_timings_ms"]
+    assert rendered["stage_timings_ms"]["serialize"] > 0
+    assert rendered["cache_hit"] is True
+    assert "cache_hit" not in payload
+    serialized_log = json.dumps(rendered, ensure_ascii=False)
+    assert "result_key" not in serialized_log
+    assert "semantic_hash" not in serialized_log
+    assert "pixel_digest" not in serialized_log
+    assert payload["annotated_image_base64"] not in serialized_log
+    assert re.search(r"\b[0-9a-f]{64}\b", serialized_log) is None
+
+
+def test_memo_hit_zeroes_shared_stages_renders_again_and_keeps_cache_metadata_private(
+    monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def run() -> None:
         vision = CountingVision()
@@ -116,9 +161,8 @@ def test_memo_hit_zeroes_shared_stages_renders_again_and_logs_cache_hit(
             return original_render(*args, **kwargs)
 
         monkeypatch.setattr(subject.visual_renderer, "render", counted_render)
-        with caplog.at_level(logging.INFO, logger="sumai.orchestrator"):
-            first = await subject.analyze(_upload(), room_hint="genkan", mock=True)
-            second = await subject.analyze(_upload(), room_hint="genkan", mock=True)
+        first = await subject.analyze(_upload(), room_hint="genkan", mock=True)
+        second = await subject.analyze(_upload(), room_hint="genkan", mock=True)
 
         assert vision.calls == 1
         assert renders == 2
@@ -127,15 +171,13 @@ def test_memo_hit_zeroes_shared_stages_renders_again_and_logs_cache_hit(
         assert second.stage_timings_ms["ontology"] == 0
         assert second.stage_timings_ms["report"] == 0
         assert second.stage_timings_ms["render"] >= 0
-        complete = [record for record in caplog.records if record.message == "analysis_complete"]
-        assert getattr(complete[-1], "cache_hit") is True
+        assert first._cache_hit is False
+        assert second._cache_hit is True
 
     asyncio.run(run())
 
 
-def test_coalesced_follower_attributes_wait_to_memo_lookup(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_coalesced_follower_attributes_wait_to_memo_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
     class BlockingVision(CountingVision):
         def __init__(self) -> None:
             super().__init__()
@@ -162,13 +204,12 @@ def test_coalesced_follower_attributes_wait_to_memo_lookup(
             return await original_get_or_compute(*args, **kwargs)
 
         monkeypatch.setattr(subject.result_memo, "get_or_compute", track_memo_entry)
-        with caplog.at_level(logging.INFO, logger="sumai.orchestrator"):
-            owner = asyncio.create_task(subject.analyze(_upload(), room_hint="genkan", mock=True))
-            await vision.started.wait()
-            follower = asyncio.create_task(subject.analyze(_upload(), room_hint="genkan", mock=True))
-            await follower_entered_memo.wait()
-            vision.release.set()
-            first, second = await asyncio.gather(owner, follower)
+        owner = asyncio.create_task(subject.analyze(_upload(), room_hint="genkan", mock=True))
+        await vision.started.wait()
+        follower = asyncio.create_task(subject.analyze(_upload(), room_hint="genkan", mock=True))
+        await follower_entered_memo.wait()
+        vision.release.set()
+        first, second = await asyncio.gather(owner, follower)
 
         assert vision.calls == 1
         follower_response = next(
@@ -177,8 +218,8 @@ def test_coalesced_follower_attributes_wait_to_memo_lookup(
         assert follower_response.stage_timings_ms["ontology"] == 0
         assert follower_response.stage_timings_ms["report"] == 0
         assert follower_response.stage_timings_ms["memo_lookup"] >= 0
-        complete = [record for record in caplog.records if record.message == "analysis_complete"]
-        assert all(getattr(record, "cache_hit") is False for record in complete)
+        assert first._cache_hit is False
+        assert second._cache_hit is False
 
     asyncio.run(run())
 
@@ -248,21 +289,14 @@ def test_not_applicable_visual_rendering_uses_to_thread(monkeypatch: pytest.Monk
     asyncio.run(run())
 
 
-def test_analysis_complete_logs_allowlisted_timings_without_sensitive_identity_values(
+def test_orchestrator_does_not_emit_completion_before_endpoint_serialization(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     async def run() -> None:
         subject = _subject(monkeypatch, CountingVision())
         with caplog.at_level(logging.INFO, logger="sumai.orchestrator"):
-            response = await subject.analyze(_upload(), room_hint="genkan", mock=True)
+            await subject.analyze(_upload(), room_hint="genkan", mock=True)
 
-        complete = next(record for record in caplog.records if record.message == "analysis_complete")
-        assert getattr(complete, "stage_timings_ms") == response.stage_timings_ms
-        rendered = "\n".join(repr(record.__dict__) for record in caplog.records)
-        assert "result_key" not in rendered
-        assert "semantic_hash" not in rendered
-        assert "pixel_digest" not in rendered
-        assert response.annotated_image_base64 not in rendered
-        assert re.search(r"\b[0-9a-f]{64}\b", rendered) is None
+        assert not [record for record in caplog.records if record.message == "analysis_complete"]
 
     asyncio.run(run())

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 RoomType = Literal["genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"]
@@ -115,6 +115,10 @@ class ActionPlan(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
+    """Validated public response with request-local logging metadata kept private."""
+
+    _cache_hit: bool = PrivateAttr(default=False)
+
     analysis_id: str
     room_type: RoomType
     overall_risk_level: RiskLevel

@@ -101,10 +101,21 @@ async def analyze(
         stage_timings_ms["serialize"] = max(
             0, int((time.monotonic() - serialize_started) * 1000)
         )
-        # The total deliberately sums stages rather than using wall time, because
-        # memo_lookup excludes factory stages for the owner request.
+        # This is an instrumented application-stage sum, not HTTP end-to-end latency:
+        # Starlette JSON encoding, socket, and network time are intentionally excluded.
         stage_timings_ms["total"] = sum(
             value for key, value in stage_timings_ms.items() if key != "total"
+        )
+        logger.info(
+            "analysis_complete",
+            extra={
+                "analysis_id": response.analysis_id,
+                "mode": response.mode,
+                "model": response.model,
+                "number_of_findings": len(response.findings),
+                "stage_timings_ms": stage_timings_ms,
+                "cache_hit": response._cache_hit,
+            },
         )
         return JSONResponse(content=content)
     except GeminiUnavailableError as exc:
