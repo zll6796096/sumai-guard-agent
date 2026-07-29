@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
@@ -28,7 +29,7 @@ def _setup_logging() -> None:
             for key in ("analysis_id", "mode", "model", "room_hint", "mock_or_gemini",
                         "number_of_findings", "latency_ms", "fallback_reason",
                         "finding_count", "reason", "raw_length", "index", "error",
-                        "original", "type"):
+                        "original", "type", "stage_timings_ms", "cache_hit"):
                 value = getattr(record, key, None)
                 if value is not None:
                     log_entry[key] = value
@@ -93,7 +94,19 @@ async def analyze(
         raise HTTPException(status_code=400, detail="画像ファイルを指定してください。")
 
     try:
-        return await orchestrator.analyze(upload=image, room_hint=room_hint, mock=mock)
+        response = await orchestrator.analyze(upload=image, room_hint=room_hint, mock=mock)
+        serialize_started = time.monotonic()
+        content = response.model_dump(mode="json")
+        stage_timings_ms = content["stage_timings_ms"]
+        stage_timings_ms["serialize"] = max(
+            0, int((time.monotonic() - serialize_started) * 1000)
+        )
+        # The total deliberately sums stages rather than using wall time, because
+        # memo_lookup excludes factory stages for the owner request.
+        stage_timings_ms["total"] = sum(
+            value for key, value in stage_timings_ms.items() if key != "total"
+        )
+        return JSONResponse(content=content)
     except GeminiUnavailableError as exc:
         return JSONResponse(
             status_code=503,

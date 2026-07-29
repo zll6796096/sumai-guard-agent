@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import unicodedata
@@ -30,6 +31,17 @@ from app.services.visual_renderer import VisualRenderer
 
 
 logger = logging.getLogger("sumai.orchestrator")
+
+STAGE_TIMING_KEYS = (
+    "intake",
+    "memo_lookup",
+    "vision",
+    "ontology",
+    "render",
+    "report",
+    "serialize",
+    "total",
+)
 
 DISCLAIMER_JA = (
     "POC版です。医療・介護・施工判断を代替しません。"
@@ -76,7 +88,7 @@ class AnalysisOrchestrator:
 
     async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
         analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
-        start_time = time.monotonic()
+        stage_timings_ms = _empty_stage_timings()
         normalized_hint = normalize_room_hint(room_hint)
 
         logger.info(
@@ -87,12 +99,14 @@ class AnalysisOrchestrator:
             },
         )
 
+        intake_started = time.monotonic()
         raw_bytes = await upload.read()
-        image, safe_png = read_and_sanitize_image(raw_bytes)
+        image, safe_png, pixel_digest = await asyncio.to_thread(_prepare_image, raw_bytes)
+        stage_timings_ms["intake"] = elapsed_ms(intake_started)
         execution_mode = execution_mode_for_request(force_mock=mock)
         configured_model = settings.gemini_model
         stable_result_key = result_key(
-            pixel_digest=canonical_pixel_digest(image),
+            pixel_digest=pixel_digest,
             room_hint=normalized_hint,
             preprocess_version=PREPROCESS_VERSION,
             ontology_version=self.ontology.version,
@@ -102,12 +116,17 @@ class AnalysisOrchestrator:
         )
 
         async def compute_semantics() -> tuple[ComputedAnalysis, bool]:
+            factory_ran[0] = True
+            vision_started = time.monotonic()
             vision_facts, mode = await self.vision.analyze(
                 image_png=safe_png,
                 room_hint=normalized_hint,
                 force_mock=mock,
                 analysis_id=analysis_id,
             )
+            stage_timings_ms["vision"] = elapsed_ms(vision_started)
+
+            ontology_started = time.monotonic()
             response_room: RoomType = (
                 vision_facts.room_type
                 if vision_facts.room_type in self.ontology.room_names
@@ -124,20 +143,10 @@ class AnalysisOrchestrator:
             if is_not_applicable:
                 response_room = "auto"
             not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
-            if is_not_applicable:
-                reports = self.report_renderer.render_not_applicable(
-                    not_applicable_reason_ja or "写真から判定できません。"
-                )
-            else:
+            if not is_not_applicable:
                 derived_findings = self.relationship_engine.derive(vision_facts)
                 findings, action_plan = self.rule_engine.apply(
                     canonicalize_findings(derived_findings), response_room
-                )
-                reports = self.report_renderer.render(
-                    room_type=response_room,
-                    overall_risk_level=overall_risk_level(findings),
-                    findings=findings,
-                    action_plan=action_plan,
                 )
             overall_risk = overall_risk_level(findings)
             model_name = "N/A" if mode == "mock" else configured_model
@@ -150,6 +159,21 @@ class AnalysisOrchestrator:
                     not_applicable_reason_ja=not_applicable_reason_ja,
                 )
             )
+            stage_timings_ms["ontology"] = elapsed_ms(ontology_started)
+
+            report_started = time.monotonic()
+            if is_not_applicable:
+                reports = self.report_renderer.render_not_applicable(
+                    not_applicable_reason_ja or "写真から判定できません。"
+                )
+            else:
+                reports = self.report_renderer.render(
+                    room_type=response_room,
+                    overall_risk_level=overall_risk,
+                    findings=findings,
+                    action_plan=action_plan,
+                )
+            stage_timings_ms["report"] = elapsed_ms(report_started)
             return (
                 ComputedAnalysis(
                     response_room=response_room,
@@ -167,17 +191,38 @@ class AnalysisOrchestrator:
                 mode in {"mock", "gemini"},
             )
 
-        computed, _memo_hit = await self.result_memo.get_or_compute(
+        # Only the factory owner records vision/ontology/report. Cached requests and
+        # coalesced followers attribute their wait time to memo_lookup instead.
+        factory_ran = [False]
+        memo_started = time.monotonic()
+        computed, memo_hit = await self.result_memo.get_or_compute(
             stable_result_key, compute_semantics
         )
-        if computed.is_not_applicable:
-            annotated, improvement = self.visual_renderer.render_not_applicable(image)
+        memo_elapsed = elapsed_ms(memo_started)
+        if factory_ran[0]:
+            stage_timings_ms["memo_lookup"] = max(
+                0,
+                memo_elapsed
+                - stage_timings_ms["vision"]
+                - stage_timings_ms["ontology"]
+                - stage_timings_ms["report"],
+            )
         else:
-            annotated, improvement = self.visual_renderer.render(
+            stage_timings_ms["memo_lookup"] = memo_elapsed
+
+        render_started = time.monotonic()
+        if computed.is_not_applicable:
+            annotated, improvement = await asyncio.to_thread(
+                self.visual_renderer.render_not_applicable, image
+            )
+        else:
+            annotated, improvement = await asyncio.to_thread(
+                self.visual_renderer.render,
                 image, computed.findings, computed.response_room
             )
+        stage_timings_ms["render"] = elapsed_ms(render_started)
+        _set_total(stage_timings_ms)
 
-        latency_ms = int((time.monotonic() - start_time) * 1000)
         logger.info(
             "analysis_complete",
             extra={
@@ -186,7 +231,8 @@ class AnalysisOrchestrator:
                 "mock_or_gemini": computed.mode,
                 "model": computed.model_name,
                 "number_of_findings": len(computed.findings),
-                "latency_ms": latency_ms,
+                "stage_timings_ms": stage_timings_ms,
+                "cache_hit": memo_hit,
             },
         )
 
@@ -209,6 +255,7 @@ class AnalysisOrchestrator:
             ontology_version=self.ontology.version,
             preprocess_version=PREPROCESS_VERSION,
             inference_config_version=self.ontology.inference_config_version,
+            stage_timings_ms=stage_timings_ms,
             **computed.reports,
         )
 
@@ -278,3 +325,25 @@ def _not_applicable_reason(
 def image_from_png_bytes(image_bytes: bytes) -> Image.Image:
     image, _ = read_and_sanitize_image(image_bytes)
     return image
+
+
+def elapsed_ms(start: float) -> int:
+    """Return a non-negative monotonic elapsed duration rounded down to milliseconds."""
+    return max(0, int((time.monotonic() - start) * 1000))
+
+
+def _prepare_image(raw_bytes: bytes) -> tuple[Image.Image, bytes, str]:
+    """Run image decoding, EXIF stripping, and pixel digesting off the event loop."""
+    image, safe_png = read_and_sanitize_image(raw_bytes)
+    return image, safe_png, canonical_pixel_digest(image)
+
+
+def _empty_stage_timings() -> dict[str, int]:
+    return {key: 0 for key in STAGE_TIMING_KEYS}
+
+
+def _set_total(stage_timings_ms: dict[str, int]) -> None:
+    """Total is the sum of non-overlapping request stages, not wall-clock time."""
+    stage_timings_ms["total"] = sum(
+        value for key, value in stage_timings_ms.items() if key != "total"
+    )
