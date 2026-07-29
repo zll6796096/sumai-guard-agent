@@ -6,7 +6,7 @@ This local POC presents cautious, photo-scoped safety candidates. It does not ma
 
 Only `RelationshipEngine` may turn typed visual facts into candidate findings. A visible hazard needs a clear entity and a configured full relationship triple (subject, predicate, target). A missing expected feature needs `absent_with_full_coverage` plus an evidence bbox; `cannot_determine`, partial coverage, a non-home image, or an unknown room produces no finding.
 
-An empty/not-applicable result is neutral: it means the POC cannot present a room-scoped visible candidate from this photo. It does not mean the home is safe or risk-free.
+An empty/not-applicable result is neutral: it means the POC cannot present a room-scoped visible candidate from this photo. It does not mean the home is safe or risk-free. The public `is_not_applicable=true` state is authoritative for the web UI, which hides its compatibility low-risk summary, images, and suggestion button and shows the neutral reason instead.
 
 ## Confidence and known-rule gate
 

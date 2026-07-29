@@ -237,6 +237,7 @@ class AnalysisOrchestrator:
             disclaimer_ja=DISCLAIMER_JA,
             mode=computed.mode,
             is_home_environment=computed.is_home_environment,
+            is_not_applicable=computed.is_not_applicable,
             not_applicable_reason_ja=computed.not_applicable_reason_ja,
             model=computed.model_name,
             result_key=stable_result_key,

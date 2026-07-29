@@ -186,7 +186,8 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "annotated_image_base64": "aGVsbG8=", "improvement_image_base64": "aGVsbG8=",
         "risk_summary_markdown": "summary", "family_actions_markdown": "family",
         "care_manager_actions_markdown": "care", "contractor_actions_markdown": "contractor",
-        "disclaimer_ja": "POC", "mode": "mock", "is_home_environment": True, "model": "N/A",
+        "disclaimer_ja": "POC", "mode": "mock", "is_home_environment": True,
+        "is_not_applicable": False, "model": "N/A",
         "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
         "schema_version": "2.0.0", "ontology_version": "1.0.0",
@@ -220,6 +221,12 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["not_applicable_reason_ja"] = 42
+    assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed.pop("is_not_applicable")
+    assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed["is_not_applicable"] = "false"
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["stage_timings_ms"]["total"] = True  # type: ignore[index]

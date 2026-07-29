@@ -201,6 +201,7 @@ def _is_public_response_text(payload: dict[str, object]) -> bool:
         and (reason is None or isinstance(reason, str))
         and all(isinstance(payload.get(field), str) for field in string_fields)
         and isinstance(payload.get("is_home_environment"), bool)
+        and isinstance(payload.get("is_not_applicable"), bool)
     )
 
 

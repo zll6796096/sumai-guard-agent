@@ -27,6 +27,8 @@ flowchart LR
 
 The public disclaimer is deliberate: this POC does not replace medical, care, insurance, or construction judgment, and the improvement image is communication material rather than a construction drawing.
 
+The public response has an additive boolean `is_not_applicable`. It is `true` for non-home, unknown-room, or explicit insufficient-evidence facts and is carried through memo copies and the endpoint. `overall_risk_level` remains `low` in those empty responses for wire compatibility, but the web UI must not display it as a low-risk conclusion: it shows the supplied neutral reason and hides risk summary, images, and suggestions.
+
 ## Evidence and inference method
 
 Gemini is limited to `VisionFacts`: environment, room type, visible regions, visible entities, feature observations, and relationships. The provider is not asked for severity, Japanese labels, action tiers, recommendations, reports, or final risk decisions.
@@ -64,6 +66,8 @@ Each HTTP request receives a random `analysis_id` for correlation only. It is in
 `semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, and action plan. It excludes generated images, timings, execution mode, and `display_bbox`; it includes the fixed not-applicable semantics described above. Findings are canonicalized before policy output so ordering and signed zero do not change the semantic result.
 
 The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
+
+Every completed result also shows the always-visible `analysis-mode-banner`, independent of the optional debug panel. It distinguishes `gemini`, `mock`, `local_mock`, and `gemini_fallback(...)`; mock and fallback wording explicitly says they are not Gemini analysis. Unknown modes receive a warning rather than an inferred provenance label.
 
 ## Async lifecycle and timing semantics
 

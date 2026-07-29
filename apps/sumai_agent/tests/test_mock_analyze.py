@@ -29,6 +29,7 @@ def test_mock_analyze_returns_valid_schema_and_japanese_reports() -> None:
     assert payload["analysis_id"]
     assert payload["room_type"] in {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
     assert payload["overall_risk_level"] in {"low", "medium", "high"}
+    assert payload["is_not_applicable"] is False
     assert payload["findings"]
     assert payload["action_plan"]["family_no_cost"]
     assert payload["annotated_image_base64"]

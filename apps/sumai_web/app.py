@@ -477,6 +477,28 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-shrink: 0;
         }
 
+        .analysis-mode-banner {
+            border-radius: 10px;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .analysis-mode-banner.mode-gemini {
+            background-color: rgba(16, 185, 129, 0.12);
+            border: 1px solid var(--success-color);
+            color: #8BF0C7;
+        }
+
+        .analysis-mode-banner.mode-mock,
+        .analysis-mode-banner.mode-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid var(--warning-color);
+            color: #FFD580;
+        }
+
         .summary-item {
             display: flex;
             flex-direction: column;
@@ -812,6 +834,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
             <!-- 2. Completed State Container -->
             <div id="result-completed-container" style="display: none;">
+                <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
                         <span class="summary-label">総合リスク</span>
@@ -1117,6 +1140,14 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function renderResults(payload) {
+            const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
+            const resultSummary = document.querySelector('.result-summary');
+            const notAppContainer = document.getElementById('not-applicable-container');
+            const notAppMsg = document.getElementById('not-applicable-message');
+            const imagesList = document.querySelector('.result-images-list');
+
+            renderAnalysisModeBanner(payload);
+
             // Set risk badge
             const riskBadge = document.getElementById('risk-badge');
             const overallRisk = payload.overall_risk_level || 'medium';
@@ -1127,18 +1158,17 @@ INDEX_HTML = """<!DOCTYPE html>
             const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
 
-            // Check if home environment
-            const notAppContainer = document.getElementById('not-applicable-container');
-            const notAppMsg = document.getElementById('not-applicable-message');
-            const imagesList = document.querySelector('.result-images-list');
-
-            if (payload.is_home_environment === false) {
-                notAppMsg.textContent = payload.not_applicable_reason_ja || "住宅内の安全確認対象ではない可能性があります。";
+            if (isNotApplicable) {
+                notAppMsg.textContent = payload.not_applicable_reason_ja || "この写真では確認結果を表示できません。";
                 notAppContainer.style.display = 'block';
+                resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
+                btnShowSuggestions.style.display = 'none';
             } else {
                 notAppContainer.style.display = 'none';
+                resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
+                btnShowSuggestions.style.display = '';
                 
                 // Set Images
                 document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
@@ -1172,9 +1202,33 @@ INDEX_HTML = """<!DOCTYPE html>
             clearStepAnimation();
             
             // Switch title and transition to completed layout inside Screen 2
-            document.getElementById('screen2-title').textContent = "診断結果";
+            document.getElementById('screen2-title').textContent = "確認結果";
             document.getElementById('result-analyzing-container').style.display = 'none';
             document.getElementById('result-completed-container').style.display = 'block';
+        }
+
+        function renderAnalysisModeBanner(payload) {
+            const banner = document.getElementById('analysis-mode-banner');
+            const mode = typeof payload.mode === 'string' ? payload.mode : '';
+            let text = '実行モードを確認できません';
+            let style = 'mode-warning';
+
+            if (mode === 'gemini') {
+                text = 'Gemini解析結果';
+                style = 'mode-gemini';
+            } else if (mode === 'mock') {
+                text = 'モック結果（AI実解析ではありません）';
+                style = 'mode-mock';
+            } else if (mode === 'local_mock') {
+                text = 'ローカルモック結果（AI実解析ではありません）';
+                style = 'mode-mock';
+            } else if (mode.startsWith('gemini_fallback(')) {
+                text = 'フォールバック結果（Gemini解析として扱わないでください）';
+                style = 'mode-warning';
+            }
+
+            banner.textContent = text;
+            banner.className = 'analysis-mode-banner ' + style;
         }
 
         function updateDebugPanel(payload) {
@@ -1403,6 +1457,8 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "room_type": room_hint,
         "overall_risk_level": "medium",
         "mode": "local_mock",
+        "is_home_environment": True,
+        "is_not_applicable": False,
         "findings": [{"id": "注意"}],
         "annotated_image_base64": _to_base64_png(annotated),
         "improvement_image_base64": _to_base64_png(improvement),

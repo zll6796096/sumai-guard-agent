@@ -17,6 +17,8 @@ def test_architecture_documents_the_current_typed_pipeline_and_identity_boundary
         "result_key",
         "semantic_hash",
         "absent_with_full_coverage",
+        "is_not_applicable",
+        "analysis-mode-banner",
         "not HTTP end-to-end",
         "synthetic",
         "not recognition evidence",
@@ -47,6 +49,8 @@ def test_risk_and_stability_documents_state_the_live_safety_thresholds() -> None
     for threshold in ("0.45", "0.60", "0.75"):
         assert threshold in risk_policy
     assert "absent_with_full_coverage" in stability
+    assert "is_not_applicable" in stability
+    assert "analysis-mode-banner" in stability
     assert "synthetic" in stability
     assert "not recognition evidence" in stability
     assert "strict malformed JSON behavior" not in stability
@@ -57,4 +61,6 @@ def test_decisions_retires_rag_lite_demo_rules_language() -> None:
 
     assert "room_checklists.yaml" in decisions
     assert "OntologyRepository" in decisions
+    assert "is_not_applicable" in decisions
+    assert "analysis-mode-banner" in decisions
     assert "demo_rules.yaml" not in decisions

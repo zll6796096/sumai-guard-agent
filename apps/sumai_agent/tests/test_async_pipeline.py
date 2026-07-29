@@ -252,5 +252,6 @@ def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None
         )
     assert fallback.status_code == 200
     assert fallback.json()["mode"] == "local_mock"
+    assert fallback.json()["is_not_applicable"] is False
     assert "SECRET_INTERNAL_URL" not in fallback.text
     assert "backend_unreachable" in fallback.text

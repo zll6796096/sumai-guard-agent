@@ -28,9 +28,15 @@ Reason: a safety candidate is useful only if the next step remains within its au
 
 ## Mock mode and strict real mode
 
-Mock mode is required for local development, tests, and credential-free demonstrations. In strict real mode (`REQUIRE_REAL_GEMINI=true`), missing key, timeout, provider error, malformed facts, or parser rejection fails safely with HTTP 503. Non-strict fallback is explicitly labelled `gemini_fallback(reason)` and is uncached; it cannot be presented as a real analysis.
+Mock mode is required for local development, tests, and credential-free demonstrations. In strict real mode (`REQUIRE_REAL_GEMINI=true`), missing key, timeout, provider error, malformed facts, or parser rejection fails safely with HTTP 503. Non-strict fallback is explicitly labelled `gemini_fallback(reason)` and is uncached; it cannot be presented as a real analysis. The ordinary completed screen has an always-visible `analysis-mode-banner` that separately labels Gemini, mock, local mock, and fallback rather than relying on the optional debug panel.
 
 Reason: availability must not turn a provider failure into a false claim of Gemini recognition.
+
+## Public applicability state
+
+`is_not_applicable` is an additive, strict boolean in every analysis response. It is true for non-home, unknown-room, and explicit insufficient-evidence paths; findings and actions are empty. The older `overall_risk_level` enum remains `low` for empty-response compatibility, but the UI hides that summary, annotations, and suggestion navigation when `is_not_applicable=true`, showing the neutral reason instead.
+
+Reason: a schema-compatible empty response must not visually imply that the photo establishes a low-risk home.
 
 ## Identity, rendering, and memoization
 

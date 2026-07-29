@@ -14,12 +14,14 @@ Scope: current defenses for the local SumaiGuard POC and the remaining evidence 
 | Absence | `absent_with_full_coverage` plus an evidence bbox is required for a missing-feature finding; `cannot_determine` yields no finding. | Out-of-frame or ambiguous features are not treated as absent. |
 | Relationship | `RelationshipEngine` requires a configured full subject/predicate/target triple and clear entity visibility. | Object names alone cannot trigger a risk. |
 | Policy | Room-scoped ontology plus Python `RuleEngine` sets severity, Japanese copy, source IDs, thresholds, and three action tiers. | The model cannot override deterministic safety policy. |
-| Non-applicability | Non-home, uncertain/unknown-room, or explicit not-applicable facts render neutral output. | No low-risk/no-risk inference from an unsuitable photo. |
+| Non-applicability | Non-home, uncertain/unknown-room, or explicit not-applicable facts render neutral output with public `is_not_applicable=true`. | No low-risk/no-risk inference from an unsuitable photo; the UI hides its compatibility low summary/images/actions. |
 | Identity | Canonical findings, `result_key`, and `semantic_hash` separate calculation inputs from reader-facing semantics. | Metadata, display bbox, images, timing, and mode do not alter semantic identity. |
 | Memo | Bounded process-local TTL/LRU cache stores semantic output only; fallback is uncached and each request renders again. | No images in memo and no fallback masquerading as stable analysis. |
 | Async/time | Pillow work uses `to_thread`; reusable Gemini and web `httpx` clients close on lifespan shutdown; agent default is 120s and local proxy budget is 150s. | Avoids blocking the event loop and sets a local failure budget. |
 | Timing/logs | Final structured logs carry stage timings and private cache-hit metadata; instrumented total is not HTTP end-to-end. | Diagnostic timing is not misrepresented as browser latency. |
 | Benchmark | Synthetic fixtures have repeat bounded to 50 and mock P/R/F1 verifies deterministic fixture handling. | Synthetic metrics are **not recognition evidence**. |
+
+The completed result includes an always-visible `analysis-mode-banner`; it does not depend on `?debug=1`. It labels Gemini, mock, local mock, and `gemini_fallback(...)` separately, so fallback and mock output cannot look like Gemini analysis in the ordinary UI.
 
 ## Strict and demo status gate
 

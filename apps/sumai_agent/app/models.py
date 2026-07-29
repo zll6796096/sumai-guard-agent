@@ -133,6 +133,7 @@ class AnalysisResponse(BaseModel):
     disclaimer_ja: str
     mode: str = "mock"
     is_home_environment: bool = True
+    is_not_applicable: bool = False
     not_applicable_reason_ja: str | None = None
     model: str = "N/A"
     result_key: str = ""
