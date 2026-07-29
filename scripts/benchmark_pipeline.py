@@ -22,7 +22,9 @@ from PIL import Image, UnidentifiedImageError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SAMPLE_IMAGE_ROOT = REPO_ROOT / "apps" / "sumai_web" / "assets" / "samples"
-APPROVED_IMAGE_ROOTS = (SAMPLE_IMAGE_ROOT,)
+SAMPLE_IMAGE_COMPONENTS = ("apps", "sumai_web", "assets", "samples")
+_trusted_root_stat = REPO_ROOT.stat()
+TRUSTED_REPO_ROOT_ID = (_trusted_root_stat.st_dev, _trusted_root_stat.st_ino)
 IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 ROOM_HINTS = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
 RISK_LEVELS = {"low", "medium", "high"}
@@ -66,53 +68,21 @@ def validate_repeat(value: int) -> int:
 
 
 def resolve_image_path(relative_path: str) -> Path:
-    if not isinstance(relative_path, str) or not relative_path or Path(relative_path).is_absolute():
+    if not isinstance(relative_path, str) or not relative_path:
         raise ValueError("unsafe_image_path")
-    candidate = REPO_ROOT / relative_path
-    try:
-        candidate_stat = candidate.lstat()
-        resolved = candidate.resolve(strict=True)
-        if not stat.S_ISREG(candidate_stat.st_mode) or resolved.suffix.lower() not in IMAGE_MEDIA_TYPES:
-            raise ValueError
-        if not any(_is_within(resolved, root.resolve()) for root in APPROVED_IMAGE_ROOTS):
-            raise ValueError
-    except (OSError, ValueError):
-        raise ValueError("unsafe_image_path") from None
-    return resolved
-
-
-def _is_within(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
+    candidate = Path(relative_path)
+    if candidate.is_absolute() or ".." in candidate.parts or candidate.parts[:-1] != SAMPLE_IMAGE_COMPONENTS:
+        raise ValueError("unsafe_image_path")
+    if not candidate.name or candidate.suffix.lower() not in IMAGE_MEDIA_TYPES:
+        raise ValueError("unsafe_image_path")
+    return candidate
 
 
 def read_approved_image(image_path: Path) -> bytes:
-    """Read a verified benchmark image without following a final symlink or replacement."""
+    """Read an allowed relative image through trusted dir fds without following links."""
+    relative = resolve_image_path(str(image_path))
+    descriptor = _open_approved_image_fd(relative)
     try:
-        before = image_path.lstat()
-        if not stat.S_ISREG(before.st_mode) or image_path.suffix.lower() not in IMAGE_MEDIA_TYPES:
-            raise ValueError
-        if not any(_is_within(image_path, root.resolve()) for root in APPROVED_IMAGE_ROOTS):
-            raise ValueError
-    except (OSError, ValueError):
-        raise ValueError("unsafe_image_path") from None
-
-    flags = os.O_RDONLY
-    nofollow = getattr(os, "O_NOFOLLOW", None)
-    if nofollow is not None:
-        flags |= nofollow
-    try:
-        descriptor = os.open(str(image_path), flags)
-    except OSError:
-        raise ValueError("unsafe_image_path") from None
-    try:
-        opened = os.fstat(descriptor)
-        # The inode check is also the fallback when O_NOFOLLOW is unavailable.
-        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
-            raise ValueError("unsafe_image_path")
         with os.fdopen(descriptor, "rb", closefd=True) as file_handle:
             descriptor = -1
             data = file_handle.read()
@@ -125,6 +95,35 @@ def read_approved_image(image_path: Path) -> bytes:
     except (UnidentifiedImageError, OSError, ValueError):
         raise ValueError("invalid_image_content") from None
     return data
+
+
+def _open_approved_image_fd(relative: Path) -> int:
+    """Open the root and every allowed component with no-follow semantics or fail closed."""
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    directory = getattr(os, "O_DIRECTORY", None)
+    if nofollow is None or directory is None or os.open not in os.supports_dir_fd:
+        raise ValueError("unsafe_image_path")
+    current = -1
+    try:
+        current = os.open(str(REPO_ROOT), os.O_RDONLY | directory | nofollow)
+        root_stat = os.fstat(current)
+        if not stat.S_ISDIR(root_stat.st_mode) or (root_stat.st_dev, root_stat.st_ino) != TRUSTED_REPO_ROOT_ID:
+            raise ValueError("unsafe_image_path")
+        components = (*SAMPLE_IMAGE_COMPONENTS, relative.name)
+        for index, component in enumerate(components):
+            is_final = index == len(components) - 1
+            flags = os.O_RDONLY | nofollow | (0 if is_final else directory)
+            next_fd = os.open(component, flags, dir_fd=current)
+            os.close(current)
+            current = next_fd
+        opened = os.fstat(current)
+        if not stat.S_ISREG(opened.st_mode):
+            raise ValueError("unsafe_image_path")
+        return current
+    except (OSError, ValueError):
+        if current != -1:
+            os.close(current)
+        raise ValueError("unsafe_image_path") from None
 
 
 def load_manifest(path: Path) -> dict[str, Any]:
@@ -156,9 +155,10 @@ def load_manifest(path: Path) -> dict[str, Any]:
             raise ValueError("invalid_manifest")
         if len(set(expected)) != len(expected):
             raise ValueError("invalid_manifest")
-        resolve_image_path(image)
+        relative_image = resolve_image_path(image)
+        read_approved_image(relative_image)
         ids.add(case_id)
-        checked.append({"id": case_id, "image": image, "room_hint": room_hint, "expected_risk_types": expected})
+        checked.append({"id": case_id, "image": str(relative_image), "room_hint": room_hint, "expected_risk_types": expected})
     return {"version": loaded["version"], "classification": loaded["classification"], "cases": checked}
 
 
@@ -170,7 +170,7 @@ def validate_response_schema(payload: object) -> bool:
         return False
     if payload.get("room_type") not in ROOM_HINTS or payload.get("overall_risk_level") not in RISK_LEVELS:
         return False
-    if not _is_public_response_text(payload) or not _valid_action_plan(payload.get("action_plan")):
+    if not _is_public_response_text(payload):
         return False
     if not HEX_64.fullmatch(str(payload.get("result_key", ""))):
         return False
@@ -178,6 +178,9 @@ def validate_response_schema(payload: object) -> bool:
         return False
     findings = payload.get("findings")
     if not isinstance(findings, list) or not all(_valid_finding(item) for item in findings):
+        return False
+    finding_ids = [finding["id"] for finding in findings]
+    if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):
         return False
     stages = payload.get("stage_timings_ms")
     return isinstance(stages, dict) and set(stages) == STAGE_TIMING_KEYS and all(
@@ -225,10 +228,26 @@ def _valid_bbox(value: object) -> bool:
     )
 
 
-def _valid_action_plan(value: object) -> bool:
+def _valid_action_plan(value: object, finding_ids: set[str]) -> bool:
     if not isinstance(value, dict) or set(value) != ACTION_TIER_KEYS:
         return False
-    return all(isinstance(actions, list) and all(_valid_action(action) for action in actions) for actions in value.values())
+    policies = {
+        "family_no_cost": ("FAMILY_NO_COST", False, "ZERO"),
+        "care_manager_purchase": ("CARE_MANAGER_PURCHASE", True, "LOW"),
+        "contractor_construction": ("CONTRACTOR_CONSTRUCTION", True, "HIGH"),
+    }
+    action_ids: set[str] = set()
+    for list_name, (tier, requires_professional, cost_level) in policies.items():
+        actions = value[list_name]
+        if not isinstance(actions, list):
+            return False
+        for action in actions:
+            if not _valid_action(action) or action["id"] in action_ids or action["risk_id"] not in finding_ids:
+                return False
+            if action["tier"] != tier or action["requires_professional"] is not requires_professional or action["cost_level"] != cost_level:
+                return False
+            action_ids.add(action["id"])
+    return True
 
 
 def _valid_action(value: object) -> bool:
@@ -305,9 +324,12 @@ def run_benchmark(
                     values.append(timing[key])
     request_count = len(manifest["cases"]) * repeat
     tp, fp, fn = aggregate["tp"], aggregate["fp"], aggregate["fn"]
-    if tp == fp == fn == 0:
-        precision = recall = f1 = 1.0
+    if schema_valid_count == 0:
+        available, precision, recall, f1 = False, None, None, None
+    elif tp == fp == fn == 0:
+        available, precision, recall, f1 = True, 1.0, 1.0, 1.0
     else:
+        available = True
         precision = tp / (tp + fp) if tp + fp else 0.0
         recall = tp / (tp + fn) if tp + fn else 0.0
         f1 = 0.0 if precision + recall == 0 else 2 * precision * recall / (precision + recall)
@@ -323,7 +345,7 @@ def run_benchmark(
         "real_mode": real, "case_count": len(manifest["cases"]), "repeat": repeat,
         "request_count": request_count, "schema_valid_count": schema_valid_count,
         "schema_valid_rate": schema_valid_count / request_count if request_count else 0.0,
-        "risk_metrics": {"precision": precision, "recall": recall, "f1": f1, **aggregate},
+        "risk_metrics": {"available": available, "precision": precision, "recall": recall, "f1": f1, **aggregate},
         "latency_ms": latency,
         "limitations": _limitations(manifest["classification"], real),
     }

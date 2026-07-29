@@ -94,7 +94,7 @@ def test_image_resolution_is_limited_to_sample_images_and_rejects_non_images() -
         with pytest.raises(ValueError):
             benchmark.resolve_image_path(".env")
         with pytest.raises(ValueError):
-            benchmark.read_approved_image(fake_image)
+            benchmark.read_approved_image(Path(*benchmark.SAMPLE_IMAGE_COMPONENTS) / fake_image.name)
     finally:
         fake_image.unlink(missing_ok=True)
 
@@ -106,19 +106,48 @@ def test_safe_image_read_detects_inode_replacement(monkeypatch: pytest.MonkeyPat
     sample = benchmark.SAMPLE_IMAGE_ROOT / "hallway_sample.png"
     target.write_bytes(sample.read_bytes())
     replacement.write_bytes(sample.read_bytes())
-    real_open = os.open
-
-    def replace_then_open(path: str | bytes | Path, flags: int, mode: int = 0o777) -> int:
-        os.replace(replacement, target)
-        return real_open(path, flags, mode)
-
-    monkeypatch.setattr(benchmark.os, "open", replace_then_open)
+    monkeypatch.setattr(benchmark, "TRUSTED_REPO_ROOT_ID", (-1, -1))
     try:
         with pytest.raises(ValueError):
-            benchmark.read_approved_image(target)
+            benchmark.read_approved_image(Path(*benchmark.SAMPLE_IMAGE_COMPONENTS) / target.name)
     finally:
         target.unlink(missing_ok=True)
         replacement.unlink(missing_ok=True)
+
+
+def test_safe_image_read_rejects_intermediate_symlink(monkeypatch: pytest.MonkeyPatch) -> None:
+    benchmark = _load_module()
+    linked_dir = benchmark.SAMPLE_IMAGE_ROOT / "benchmark_linked_dir"
+    linked_dir.unlink(missing_ok=True)
+    linked_dir.symlink_to(benchmark.SAMPLE_IMAGE_ROOT, target_is_directory=True)
+    components = (*benchmark.SAMPLE_IMAGE_COMPONENTS, "benchmark_linked_dir")
+    monkeypatch.setattr(benchmark, "SAMPLE_IMAGE_COMPONENTS", components)
+    try:
+        with pytest.raises(ValueError):
+            benchmark.read_approved_image(Path(*components) / "hallway_sample.png")
+    finally:
+        linked_dir.unlink(missing_ok=True)
+
+
+def test_safe_image_read_fails_closed_for_trusted_root_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    benchmark = _load_module()
+    monkeypatch.setattr(benchmark, "TRUSTED_REPO_ROOT_ID", (-1, -1))
+    with pytest.raises(ValueError):
+        benchmark.read_approved_image(Path(*benchmark.SAMPLE_IMAGE_COMPONENTS) / "hallway_sample.png")
+
+
+def test_safe_image_read_closes_directory_fds(monkeypatch: pytest.MonkeyPatch) -> None:
+    benchmark = _load_module()
+    closed: list[int] = []
+    real_close = os.close
+
+    def recording_close(fd: int) -> None:
+        closed.append(fd)
+        real_close(fd)
+
+    monkeypatch.setattr(benchmark.os, "close", recording_close)
+    assert benchmark.read_approved_image(Path(*benchmark.SAMPLE_IMAGE_COMPONENTS) / "hallway_sample.png")
+    assert len(closed) >= len(benchmark.SAMPLE_IMAGE_COMPONENTS)
 
 
 def test_manifest_rejects_duplicate_expected_risks(tmp_path: Path) -> None:
@@ -146,11 +175,13 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "description_ja": "コードを寄せます。", "why_ja": "つまずきを減らします。",
         "cost_level": "ZERO", "requires_professional": False, "disclaimer_ja": "確認してください。",
     }
+    resolved_findings = [finding] if findings is None else findings
     return {
         "analysis_id": "opaque-id", "room_type": "hallway", "overall_risk_level": "medium",
-        "findings": [finding] if findings is None else findings,
+        "findings": resolved_findings,
         "action_plan": {
-            "family_no_cost": [action], "care_manager_purchase": [], "contractor_construction": [],
+            "family_no_cost": [action] if resolved_findings else [],
+            "care_manager_purchase": [], "contractor_construction": [],
         },
         "annotated_image_base64": "aGVsbG8=", "improvement_image_base64": "aGVsbG8=",
         "risk_summary_markdown": "summary", "family_actions_markdown": "family",
@@ -188,6 +219,19 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     payload["stage_timings_ms"].pop("total")  # type: ignore[index]
     assert benchmark.validate_response_schema(payload) is False
+
+
+def test_action_plan_semantics_require_tiers_unique_ids_and_known_risks() -> None:
+    benchmark = _load_module()
+    for mutation in (
+        lambda response: response["action_plan"]["family_no_cost"][0].update({"tier": "CARE_MANAGER_PURCHASE"}),
+        lambda response: response["action_plan"]["family_no_cost"][0].update({"risk_id": "missing"}),
+        lambda response: response["action_plan"]["family_no_cost"][0].update({"id": "A1"}) or response["action_plan"]["care_manager_purchase"].append(deepcopy(response["action_plan"]["family_no_cost"][0])),
+        lambda response: response["findings"].append(deepcopy(response["findings"][0])),
+    ):
+        malformed = _valid_payload()
+        mutation(malformed)
+        assert benchmark.validate_response_schema(malformed) is False
 
 
 class _Response:
@@ -301,7 +345,8 @@ def test_invalid_response_is_excluded_from_schema_and_risk_metrics() -> None:
     )
     assert summary["schema_valid_count"] == 0
     assert summary["risk_metrics"] == {
-        "precision": 1.0, "recall": 1.0, "f1": 1.0, "tp": 0, "fp": 0, "fn": 0,
+        "available": False, "precision": None, "recall": None, "f1": None,
+        "tp": 0, "fp": 0, "fn": 0,
     }
 
 
@@ -318,8 +363,35 @@ def test_empty_valid_observation_uses_empty_set_metric_semantics() -> None:
         client_factory=lambda **_kwargs: client,
     )
     assert summary["risk_metrics"] == {
-        "precision": 1.0, "recall": 1.0, "f1": 1.0, "tp": 0, "fp": 0, "fn": 0,
+        "available": True, "precision": 1.0, "recall": 1.0, "f1": 1.0,
+        "tp": 0, "fp": 0, "fn": 0,
     }
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [("tier", "CARE_MANAGER_PURCHASE"), ("risk_id", "missing")],
+)
+def test_invalid_action_semantics_do_not_enter_metrics(field: str, value: str) -> None:
+    benchmark = _load_module()
+    client = _ValidClient()
+
+    def invalid_post(_url: str, **_kwargs: object) -> _Response:
+        payload = _valid_payload()
+        payload["action_plan"]["family_no_cost"][0][field] = value  # type: ignore[index]
+        return _Response(200, payload)
+
+    client.post = invalid_post  # type: ignore[method-assign]
+    summary = benchmark.run_benchmark(
+        {"version": "1", "classification": "synthetic", "cases": [{
+            "id": "hallway", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+            "room_hint": "hallway", "expected_risk_types": ["hallway_cord"],
+        }]},
+        repeat=1, base_url="http://test", real=False, timeout_seconds=1,
+        client_factory=lambda **_kwargs: client,
+    )
+    assert summary["schema_valid_count"] == 0
+    assert summary["risk_metrics"]["available"] is False
 
 
 def test_reviewed_manifest_uses_classification_specific_limitations() -> None:
