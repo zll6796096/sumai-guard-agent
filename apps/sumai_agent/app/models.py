@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 
 RoomType = Literal["genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"]
@@ -143,6 +143,27 @@ class AnalysisResponse(BaseModel):
     preprocess_version: str = "1.0.0"
     inference_config_version: str = "1.0.0"
     stage_timings_ms: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_applicability_state(self) -> "AnalysisResponse":
+        if self.is_not_applicable:
+            if self.room_type != "auto" or self.overall_risk_level != "low":
+                raise ValueError("not_applicable_requires_auto_room_and_low_risk")
+            if self.findings or any((
+                self.action_plan.family_no_cost,
+                self.action_plan.care_manager_purchase,
+                self.action_plan.contractor_construction,
+            )):
+                raise ValueError("not_applicable_requires_empty_findings_and_actions")
+            if not isinstance(self.not_applicable_reason_ja, str) or not self.not_applicable_reason_ja.strip():
+                raise ValueError("not_applicable_requires_reason")
+        elif (
+            not self.is_home_environment
+            or self.room_type == "auto"
+            or self.not_applicable_reason_ja is not None
+        ):
+            raise ValueError("applicable_response_requires_home_known_room_and_no_reason")
+        return self
 
 
 class MissingSafetyFeature(BaseModel):

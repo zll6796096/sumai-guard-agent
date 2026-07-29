@@ -239,6 +239,7 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     benchmark = _load_module()
     payload = _valid_payload(findings=[])
     payload["is_not_applicable"] = True
+    payload["room_type"] = "auto"
     payload["overall_risk_level"] = "low"
     payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
 
@@ -260,6 +261,10 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     non_low["overall_risk_level"] = "medium"
     assert benchmark.validate_response_schema(non_low) is False
 
+    known_room = deepcopy(payload)
+    known_room["room_type"] = "hallway"
+    assert benchmark.validate_response_schema(known_room) is False
+
 
 def test_applicable_response_cannot_carry_a_neutral_reason() -> None:
     benchmark = _load_module()
@@ -268,6 +273,18 @@ def test_applicable_response_cannot_carry_a_neutral_reason() -> None:
 
     assert benchmark.validate_response_schema(payload) is False
     assert benchmark.validate_response_schema(_valid_payload()) is True
+
+    false_non_home = _valid_payload()
+    false_non_home["is_home_environment"] = False
+    assert benchmark.validate_response_schema(false_non_home) is False
+
+    false_auto = _valid_payload()
+    false_auto["room_type"] = "auto"
+    assert benchmark.validate_response_schema(false_auto) is False
+
+    false_blank_reason = _valid_payload()
+    false_blank_reason["not_applicable_reason_ja"] = ""
+    assert benchmark.validate_response_schema(false_blank_reason) is False
 
 
 def test_action_plan_semantics_require_tiers_unique_ids_and_known_risks() -> None:
@@ -456,6 +473,7 @@ def test_not_applicable_empty_gold_response_is_schema_valid_but_not_risk_scored(
     not_applicable = _valid_payload(findings=[])
     not_applicable.update({
         "is_not_applicable": True,
+        "room_type": "auto",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })
@@ -485,6 +503,7 @@ def test_mixed_applicability_scores_only_applicable_responses_and_reports_covera
     not_applicable = _valid_payload(findings=[])
     not_applicable.update({
         "is_not_applicable": True,
+        "room_type": "auto",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })

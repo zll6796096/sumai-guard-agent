@@ -181,7 +181,13 @@ def validate_response_schema(payload: object) -> bool:
         return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")
-        if payload.get("overall_risk_level") != "low" or not isinstance(reason, str) or not reason.strip() or findings:
+        if (
+            payload.get("room_type") != "auto"
+            or payload.get("overall_risk_level") != "low"
+            or not isinstance(reason, str)
+            or not reason.strip()
+            or findings
+        ):
             return False
         if payload.get("action_plan") != {
             "family_no_cost": [],
@@ -189,7 +195,11 @@ def validate_response_schema(payload: object) -> bool:
             "contractor_construction": [],
         }:
             return False
-    elif isinstance(payload.get("not_applicable_reason_ja"), str) and payload["not_applicable_reason_ja"].strip():
+    elif (
+        payload.get("is_home_environment") is not True
+        or payload.get("room_type") == "auto"
+        or payload.get("not_applicable_reason_ja") is not None
+    ):
         return False
     finding_ids = [finding["id"] for finding in findings]
     if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):

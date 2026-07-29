@@ -11,7 +11,7 @@ from PIL import Image
 
 from app.main import app
 from app.config import Settings
-from app.models import BoundingBox, RiskFinding, RoomType, VisionFacts, VisionResult
+from app.models import AnalysisResponse, BoundingBox, RiskFinding, RoomType, VisionFacts, VisionResult
 from app.services.gemini_vision import parse_vision_json
 from app.services.rule_engine import RuleEngine
 
@@ -393,6 +393,7 @@ def test_non_home_environment_returns_neutral_not_applicable_response(mock_call_
         data = response.json()
         assert data["is_home_environment"] is False
         assert data["is_not_applicable"] is True
+        assert AnalysisResponse.model_validate(data).is_not_applicable is True
         assert data["not_applicable_reason_ja"] == "住宅内の安全確認対象ではない可能性があります。"
         assert len(data["findings"]) == 0
         assert data["action_plan"] == {
@@ -443,6 +444,7 @@ def test_unknown_room_returns_neutral_not_applicable_response() -> None:
         data = response.json()
         assert data["overall_risk_level"] == "low"
         assert data["is_not_applicable"] is True
+        assert AnalysisResponse.model_validate(data).is_not_applicable is True
         assert len(data["findings"]) == 0
         assert data["not_applicable_reason_ja"] == "写真から確認対象の部屋を特定できないため、結果を表示していません。"
         assert data["action_plan"] == {
@@ -491,6 +493,7 @@ def test_not_applicable_reason_code_returns_neutral_response() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["is_not_applicable"] is True
+    assert AnalysisResponse.model_validate(data).is_not_applicable is True
     assert data["not_applicable_reason_ja"]
     assert data["findings"] == []
     assert data["action_plan"] == {
