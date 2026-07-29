@@ -27,6 +27,9 @@ basis_source_map:
     - MHLW_NOTICE_OLD34
   消費者庁 転倒予防ポイントに基づく一般注意:
     - CAA_FALL_PREVENTION
+  自治体の緊急通報装置装置事業例に関連: []
+  自治体の緊急通報装置事業例に関連: []
+  高齢者住宅安全チェックの一般原則: []
 action_policy:
   family:
     forbidden_words:

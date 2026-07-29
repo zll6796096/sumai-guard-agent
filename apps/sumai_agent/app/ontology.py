@@ -94,6 +94,17 @@ class _OntologyDocumentSchema(_StrictYamlModel):
                 "basis_source_map references unknown source IDs: "
                 + ", ".join(sorted(unknown_source_ids))
             )
+        rule_basis_labels = {
+            rule.basis_label_ja
+            for room in self.rooms.values()
+            for rule in (*room.expected_features, *room.visible_hazards)
+        }
+        unregistered_basis_labels = rule_basis_labels - set(self.basis_source_map)
+        if unregistered_basis_labels:
+            raise ValueError(
+                "Rules reference unregistered basis labels: "
+                + ", ".join(sorted(unregistered_basis_labels))
+            )
         return self
 
 
@@ -288,7 +299,7 @@ class OntologyRepository:
             care_manager_actions=self._actions(item, "care_manager_actions"),
             contractor_actions=self._actions(item, "contractor_actions"),
             expected_feature_key=expected_feature_key,
-            evidence_source_ids=self.basis_source_map.get(basis_label, ()),
+            evidence_source_ids=self.basis_source_map[basis_label],
         )
 
     @staticmethod

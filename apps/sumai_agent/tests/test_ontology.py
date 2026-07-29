@@ -55,6 +55,34 @@ def test_basis_sources_are_registered() -> None:
         assert set(source_ids) <= set(ontology.source_registry)
 
 
+def test_every_rule_basis_label_is_explicitly_registered() -> None:
+    ontology = OntologyRepository.load_default()
+    rule_basis_labels = {
+        item["basis_label_ja"]
+        for room_name in ontology.room_names
+        for room in (ontology.room(room_name),)
+        if room is not None
+        for collection in ("expected_features", "visible_hazards")
+        for item in room[collection]
+    }
+
+    assert rule_basis_labels <= set(ontology.basis_source_map)
+
+
+def test_load_rejects_rule_without_explicit_basis_registration(tmp_path: Path) -> None:
+    source_path = Path(__file__).resolve().parents[1] / "app" / "knowledge_base" / "room_checklists.yaml"
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    basis_label = document["rooms"]["toilet"]["visible_hazards"][0]["basis_label_ja"]
+    del document["basis_source_map"][basis_label]
+    malformed_path = tmp_path / "missing-basis-registration.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError):
+        OntologyRepository.load(malformed_path)
+
+
 def test_engines_load_a_custom_ontology_path(tmp_path: Path) -> None:
     source_path = Path(__file__).resolve().parents[1] / "app" / "knowledge_base" / "room_checklists.yaml"
     custom_path = tmp_path / "room_checklists.yaml"
