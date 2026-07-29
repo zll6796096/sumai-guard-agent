@@ -17,6 +17,7 @@ from app.services.gemini_vision import (
     GEMINI_FACTS_JSON_SCHEMA,
     GEMINI_RESPONSE_JSON_SCHEMA,
     GeminiVisionService,
+    ONTOLOGY,
     VALID_OBSERVATION_KEYS,
     VISION_PROMPT,
     _normalize_bbox,
@@ -812,12 +813,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
         "not_applicable_reason_code",
     ]
     assert schema["properties"]["room_type"]["enum"] == [
-        "genkan",
-        "hallway",
-        "bathroom",
-        "toilet",
-        "bedroom",
-        "kitchen",
+        *ONTOLOGY.room_names,
         "unknown",
     ]
     entity_schema = schema["properties"]["entities"]["items"]

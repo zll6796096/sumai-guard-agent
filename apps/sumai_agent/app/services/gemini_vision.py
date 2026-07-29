@@ -129,7 +129,7 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
-_FACTS_ROOM_TYPES = ["genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "unknown"]
+_FACTS_ROOM_TYPES = [*ONTOLOGY.room_names, "unknown"]
 _FACTS_REQUIRED_FIELDS = [
     "environment",
     "room_type",

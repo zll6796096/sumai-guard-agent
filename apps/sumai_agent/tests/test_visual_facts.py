@@ -11,7 +11,11 @@ from PIL import Image
 from app.config import Settings
 from app.main import app
 from app.models import VisionFacts
-from app.services.gemini_vision import GEMINI_FACTS_JSON_SCHEMA, parse_vision_facts_json
+from app.services.gemini_vision import (
+    GEMINI_FACTS_JSON_SCHEMA,
+    ONTOLOGY,
+    parse_vision_facts_json,
+)
 from app.services.orchestrator import _legacy_result_for_checklist
 
 
@@ -90,6 +94,13 @@ def test_facts_schema_requires_all_top_level_fields_and_forbids_extra_object_fie
     }
     for schema in _walk_objects(GEMINI_FACTS_JSON_SCHEMA):
         assert schema["additionalProperties"] is False
+
+
+def test_facts_schema_room_enum_matches_ontology_rooms() -> None:
+    room_enum = GEMINI_FACTS_JSON_SCHEMA["properties"]["room_type"]["enum"]
+
+    assert set(room_enum) == {*ONTOLOGY.room_names, "unknown"}
+    assert room_enum == [*ONTOLOGY.room_names, "unknown"]
 
 
 @pytest.mark.parametrize(
