@@ -1,85 +1,53 @@
 # Product Decisions
 
-## No Questionnaire
+## One-photo, privacy-bounded POC
 
-The POC does not ask age, walking state, fall history, care level, disease, medication, or insurance questions.
+The product accepts one home photo and returns cautious visible-risk candidates with three action tiers. It does not ask age, walking state, fall history, care level, disease, medication, or insurance questions. Uploaded images are sanitized in memory, EXIF is stripped, and neither images nor results are persisted.
 
-Reason: the core product test is whether one home photo can start a family safety conversation without adding friction or collecting sensitive profile data.
+Reason: validate whether a low-friction visual safety conversation is useful without collecting sensitive personal data or asserting a broader judgment.
 
-## No Full RAG or Vector DB
+## No RAG or vector database
 
-The POC uses `demo_rules.yaml` as a compact RAG-lite evidence base.
+The POC uses the versioned `room_checklists.yaml` through a typed `OntologyRepository`, not retrieval augmentation. The repository validates rooms, expected features, visible hazards, relationships and targets, source registry, source mappings, schema/version metadata, and action policy.
 
-Reason: the current objective is deterministic action routing, not open-ended retrieval. A vector DB would add operational complexity before proving the basic workflow.
+Reason: the immediate value is reproducible, room-scoped deterministic policy. A vector database would add storage, retrieval uncertainty, and operations without helping this bounded visual-evidence flow.
 
-## No Report Download
+## Gemini supplies facts; Python supplies policy
 
-PDF download is not implemented.
+The provider output is `GEMINI_FACTS_JSON_SCHEMA`: visual environment/room/regions/entities/features/relationships only. `RelationshipEngine` requires a valid subject/predicate/target triple; absence requires `absent_with_full_coverage` and evidence bbox. `RuleEngine` deterministically assigns known-rule severity, Japanese wording, source IDs, confidence treatment, and the three action tiers.
 
-Reason: the current demo needs on-screen communication and re-check flow only. Persistent artifacts can be designed later when storage, privacy, and sharing rules are defined.
+Reason: a model must not decide medical/care/insurance/construction meaning, action text, or final risk policy. Unknown/insufficient/non-home inputs render neutral not-applicable output, rather than a low-risk conclusion.
 
-## No Final Renovation Design
+## Three action tiers are required
 
-The improvement image is a deterministic visual explanation with overlays such as safe zones, arrows, and labels.
+- `家族で今日できること`: no-cost actions only.
+- `ケアマネ・福祉用具に相談`: purchase, rental, or welfare-equipment consultation only.
+- `専門施工・現地確認`: construction or on-site confirmation only.
 
-Reason: the product is a preventive safety checker, not an interior design or construction drawing tool.
+Reason: a safety candidate is useful only if the next step remains within its authority. One photo cannot support a final design, exact measurement, construction instruction, legal claim, insurance conclusion, or benefit decision.
 
-## Action Cards Are Required
+## Mock mode and strict real mode
 
-The three action tiers are part of the core product.
+Mock mode is required for local development, tests, and credential-free demonstrations. In strict real mode (`REQUIRE_REAL_GEMINI=true`), missing key, timeout, provider error, malformed facts, or parser rejection fails safely with HTTP 503. Non-strict fallback is explicitly labelled `gemini_fallback(reason)` and is uncached; it cannot be presented as a real analysis.
 
-Reason: preventive safety is useful only when the family can tell what they can do today, what needs care-manager or welfare-equipment consultation, and what requires professional on-site confirmation.
+Reason: availability must not turn a provider failure into a false claim of Gemini recognition.
 
-## Mock Mode Is Required
+## Identity, rendering, and memoization
 
-The app must work without Gemini credentials.
+Every request has a random `analysis_id`. `result_key` hashes sanitized-pixel digest, hint, versions, model, and execution policy to identify reusable computation. `semantic_hash` covers stable reader-facing semantic output but excludes images, timing, mode, and presentation-only display bbox. The memo is bounded TTL/LRU, process-local, stores no image, and is not persistent or cross-process; rendering/report delivery remains per request.
 
-Reason: local demos, development, and tests should not depend on secrets or paid external calls.
+Reason: distinguish correlation, safe computation reuse, and semantic equality without retaining user images or treating cache behavior as durable state.
 
-## Local Ports
+## Benchmarks and logs
 
-The requested defaults are backend `8080` and frontend `8081`.
+Synthetic benchmark repetitions are capped at 50. Mock P/R/F1 = 1 means the deterministic pipeline matched the synthetic fixture; it is not recognition accuracy. Real-mode accuracy requires strict status plus reviewed real-photo labels.
 
-Assumption: if another sibling project occupies a port, the user can change the local compose port mapping. This POC does not change the requested defaults.
+Structured completion logs contain final stage timings and private cache metadata. The published `total` is an instrumented application-stage sum, not HTTP end-to-end latency; it excludes Starlette JSON encoding, socket, and network time.
 
-## Cloud Run Deployment
+Reason: a reproducible diagnostic must not become an unsupported performance or recognition claim.
 
-Both services deploy to Cloud Run in `asia-northeast1` via source deploy (using the existing Dockerfiles).
+## Local POC versus historical Cloud configuration
 
-Reasons:
-- Cloud Run provides auto-scaling, HTTPS, and zero infrastructure management.
-- Source deploy uses existing Dockerfiles — no separate container registry needed.
-- `asia-northeast1` is closest to Japan users.
-- The web service discovers the agent URL via environment variable at deploy time.
+Existing Cloud Run scripts/configuration are historical repository material. This Task9 documentation change does not deploy, change, or verify Cloud Run. Any existing 120-second deployment request limit and the local 150-second web proxy budget remain a scope-separated compatibility risk.
 
-## Gemini API Integration
-
-Gemini provides risk candidates via structured JSON output. The deterministic rule engine controls all action routing post-Gemini.
-
-Reasons:
-- Structured JSON output (`response_mime_type="application/json"`) ensures parseable responses.
-- Pydantic validation catches malformed fields.
-- Bbox 0–1000 normalization handles Gemini's coordinate inconsistency.
-- Timeout and fallback ensure the demo never hangs.
-- Gemini cannot override deterministic action-tier policy.
-
-## Secrets Handling
-
-For the hackathon POC, `GEMINI_API_KEY` is passed as a Cloud Run environment variable.
-
-Reasons:
-- Fastest setup for a hackathon.
-- Secret Manager is documented as the recommended production approach.
-- API key is never committed to git.
-- API key is never logged.
-
-## Structured Logging
-
-JSON structured logs with correlation IDs.
-
-Reasons:
-- Cloud Run logs integrate with Cloud Logging.
-- `analysis_id` enables tracing a single request across vision, rule engine, and rendering.
-- `mode` (mock/gemini/gemini_fallback) immediately tells what happened.
-- `latency_ms` helps identify slow Gemini calls.
-- Image bytes and secrets are never logged.
+Reason: a local POC acceptance result is not production readiness, and deployment behavior must be verified independently before it is claimed.
