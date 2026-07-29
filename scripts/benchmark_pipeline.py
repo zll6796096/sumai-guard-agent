@@ -104,14 +104,20 @@ def load_manifest(path: Path) -> dict[str, Any]:
 def validate_response_schema(payload: object) -> bool:
     if not isinstance(payload, dict):
         return False
-    if not isinstance(payload.get("analysis_id"), str) or not isinstance(payload.get("room_type"), str):
+    analysis_id = payload.get("analysis_id")
+    if not isinstance(analysis_id, str) or not analysis_id.strip():
+        return False
+    if payload.get("room_type") not in ROOM_HINTS:
         return False
     if not isinstance(payload.get("action_plan"), dict) or not HEX_64.fullmatch(str(payload.get("result_key", ""))):
         return False
     if not HEX_64.fullmatch(str(payload.get("semantic_hash", ""))):
         return False
     findings = payload.get("findings")
-    if not isinstance(findings, list) or not all(isinstance(item, dict) and isinstance(item.get("risk_type"), str) for item in findings):
+    if not isinstance(findings, list) or not all(
+        isinstance(item, dict) and isinstance(item.get("risk_type"), str) and item["risk_type"].strip()
+        for item in findings
+    ):
         return False
     stages = payload.get("stage_timings_ms")
     return isinstance(stages, dict) and set(stages) == STAGE_TIMING_KEYS and all(

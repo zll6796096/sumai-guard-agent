@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import importlib.util
 from pathlib import Path
 
@@ -94,6 +95,16 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
         },
     }
     assert benchmark.validate_response_schema(payload) is True
+    for field, value in (
+        ("analysis_id", "   "),
+        ("room_type", "garage"),
+    ):
+        malformed = deepcopy(payload)
+        malformed[field] = value
+        assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed["findings"][0]["risk_type"] = ""
+    assert benchmark.validate_response_schema(malformed) is False
     payload["stage_timings_ms"].pop("total")
     assert benchmark.validate_response_schema(payload) is False
 
@@ -176,3 +187,31 @@ def test_mock_runner_sends_mock_param_and_summary_omits_sensitive_response_value
     serialized = __import__("json").dumps(summary)
     for forbidden in ("analysis_id", "result_key", "semantic_hash", "base64", "a" * 64):
         assert forbidden not in serialized
+
+
+def test_invalid_response_is_excluded_from_schema_and_risk_metrics() -> None:
+    benchmark = _load_module()
+    client = _ValidClient()
+    original_post = client.post
+
+    def invalid_post(url: str, **kwargs: object) -> _Response:
+        response = original_post(url, **kwargs)
+        response._payload["room_type"] = "garage"
+        return response
+
+    client.post = invalid_post  # type: ignore[method-assign]
+    summary = benchmark.run_benchmark(
+        {
+            "version": "1", "classification": "synthetic",
+            "cases": [{
+                "id": "hallway", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+                "room_hint": "hallway", "expected_risk_types": ["hallway_cord"],
+            }],
+        },
+        repeat=1, base_url="http://test", real=False, timeout_seconds=1,
+        client_factory=lambda **_kwargs: client,
+    )
+    assert summary["schema_valid_count"] == 0
+    assert summary["risk_metrics"] == {
+        "precision": 0.0, "recall": 0.0, "f1": 0.0, "tp": 0, "fp": 0, "fn": 0,
+    }
