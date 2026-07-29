@@ -7,7 +7,7 @@ from typing import Any, Callable
 import pytest
 import yaml
 
-from app.models import VisionResult
+from app.models import BoundingBox, MissingSafetyFeature, VisionResult
 from app.ontology import OntologyRepository
 from app.services.checklist_engine import ChecklistEngine
 from app.services.rule_engine import RuleEngine
@@ -153,7 +153,14 @@ def test_engines_load_a_legacy_flat_room_mapping(tmp_path: Path) -> None:
             is_home_environment=True,
             observations={"has_handrail": False},
             visible_hazards=[],
-            missing_safety_features=[],
+            missing_safety_features=[
+                MissingSafetyFeature(
+                    feature_key="has_handrail",
+                    confidence=0.85,
+                    bbox=BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6),
+                    evidence_ja="手すりが確認できません。",
+                )
+            ],
         )
     )
     normalized, actions = RuleEngine(checklists_path=legacy_path).apply(findings, "toilet")

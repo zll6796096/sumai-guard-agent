@@ -251,6 +251,10 @@ def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None
             "/analyze",
             files={"image": ("room.png", _image_bytes(), "image/png")},
         )
+        fallback_again = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
     assert fallback.status_code == 200
     payload = fallback.json()
     assert payload["mode"] == "local_mock"
@@ -286,3 +290,7 @@ def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None
     assert "SECRET_INTERNAL_URL" not in fallback.text
     assert "backend_unreachable" in fallback.text
     AnalysisResponse.model_validate(payload)
+    repeated_payload = fallback_again.json()
+    assert repeated_payload["analysis_id"] != payload["analysis_id"]
+    assert repeated_payload["result_key"] == payload["result_key"]
+    assert repeated_payload["semantic_hash"] == payload["semantic_hash"]

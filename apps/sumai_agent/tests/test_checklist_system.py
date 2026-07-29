@@ -1,8 +1,20 @@
 from __future__ import annotations
 
-from app.models import BoundingBox, RoomType, VisionResult, MissingSafetyFeature
+import base64
+import io
+
+from PIL import Image
+
+from app.models import (
+    BoundingBox,
+    MissingSafetyFeature,
+    RiskFinding,
+    RoomType,
+    VisionResult,
+)
 from app.services.checklist_engine import ChecklistEngine
 from app.services.rule_engine import RuleEngine
+from app.services.visual_renderer import VisualRenderer
 
 
 def test_toilet_missing_handrail() -> None:
@@ -65,6 +77,71 @@ def test_toilet_unclear_handrail() -> None:
     findings = engine.process(vision_result)
     handrail_finding = [f for f in findings if f.risk_type == "toilet_missing_handrail"]
     assert len(handrail_finding) == 0
+
+
+def test_legacy_observations_without_evidence_coordinates_create_no_findings() -> None:
+    engine = ChecklistEngine()
+    vision_result = VisionResult(
+        room_type="genkan",
+        is_home_environment=True,
+        observations={"has_handrail_or_support": False, "cluttered_path": True},
+        visible_hazards=[],
+        missing_safety_features=[],
+    )
+
+    findings = engine.process(vision_result)
+    annotated, _ = VisualRenderer().render(
+        Image.new("RGB", (100, 100), "white"), findings, "genkan"
+    )
+    rendered = Image.open(io.BytesIO(base64.b64decode(annotated))).convert("RGB")
+
+    assert findings == []
+    assert set(rendered.getdata()) == {(255, 255, 255)}
+
+
+def test_coordinate_backed_legacy_features_preserve_exact_evidence_bbox() -> None:
+    expected_bbox = BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6)
+    visible_bbox = BoundingBox(x=0.7, y=0.1, w=0.1, h=0.1)
+    vision_result = VisionResult(
+        room_type="genkan",
+        is_home_environment=True,
+        observations={"has_handrail_or_support": False, "cluttered_path": True},
+        missing_safety_features=[
+            MissingSafetyFeature(
+                feature_key="has_handrail_or_support",
+                confidence=0.85,
+                bbox=expected_bbox,
+                evidence_ja="支持物が確認できません。",
+            )
+        ],
+        visible_hazards=[
+            RiskFinding(
+                id="pending",
+                risk_type="cluttered_path",
+                label_ja="玄関動線の障害物",
+                description_ja="動線に障害物があります。",
+                severity=3,
+                confidence=0.9,
+                bbox=visible_bbox,
+                evidence_ja="動線上に物があります。",
+                basis_label_ja="",
+                basis_summary_ja="",
+                needs_human_confirmation=False,
+                ontology_key="cluttered_path",
+                ontology_rule_kind="visible_hazard",
+            )
+        ],
+    )
+
+    findings = ChecklistEngine().process(vision_result)
+
+    assert {
+        (finding.ontology_rule_kind, finding.ontology_key): finding.bbox
+        for finding in findings
+    } == {
+        ("expected_feature", "has_handrail_or_support"): expected_bbox,
+        ("visible_hazard", "cluttered_path"): visible_bbox,
+    }
 
 
 def test_bathroom_missing_non_slip() -> None:

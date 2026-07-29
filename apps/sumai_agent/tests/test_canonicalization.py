@@ -5,7 +5,8 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from app.models import ActionPlan, BoundingBox, RiskFinding
+from app.models import ActionPlan, BoundingBox, RiskFinding, VisionFacts
+from app.ontology import OntologyRepository
 from app.services.canonicalization import (
     canonical_pixel_digest,
     canonicalize_findings,
@@ -15,6 +16,7 @@ from app.services.canonicalization import (
 from app.services import orchestrator
 from app.services.orchestrator import analysis_semantic_payload
 from app.services.rule_engine import RuleEngine
+from app.services.relationship_engine import RelationshipEngine
 
 
 def _finding(
@@ -136,6 +138,128 @@ def test_canonicalize_findings_deduplicates_same_class_high_iou_deterministicall
     assert len(action_titles) == len(set(action_titles))
 
 
+def test_exact_ontology_identities_with_same_risk_and_bbox_are_not_deduplicated() -> None:
+    ontology = OntologyRepository.load_default()
+    bbox = {"x": 0.2, "y": 0.6, "w": 0.3, "h": 0.2}
+    facts = VisionFacts.model_validate(
+        {
+            "environment": "home",
+            "room_type": "genkan",
+            "visible_regions": ["walking_path"],
+            "entities": [
+                {
+                    "ref": "shoes",
+                    "ontology_key": "loose_shoes",
+                    "bbox": bbox,
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                },
+                {
+                    "ref": "parcel",
+                    "ontology_key": "cluttered_path",
+                    "bbox": bbox,
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                },
+            ],
+            "feature_observations": [],
+            "relationships": [
+                {
+                    "subject": "shoes",
+                    "predicate": "obstructs",
+                    "object": "walking_path",
+                },
+                {
+                    "subject": "parcel",
+                    "predicate": "obstructs",
+                    "object": "walking_path",
+                },
+            ],
+            "not_applicable_reason_code": None,
+        }
+    )
+
+    derived = RelationshipEngine(ontology).derive(facts)
+    canonical = canonicalize_findings(derived)
+    reversed_canonical = canonicalize_findings(list(reversed(derived)))
+    findings, plan = RuleEngine(ontology=ontology).apply(canonical, "genkan")
+
+    assert [item.model_dump(mode="json") for item in canonical] == [
+        item.model_dump(mode="json") for item in reversed_canonical
+    ]
+    assert {finding.ontology_key for finding in findings} == {
+        "cluttered_path",
+        "loose_shoes",
+    }
+    assert {action.title_ja for action in plan.family_no_cost} == {
+        "動線上の荷物を片付ける",
+        "履かない靴は靴箱に収納する",
+        "床面を片付ける",
+    }
+
+
+def test_exact_identity_duplicate_still_deduplicates_at_high_iou() -> None:
+    base = _finding(
+        risk_type="cluttered_path",
+        severity=3,
+        confidence=0.9,
+        bbox=BoundingBox(x=0.1, y=0.1, w=0.4, h=0.4),
+    ).model_copy(
+        update={
+            "ontology_key": "cluttered_path",
+            "ontology_rule_kind": "visible_hazard",
+        }
+    )
+    duplicate = base.model_copy(
+        update={"bbox": BoundingBox(x=0.12, y=0.12, w=0.4, h=0.4)}
+    )
+
+    assert len(canonicalize_findings([duplicate, base])) == 1
+
+
+def test_display_bbox_cannot_change_canonical_winner_or_semantic_hash() -> None:
+    first_evidence = BoundingBox(x=0.1, y=0.1, w=0.4, h=0.4)
+    second_evidence = BoundingBox(x=0.12, y=0.12, w=0.4, h=0.4)
+    left_display = BoundingBox(x=0.05, y=0.05, w=0.1, h=0.1)
+    right_display = BoundingBox(x=0.8, y=0.8, w=0.1, h=0.1)
+    base = _finding(
+        risk_type="cluttered_path",
+        severity=3,
+        confidence=0.9,
+        bbox=first_evidence,
+    ).model_copy(
+        update={
+            "ontology_key": "cluttered_path",
+            "ontology_rule_kind": "visible_hazard",
+        }
+    )
+    nearby = base.model_copy(update={"bbox": second_evidence})
+
+    first = canonicalize_findings(
+        [
+            base.model_copy(update={"display_bbox": left_display}),
+            nearby.model_copy(update={"display_bbox": right_display}),
+        ]
+    )
+    swapped = canonicalize_findings(
+        [
+            base.model_copy(update={"display_bbox": right_display}),
+            nearby.model_copy(update={"display_bbox": left_display}),
+        ]
+    )
+
+    assert [item.model_dump(mode="json") for item in first] == [
+        item.model_dump(mode="json") for item in swapped
+    ]
+    assert first[0].bbox == first_evidence
+    assert first[0].display_bbox is None
+    assert semantic_hash(
+        analysis_semantic_payload("genkan", first, ActionPlan())
+    ) == semantic_hash(
+        analysis_semantic_payload("genkan", swapped, ActionPlan())
+    )
+
+
 @pytest.mark.parametrize(
     ("force_mock", "mock_mode", "require_real_gemini", "gemini_api_key", "expected"),
     [
@@ -215,7 +339,7 @@ def test_canonicalize_findings_keeps_rounded_evidence_bbox_in_frame() -> None:
     assert rounded.h > 0
 
 
-def test_canonicalize_findings_uses_display_bbox_as_a_stable_tie_breaker() -> None:
+def test_canonicalize_findings_discards_presentation_only_display_bbox() -> None:
     base = _finding(
         risk_type="same",
         severity=3,
@@ -235,6 +359,7 @@ def test_canonicalize_findings_uses_display_bbox_as_a_stable_tie_breaker() -> No
     assert [item.model_dump(mode="json") for item in forward] == [
         item.model_dump(mode="json") for item in reverse
     ]
+    assert forward[0].display_bbox is None
 
 
 def test_semantic_hash_is_key_order_independent_but_detects_semantic_changes() -> None:

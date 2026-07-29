@@ -56,10 +56,12 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
     normalized: list[RiskFinding] = []
     for finding in copied:
         # Evidence is factual output: preserve its coordinates and extent.  Only
-        # canonicalize signed zero, which has no geometric meaning.
-        updates: dict[str, BoundingBox | None] = {"bbox": _canonical_bbox(finding.bbox)}
-        if finding.display_bbox is not None:
-            updates["display_bbox"] = _canonical_bbox(finding.display_bbox)
+        # canonicalize signed zero. display_bbox is render-only input and is
+        # discarded so it cannot choose a semantic winner.
+        updates: dict[str, BoundingBox | None] = {
+            "bbox": _canonical_bbox(finding.bbox),
+            "display_bbox": None,
+        }
         normalized.append(finding.model_copy(update=updates))
 
     def sort_key(finding: RiskFinding) -> tuple[Any, ...]:
@@ -67,9 +69,9 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
         # Rounded evidence coordinates group near-identical boxes for ordering;
         # the complete, unrounded finding below is the final deterministic tie-breaker.
         rounded_bbox = tuple(round(value, 3) for value in (bbox.x, bbox.y, bbox.w, bbox.h))
-        # display_bbox is presentation-only for semantic hashing, but it must
-        # participate in sorting so canonical output does not depend on input order.
-        full_dump = normalize_signed_zero(finding.model_dump(mode="json", exclude={"id"}))
+        full_dump = normalize_signed_zero(
+            finding.model_dump(mode="json", exclude={"id", "display_bbox"})
+        )
         return (
             -finding.severity,
             finding.risk_type,
@@ -83,7 +85,7 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
     deduplicated: list[RiskFinding] = []
     for finding in ordered:
         if any(
-            kept.risk_type == finding.risk_type
+            _same_dedup_identity(kept, finding)
             and _bbox_iou(kept.bbox, finding.bbox) >= SAME_CLASS_DEDUP_IOU_THRESHOLD
             for kept in deduplicated
         ):
@@ -118,6 +120,24 @@ def _bbox_iou(left: BoundingBox, right: BoundingBox) -> float:
     intersection = intersection_width * intersection_height
     union = left.w * left.h + right.w * right.h - intersection
     return intersection / union if union > 0.0 else 0.0
+
+
+def _same_dedup_identity(left: RiskFinding, right: RiskFinding) -> bool:
+    left_identity = _exact_ontology_identity(left)
+    right_identity = _exact_ontology_identity(right)
+    if left_identity is not None and right_identity is not None:
+        return left_identity == right_identity
+    return (
+        left_identity is None
+        and right_identity is None
+        and left.risk_type == right.risk_type
+    )
+
+
+def _exact_ontology_identity(finding: RiskFinding) -> tuple[str, str] | None:
+    if finding.ontology_rule_kind and finding.ontology_key:
+        return finding.ontology_rule_kind, finding.ontology_key
+    return None
 
 
 def normalize_signed_zero(payload: Any) -> Any:

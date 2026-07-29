@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -1494,7 +1495,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     )
     empty_actions = "## 表示なし\n\n判定保留中のため、行動候補を表示していません。"
     return {
-        "analysis_id": f"local_{result_key[:12]}",
+        "analysis_id": f"local_{uuid.uuid4().hex}",
         "room_type": "auto",
         "overall_risk_level": "low",
         "mode": "local_mock",
