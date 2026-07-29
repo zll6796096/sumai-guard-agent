@@ -1,0 +1,144 @@
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+import io
+import json
+import sys
+import uuid
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import httpx
+from fastapi.testclient import TestClient
+from PIL import Image
+
+from app.services.gemini_vision import GEMINI_FACTS_JSON_SCHEMA, GeminiVisionService
+
+
+def _valid_facts_json() -> str:
+    return json.dumps(
+        {
+            "environment": "home",
+            "room_type": "hallway",
+            "visible_regions": ["floor", "walking_path"],
+            "entities": [],
+            "feature_observations": [],
+            "relationships": [],
+            "not_applicable_reason_code": None,
+        }
+    )
+
+
+def _image_bytes() -> bytes:
+    image = Image.new("RGB", (12, 12), color="white")
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _load_web_module() -> object:
+    app_path = Path(__file__).resolve().parents[2] / "sumai_web" / "app.py"
+    module_name = f"sumai_web_async_test_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, app_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_gemini_client_is_lazy_reused_and_awaits_async_provider() -> None:
+    generate = AsyncMock(return_value=SimpleNamespace(text=_valid_facts_json()))
+    fake_client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+    factory = MagicMock(return_value=fake_client)
+    service = GeminiVisionService(client_factory=factory)
+
+    assert factory.call_count == 0
+
+    async def scenario() -> None:
+        await service._call_gemini(b"image", "auto")
+        await service._call_gemini(b"image", "auto")
+
+    asyncio.run(scenario())
+
+    assert factory.call_count == 1
+    assert service._client is fake_client
+    assert generate.await_count == 2
+    config = generate.await_args.kwargs["config"]
+    assert config.response_json_schema is GEMINI_FACTS_JSON_SCHEMA
+
+
+def test_web_proxy_awaits_reusable_client_and_forwards_multipart() -> None:
+    web = _load_web_module()
+    backend_response = SimpleNamespace(status_code=200, json=MagicMock(return_value={"mode": "gemini"}))
+    fake_client = SimpleNamespace(post=AsyncMock(return_value=backend_response), aclose=AsyncMock())
+    web._backend_client = fake_client
+
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("hallway.png", _image_bytes(), "image/png")},
+            data={"room_hint": "hallway"},
+        )
+        assert response.status_code == 200
+        assert response.json() == {"mode": "gemini"}
+        fake_client.post.assert_awaited_once()
+        _, kwargs = fake_client.post.await_args
+        assert kwargs["data"]["room_hint"] == "hallway"
+        assert kwargs["files"]["image"][0] == "hallway.png"
+        assert kwargs["files"]["image"][2] == "image/png"
+
+    fake_client.aclose.assert_awaited_once()
+    assert web._backend_client is None
+
+
+def test_web_backend_client_is_recreated_after_shutdown(monkeypatch) -> None:
+    web = _load_web_module()
+    fake_client = SimpleNamespace(aclose=AsyncMock())
+    replacement = SimpleNamespace()
+    web._backend_client = fake_client
+
+    asyncio.run(web.close_backend_client())
+    monkeypatch.setattr(web.httpx, "AsyncClient", MagicMock(return_value=replacement))
+
+    assert web._backend_client is None
+    assert web.backend_client() is replacement
+    fake_client.aclose.assert_awaited_once()
+
+
+def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None:
+    web = _load_web_module()
+    strict_response = SimpleNamespace(
+        status_code=503,
+        json=MagicMock(return_value={"error": "provider", "message": "SECRET_PROVIDER_DETAIL"}),
+    )
+    fake_client = SimpleNamespace(post=AsyncMock(return_value=strict_response), aclose=AsyncMock())
+    web._backend_client = fake_client
+
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
+        assert response.status_code == 503
+        assert "SECRET_PROVIDER_DETAIL" not in response.text
+        assert response.json() == {
+            "error": "gemini_unavailable",
+            "message": "Real Gemini analysis is required but unavailable.",
+        }
+
+    web._backend_client = SimpleNamespace(
+        post=AsyncMock(side_effect=httpx.ConnectError("SECRET_INTERNAL_URL")),
+        aclose=AsyncMock(),
+    )
+    with TestClient(web.app) as client:
+        fallback = client.post(
+            "/analyze",
+            files={"image": ("room.png", _image_bytes(), "image/png")},
+        )
+    assert fallback.status_code == 200
+    assert fallback.json()["mode"] == "local_mock"
+    assert "SECRET_INTERNAL_URL" not in fallback.text
+    assert "backend_unreachable" in fallback.text

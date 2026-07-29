@@ -4,9 +4,10 @@ import base64
 import io
 import logging
 import os
+from contextlib import asynccontextmanager
 from typing import Any
 
-import requests
+import httpx
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
@@ -22,7 +23,7 @@ SUMAI_AGENT_URL = os.getenv("SUMAI_AGENT_URL", "http://localhost:8080").rstrip("
 SUMAI_WEB_PORT = int(os.getenv("SUMAI_WEB_PORT", "8081"))
 FRONTEND_MOCK = os.getenv("MOCK_MODE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
-app = FastAPI(title="SumaiGuard Web")
+_backend_client: httpx.AsyncClient | None = None
 
 DISCLAIMER = (
     "POC版です。医療・介護・施工判断を代替しません。\n"
@@ -1242,6 +1243,47 @@ INDEX_HTML = """<!DOCTYPE html>
 FRONTEND_REQUIRE_REAL_GEMINI = os.getenv("REQUIRE_REAL_GEMINI", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        await close_backend_client()
+
+
+app = FastAPI(title="SumaiGuard Web", lifespan=lifespan)
+
+
+def backend_client() -> httpx.AsyncClient:
+    global _backend_client
+    if _backend_client is None:
+        _backend_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+    return _backend_client
+
+
+async def close_backend_client() -> None:
+    """Close the reusable backend client before its event loop is discarded."""
+    global _backend_client
+    client = _backend_client
+    _backend_client = None
+    if client is None:
+        return
+    try:
+        await client.aclose()
+    except Exception as exc:
+        logger.warning("backend_client_close_failed", extra={"failure_type": type(exc).__name__})
+
+
+def _safe_backend_unavailable() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "gemini_unavailable",
+            "message": "Real Gemini analysis is required but unavailable.",
+        },
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
@@ -1259,34 +1301,36 @@ async def analyze(
     try:
         files = {"image": (image.filename or "photo.png", image_bytes, image.content_type or "image/png")}
         data = {"room_hint": room_hint, "mock": "true" if FRONTEND_MOCK else "false"}
-        response = requests.post(f"{SUMAI_AGENT_URL}/analyze", data=data, files=files, timeout=60)
+        response = await backend_client().post(
+            f"{SUMAI_AGENT_URL}/analyze", data=data, files=files
+        )
 
         if response.status_code == 200:
-            return JSONResponse(content=response.json())
-
-        # Strict mode: never fallback on error
-        if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
             try:
-                err_data = response.json()
-            except Exception:
-                err_data = {"error": "gemini_unavailable", "message": f"Backend returned status {response.status_code}"}
-            return JSONResponse(status_code=503, content=err_data)
+                return JSONResponse(content=response.json())
+            except Exception as exc:
+                if FRONTEND_REQUIRE_REAL_GEMINI:
+                    return _safe_backend_unavailable()
+                logger.warning(
+                    "backend_invalid_json", extra={"failure_type": type(exc).__name__}
+                )
+                payload = _build_local_mock(image_bytes, room_hint, "backend_invalid_response")
+                return JSONResponse(content=payload)
 
-        logger.warning(f"Backend returned non-200: {response.status_code}, using fallback mock.")
-        payload = _build_local_mock(image_bytes, room_hint, f"Backend HTTP {response.status_code}")
+        # A backend 503 always indicates that the strict provider path failed.
+        # Its response body is not trusted because it may contain provider details.
+        if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
+            return _safe_backend_unavailable()
+
+        logger.warning("backend_non_200", extra={"status_code": response.status_code})
+        payload = _build_local_mock(image_bytes, room_hint, "backend_http_error")
         return JSONResponse(content=payload)
 
     except Exception as exc:
         if FRONTEND_REQUIRE_REAL_GEMINI:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "error": "gemini_unavailable",
-                    "message": f"Real Gemini analysis is required but backend is unreachable: {exc}"
-                }
-            )
-        logger.warning(f"Backend call failed: {exc}, using fallback mock.")
-        payload = _build_local_mock(image_bytes, room_hint, str(exc))
+            return _safe_backend_unavailable()
+        logger.warning("backend_call_failed", extra={"failure_type": type(exc).__name__})
+        payload = _build_local_mock(image_bytes, room_hint, "backend_unreachable")
         return JSONResponse(content=payload)
 
 

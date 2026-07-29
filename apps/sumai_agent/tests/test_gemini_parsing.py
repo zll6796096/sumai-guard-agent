@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import yaml
@@ -714,8 +714,10 @@ def test_parse_genuine_non_home_response_remains_valid() -> None:
 
 def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None:
     client = SimpleNamespace(
-        models=SimpleNamespace(
-            generate_content=lambda **_kwargs: SimpleNamespace(text=""),
+        aio=SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=AsyncMock(return_value=SimpleNamespace(text="")),
+            )
         )
     )
     google_module = ModuleType("google")
@@ -746,7 +748,7 @@ def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None
 def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     captured: dict[str, object] = {}
 
-    def generate_content(**kwargs: object) -> SimpleNamespace:
+    async def generate_content(**kwargs: object) -> SimpleNamespace:
         captured.update(kwargs)
         return SimpleNamespace(
             text=json.dumps(
@@ -773,7 +775,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
         )
 
     client = SimpleNamespace(
-        models=SimpleNamespace(generate_content=generate_content)
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
     )
     google_module = ModuleType("google")
     genai_module = ModuleType("google.genai")

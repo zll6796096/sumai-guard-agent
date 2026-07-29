@@ -5,7 +5,7 @@ import json
 import logging
 import math
 import time
-from typing import Any, NoReturn
+from typing import Any, Callable, NoReturn
 
 from app.config import settings
 from app.errors import GeminiUnavailableError
@@ -298,6 +298,20 @@ def _gemini_failure_reason(exc: Exception) -> str:
 
 
 class GeminiVisionService:
+    def __init__(self, client_factory: Callable[[], Any] | None = None) -> None:
+        self._client_factory = client_factory
+        self._client: Any | None = None
+
+    def _get_client(self) -> Any:
+        if self._client is None:
+            if self._client_factory is not None:
+                self._client = self._client_factory()
+            else:
+                from google import genai
+
+                self._client = genai.Client(api_key=settings.gemini_api_key)
+        return self._client
+
     async def analyze(
         self,
         image_png: bytes,
@@ -440,12 +454,10 @@ class GeminiVisionService:
         return mock_vision_facts(room_hint), f"gemini_fallback({fallback_reason})"
 
     async def _call_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionFacts:
-        from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=settings.gemini_api_key)
         prompt = f"{VISION_PROMPT}\nroom_hint: {room_hint}\nReturn JSON only."
-        response = client.models.generate_content(
+        response = await self._get_client().aio.models.generate_content(
             model=settings.gemini_model,
             contents=[
                 prompt,
