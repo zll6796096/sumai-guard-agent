@@ -7,11 +7,13 @@ import uuid
 from fastapi import UploadFile
 from PIL import Image
 
+from app.config import settings
 from app.models import ActionPlan, AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
 from app.ontology import OntologyRepository
+from app.services.canonicalization import canonical_pixel_digest, canonicalize_findings, result_key, semantic_hash
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
 from app.services.checklist_engine import ChecklistEngine
-from app.services.image_intake import read_and_sanitize_image
+from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
 from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
 from app.services.rule_engine import RuleEngine
@@ -52,6 +54,17 @@ class AnalysisOrchestrator:
 
         raw_bytes = await upload.read()
         image, safe_png = read_and_sanitize_image(raw_bytes)
+        execution_mode = execution_mode_for_request(force_mock=mock)
+        configured_model = settings.gemini_model
+        stable_result_key = result_key(
+            pixel_digest=canonical_pixel_digest(image),
+            room_hint=normalized_hint,
+            preprocess_version=PREPROCESS_VERSION,
+            ontology_version=self.ontology.version,
+            model=configured_model,
+            inference_config_version=self.ontology.inference_config_version,
+            execution_mode=execution_mode,
+        )
 
         vision_facts, mode = await self.vision.analyze(
             image_png=safe_png,
@@ -82,7 +95,9 @@ class AnalysisOrchestrator:
             reports = self.report_renderer.render_not_applicable(not_applicable_reason_ja or "写真から判定できません。")
         else:
             derived_findings = self.relationship_engine.derive(vision_facts)
-            findings, action_plan = self.rule_engine.apply(derived_findings, response_room)
+            findings, action_plan = self.rule_engine.apply(
+                canonicalize_findings(derived_findings), response_room
+            )
             overall_risk = overall_risk_level(findings)
             annotated, improvement = self.visual_renderer.render(image, findings, response_room)
             reports = self.report_renderer.render(
@@ -93,7 +108,10 @@ class AnalysisOrchestrator:
             )
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
-        model_name = "N/A" if mode == "mock" else __import__("app.config", fromlist=["settings"]).settings.gemini_model
+        model_name = "N/A" if mode == "mock" else configured_model
+        stable_semantic_hash = semantic_hash(
+            analysis_semantic_payload(response_room, findings, action_plan)
+        )
         logger.info(
             "analysis_complete",
             extra={
@@ -119,8 +137,39 @@ class AnalysisOrchestrator:
             is_home_environment=is_home_environment,
             not_applicable_reason_ja=not_applicable_reason_ja,
             model=model_name,
+            result_key=stable_result_key,
+            semantic_hash=stable_semantic_hash,
+            schema_version=self.ontology.schema_version,
+            ontology_version=self.ontology.version,
+            preprocess_version=PREPROCESS_VERSION,
+            inference_config_version=self.ontology.inference_config_version,
             **reports,
         )
+
+
+def execution_mode_for_request(*, force_mock: bool) -> str:
+    """Describe execution policy before provider work, for deterministic request identity."""
+    if settings.require_real_gemini:
+        return "strict_gemini"
+    if force_mock:
+        return "forced_mock"
+    if settings.mock_mode:
+        return "configured_mock"
+    return "gemini_with_fallback"
+
+
+def analysis_semantic_payload(
+    room_type: RoomType, findings: list[RiskFinding], action_plan: ActionPlan
+) -> dict[str, object]:
+    """Build semantic output only; request/presentation data are intentionally excluded."""
+    return {
+        "room_type": room_type,
+        "findings": [
+            finding.model_dump(mode="json", exclude={"display_bbox"})
+            for finding in findings
+        ],
+        "action_plan": action_plan.model_dump(mode="json"),
+    }
 
 
 def overall_risk_level(findings: list[RiskFinding]) -> RiskLevel:

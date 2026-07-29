@@ -50,6 +50,7 @@ def test_hallway_cord_requires_intersects_relationship() -> None:
     assert [finding.risk_type for finding in findings] == ["hallway_cord"]
     assert findings[0].id == "pending"
     assert findings[0].confidence == 0.9
+    assert findings[0].display_bbox is None
 
 
 def test_hallway_cord_requires_configured_relationship_target() -> None:
@@ -123,6 +124,10 @@ def test_missing_bathroom_handrail_requires_full_coverage_evidence() -> None:
     )
 
     assert [finding.risk_type for finding in findings] == ["bathroom_missing_handrail"]
+    assert findings[0].evidence_source_ids == [
+        "MHLW_WELFARE_HOUSING",
+        "MHLW_NOTICE_OLD34",
+    ]
 
 
 def test_missing_feature_without_evidence_bbox_is_not_derived() -> None:

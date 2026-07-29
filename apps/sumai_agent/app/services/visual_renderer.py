@@ -99,11 +99,13 @@ DANGER_LABELS = {
 
 
 def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox:
+    # Rendering may map or expand a local presentation box, never the evidence box.
+    display_bbox = finding.display_bbox or finding.bbox
     if room_type and room_type in VISUAL_ZONES:
         mapped = VISUAL_ZONES[room_type].get(finding.risk_type)
         if mapped:
             if isinstance(mapped, dict):
-                center_x = finding.bbox.x + finding.bbox.w / 2
+                center_x = display_bbox.x + display_bbox.w / 2
                 zone_coords = mapped["right"] if center_x > 0.5 else mapped["left"]
             else:
                 zone_coords = mapped
@@ -111,7 +113,7 @@ def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox
             return BoundingBox(x=x, y=y, w=w, h=h)
 
     # Check if original is huge (>65%)
-    orig_area = finding.bbox.w * finding.bbox.h
+    orig_area = display_bbox.w * display_bbox.h
     if orig_area > 0.65:
         anchor = None
         if room_type and room_type in ROOM_ANCHORS:
@@ -121,7 +123,7 @@ def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox
         x, y, w, h = anchor
         return BoundingBox(x=x, y=y, w=w, h=h)
 
-    return finding.bbox
+    return display_bbox
 
 
 def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
@@ -347,10 +349,11 @@ class VisualRenderer:
 
 
 def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, int, int, int]:
-    x1 = int(finding.bbox.x * width)
-    y1 = int(finding.bbox.y * height)
-    x2 = int((finding.bbox.x + finding.bbox.w) * width)
-    y2 = int((finding.bbox.y + finding.bbox.h) * height)
+    display_bbox = finding.display_bbox or finding.bbox
+    x1 = int(display_bbox.x * width)
+    y1 = int(display_bbox.y * height)
+    x2 = int((display_bbox.x + display_bbox.w) * width)
+    y2 = int((display_bbox.y + display_bbox.h) * height)
     return (
         max(0, min(width - 1, x1)),
         max(0, min(height - 1, y1)),

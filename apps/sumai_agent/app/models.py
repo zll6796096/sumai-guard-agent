@@ -86,7 +86,10 @@ class RiskFinding(BaseModel):
     description_ja: str
     severity: int = Field(..., ge=1, le=5)
     confidence: float = Field(..., ge=0.0, le=1.0)
+    # Evidence coordinates are immutable analysis evidence; display_bbox is presentation-only.
     bbox: BoundingBox
+    display_bbox: BoundingBox | None = None
+    evidence_source_ids: list[str] = Field(default_factory=list)
     evidence_ja: str
     basis_label_ja: str
     basis_summary_ja: str
@@ -128,6 +131,13 @@ class AnalysisResponse(BaseModel):
     is_home_environment: bool = True
     not_applicable_reason_ja: str | None = None
     model: str = "N/A"
+    result_key: str = ""
+    semantic_hash: str = ""
+    schema_version: str = "2.0.0"
+    ontology_version: str = "1.0.0"
+    preprocess_version: str = "1.0.0"
+    inference_config_version: str = "1.0.0"
+    stage_timings_ms: dict[str, int] = Field(default_factory=dict)
 
 
 class MissingSafetyFeature(BaseModel):
