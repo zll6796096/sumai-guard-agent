@@ -9,65 +9,29 @@ from typing import Any, NoReturn
 
 from app.config import settings
 from app.errors import GeminiUnavailableError
-from app.models import BoundingBox, RiskFinding, RoomType, VisionResult, MissingSafetyFeature
+from app.models import (
+    BoundingBox,
+    RiskFinding,
+    RoomType,
+    VisionFacts,
+    VisionResult,
+    MissingSafetyFeature,
+)
+from app.ontology import OntologyRepository
 
 
 logger = logging.getLogger("sumai.gemini_vision")
 
-VALID_ROOMS: set[str] = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
-CHECKLIST_EXPECTED_FEATURE_KEYS: frozenset[str] = frozenset(
-    {
-        "bedside_light",
-        "clear_floor",
-        "clear_path",
-        "clear_path_from_bed",
-        "has_bath_transfer_support",
-        "has_emergency_call_button",
-        "has_handrail",
-        "has_handrail_or_support",
-        "has_non_slip_floor_or_mat",
-        "stable_bedside_support",
-        "stable_working_path",
-        "step_visible_marking",
-        "sufficient_lighting",
-    }
-)
+ONTOLOGY = OntologyRepository.load_default()
+VALID_ROOMS: set[str] = {*ONTOLOGY.room_names, "auto"}
+CHECKLIST_EXPECTED_FEATURE_KEYS: frozenset[str] = frozenset(ONTOLOGY.expected_feature_keys)
 CHECKLIST_VISIBLE_OBSERVATION_KEYS: frozenset[str] = frozenset(
-    {
-        "bathtub_stepover",
-        "cluttered_floor",
-        "cluttered_path",
-        "genkan_step",
-        "hallway_cord",
-        "has_floor_clutter",
-        "has_loose_mat",
-        "kitchen_slip",
-        "lighting_poor",
-        "looks_slippery_floor",
-        "loose_mat",
-        "loose_shoes",
-        "no_shower_chair",
-        "poor_lighting",
-        "reachable_storage_issue",
-        "space_looks_narrow",
-        "wet_floor",
-    }
+    ONTOLOGY.visible_observation_keys
 )
 CHECKLIST_VISIBLE_RISK_TYPES: frozenset[str] = frozenset(
-    {
-        "bathroom_no_shower_chair",
-        "bathroom_slip",
-        "bathtub_stepover",
-        "cluttered_path",
-        "genkan_step",
-        "hallway_cord",
-        "kitchen_slip",
-        "kitchen_unreachable_storage",
-        "loose_mat",
-        "poor_lighting",
-        "toilet_slip",
-        "toilet_transfer_support",
-    }
+    item["risk_type"]
+    for room in ONTOLOGY.room_names
+    for item in (ONTOLOGY.room(room) or {}).get("visible_hazards", [])
 )
 VALID_OBSERVATION_KEYS: frozenset[str] = (
     CHECKLIST_EXPECTED_FEATURE_KEYS | CHECKLIST_VISIBLE_OBSERVATION_KEYS
@@ -165,27 +129,147 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
-VISION_PROMPT = """You are a Japanese elderly home safety risk assessor.
-Analyze one photo for general elderly fall/slip/trip risks visible in the image.
-Do not ask user profile questions.
+_FACTS_ROOM_TYPES = ["genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "unknown"]
+_FACTS_REQUIRED_FIELDS = [
+    "environment",
+    "room_type",
+    "visible_regions",
+    "entities",
+    "feature_observations",
+    "relationships",
+    "not_applicable_reason_code",
+]
 
-Safety Boundary Guidelines:
-1. If the photo is NOT a home/residential interior (e.g. offices, gyms, public spaces, streets, landscapes, cars, documents, food, people-only closeups, or other unrelated scenes), set is_home_environment to false and return no findings.
-2. If no visible elderly fall/slip/trip risk is present in a home environment, return no findings (visible_hazards=[]).
-3. Do not invent risk just because the user asks for analysis.
-4. Do not mark normal furniture as a risk unless it visibly blocks walking, transfer, standing, bathing, toilet use, or floor movement.
-5. Correct the room_type if the image clearly shows another room than room_hint.
 
-Observations Rules:
-- true means feature is visible.
-- false means feature is not visible in the relevant room area.
-- null means unclear from photo. Do not guess if not visible or out of frame.
-- Do not treat null as strong missing risk.
-- Do not invent objects.
-- Do not claim legal violation. Use "確認できません", "可能性があります", "相談候補です", "専門確認が必要です". Never say "違反", "必須".
-- For every reported hazard or missing safety feature, tightly bound the visible evidence in its bbox. Do not use the full image as a generic bbox.
-- Every bbox must fit entirely inside the image: x + w must be at most 1, and y + h must be at most 1.
+GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "environment": {"type": "string", "enum": ["home", "non_home", "uncertain"]},
+        "room_type": {"type": "string", "enum": _FACTS_ROOM_TYPES},
+        "visible_regions": {"type": "array", "items": {"type": "string"}},
+        "entities": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "ref": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "ontology_key": {
+                        "type": "string",
+                        "enum": sorted(ONTOLOGY.visible_observation_keys),
+                    },
+                    "bbox": _bbox_response_json_schema(),
+                    "visibility": {"type": "string", "enum": ["clear", "partial", "uncertain"]},
+                    "model_score": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["ref", "ontology_key", "bbox", "visibility", "model_score"],
+                "additionalProperties": False,
+            },
+        },
+        "feature_observations": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "feature_key": {
+                        "type": "string",
+                        "enum": sorted(ONTOLOGY.expected_feature_keys),
+                    },
+                    "state": {
+                        "type": "string",
+                        "enum": ["present", "absent_with_full_coverage", "cannot_determine"],
+                    },
+                    "evidence_bbox": {
+                        "anyOf": [_bbox_response_json_schema(), {"type": "null"}]
+                    },
+                    "model_score": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["feature_key", "state", "evidence_bbox", "model_score"],
+                "additionalProperties": False,
+            },
+        },
+        "relationships": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "subject": {"type": "string"},
+                    "predicate": {"type": "string", "enum": sorted(ONTOLOGY.relationships)},
+                    "object": {"type": "string"},
+                },
+                "required": ["subject", "predicate", "object"],
+                "additionalProperties": False,
+            },
+        },
+        "not_applicable_reason_code": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+    },
+    "required": _FACTS_REQUIRED_FIELDS,
+    "additionalProperties": False,
+}
+
+
+VISION_PROMPT = """Extract only minimal visual evidence from one photo of a possible home.
+Return facts that are directly visible; do not assess risk, severity, action tiers, Japanese reports,
+recommendations, legal compliance, care needs, or construction. Do not ask user profile questions.
+
+Environment and coverage rules:
+1. Use environment=non_home for clearly non-residential or unrelated scenes. Use uncertain when the
+   photo does not establish a home environment. Do not invent a reason code.
+2. Correct room_type only when the room is visible; otherwise use unknown.
+3. Emit entities only for directly visible objects or conditions using the supplied ontology keys.
+   Give each a tight bbox entirely inside the image; x + w and y + h must be at most 1.
+4. A feature can be absent_with_full_coverage only when its relevant region is completely visible.
+   Use cannot_determine for cropped, obscured, or ambiguous areas. Never infer an absence from a
+   missing or out-of-frame region.
+5. Relationships must use supplied ontology predicates and refer to visible entity refs or named
+   visible regions. Do not invent objects or relationships.
 """
+
+
+def _raise_facts_error(reason: str, *, raw_length: int | None = None) -> NoReturn:
+    extra: dict[str, object] = {"reason": reason}
+    if raw_length is not None:
+        extra["raw_length"] = raw_length
+    logger.warning("gemini_facts_validation_error", extra=extra)
+    raise ValueError("Gemini facts response is invalid.")
+
+
+def _validate_facts_bbox(field: str, bbox: BoundingBox) -> None:
+    if bbox.w <= 0 or bbox.h <= 0:
+        _raise_facts_error(f"{field}_non_positive_extent")
+    if bbox.x + bbox.w > 1 or bbox.y + bbox.h > 1:
+        _raise_facts_error(f"{field}_outside_image")
+
+
+def parse_vision_facts_json(raw_json: str) -> VisionFacts:
+    """Parse constrained provider output without logging raw visual/provider payloads."""
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError:
+        _raise_facts_error("json_decode", raw_length=len(raw_json))
+
+    if not isinstance(data, dict):
+        _raise_facts_error("non_object", raw_length=len(raw_json))
+    if any(field not in data for field in _FACTS_REQUIRED_FIELDS):
+        _raise_facts_error("missing_top_level_field", raw_length=len(raw_json))
+
+    try:
+        facts = VisionFacts.model_validate(data)
+    except Exception:
+        _raise_facts_error("pydantic_validation", raw_length=len(raw_json))
+
+    for entity in facts.entities:
+        if entity.ontology_key not in ONTOLOGY.visible_observation_keys:
+            _raise_facts_error("unknown_entity_ontology_key")
+        _validate_facts_bbox("entity_bbox", entity.bbox)
+    for feature in facts.feature_observations:
+        if feature.feature_key not in ONTOLOGY.expected_feature_keys:
+            _raise_facts_error("unknown_feature_ontology_key")
+        if feature.evidence_bbox is not None:
+            _validate_facts_bbox("feature_evidence_bbox", feature.evidence_bbox)
+    for relationship in facts.relationships:
+        if relationship.predicate not in ONTOLOGY.relationships:
+            _raise_facts_error("unknown_relationship_predicate")
+    return facts
 
 
 def _gemini_failure_reason(exc: Exception) -> str:
@@ -203,8 +287,8 @@ class GeminiVisionService:
         room_hint: str = "auto",
         force_mock: bool = False,
         analysis_id: str = "",
-    ) -> tuple[VisionResult, str]:
-        """Analyze image. Returns (VisionResult, mode) where mode is 'mock' or 'gemini'."""
+    ) -> tuple[VisionFacts, str]:
+        """Analyze image. Returns minimal visual facts and an execution mode."""
         normalized_room = normalize_room_hint(room_hint)
 
         if settings.require_real_gemini:
@@ -232,7 +316,7 @@ class GeminiVisionService:
                     "reason": reason,
                 },
             )
-            return mock_vision_result(normalized_room), mode
+            return mock_vision_facts(normalized_room), mode
 
         return await self._analyze_with_gemini(
             image_png=image_png,
@@ -245,7 +329,7 @@ class GeminiVisionService:
         image_png: bytes,
         room_hint: RoomType,
         analysis_id: str,
-    ) -> tuple[VisionResult, str]:
+    ) -> tuple[VisionFacts, str]:
         logger.info(
             "vision_start_strict",
             extra={
@@ -267,7 +351,8 @@ class GeminiVisionService:
                     "analysis_id": analysis_id,
                     "mode": "gemini",
                     "model": settings.gemini_model,
-                    "finding_count": len(result.visible_hazards),
+                    "entity_count": len(getattr(result, "entities", [])),
+                    "feature_count": len(getattr(result, "feature_observations", [])),
                     "latency_ms": latency_ms,
                 },
             )
@@ -290,7 +375,7 @@ class GeminiVisionService:
         image_png: bytes,
         room_hint: RoomType,
         analysis_id: str,
-    ) -> tuple[VisionResult, str]:
+    ) -> tuple[VisionFacts, str]:
         logger.info(
             "vision_start",
             extra={
@@ -315,7 +400,8 @@ class GeminiVisionService:
                     "analysis_id": analysis_id,
                     "mode": "gemini",
                     "model": settings.gemini_model,
-                    "finding_count": len(result.visible_hazards),
+                    "entity_count": len(getattr(result, "entities", [])),
+                    "feature_count": len(getattr(result, "feature_observations", [])),
                     "latency_ms": latency_ms,
                 },
             )
@@ -334,9 +420,9 @@ class GeminiVisionService:
                 "latency_ms": latency_ms,
             },
         )
-        return mock_vision_result(room_hint), f"gemini_fallback({fallback_reason})"
+        return mock_vision_facts(room_hint), f"gemini_fallback({fallback_reason})"
 
-    async def _call_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionResult:
+    async def _call_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionFacts:
         from google import genai
         from google.genai import types
 
@@ -350,10 +436,10 @@ class GeminiVisionService:
             ],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_json_schema=GEMINI_RESPONSE_JSON_SCHEMA,
+                response_json_schema=GEMINI_FACTS_JSON_SCHEMA,
             ),
         )
-        return parse_vision_json(response.text or "", fallback_room=room_hint)
+        return parse_vision_facts_json(response.text or "")
 
 
 def normalize_room_hint(room_hint: str | None) -> RoomType:
@@ -363,6 +449,52 @@ def normalize_room_hint(room_hint: str | None) -> RoomType:
     if value in VALID_ROOMS:
         return value  # type: ignore[return-value]
     return "auto"
+
+
+def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
+    """Deterministic evidence-only fixture used by mock and non-strict fallback paths."""
+    room = room_hint if room_hint != "auto" else "toilet"
+    entity_by_room = {
+        "genkan": "genkan_step",
+        "hallway": "hallway_cord",
+        "bathroom": "wet_floor",
+        "toilet": "cluttered_path",
+        "bedroom": "cluttered_floor",
+        "kitchen": "kitchen_slip",
+    }
+    feature_by_room = {
+        "genkan": "has_handrail_or_support",
+        "hallway": "clear_path",
+        "bathroom": "has_handrail",
+        "toilet": "has_handrail",
+        "bedroom": "stable_bedside_support",
+        "kitchen": "clear_floor",
+    }
+    entity_key = entity_by_room[room]
+    return VisionFacts(
+        environment="home",
+        room_type=room,
+        visible_regions=["floor", "walking_path"],
+        entities=[
+            {
+                "ref": "mock-entity-1",
+                "ontology_key": entity_key,
+                "bbox": {"x": 0.16, "y": 0.58, "w": 0.58, "h": 0.2},
+                "visibility": "clear",
+                "model_score": 0.82,
+            }
+        ],
+        feature_observations=[
+            {
+                "feature_key": feature_by_room[room],
+                "state": "cannot_determine",
+                "evidence_bbox": None,
+                "model_score": 0.5,
+            }
+        ],
+        relationships=[],
+        not_applicable_reason_code=None,
+    )
 
 
 def mock_vision_result(room_hint: RoomType) -> VisionResult:

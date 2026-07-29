@@ -12,7 +12,9 @@ import yaml
 
 from app.services.gemini_vision import (
     CHECKLIST_EXPECTED_FEATURE_KEYS,
+    CHECKLIST_VISIBLE_OBSERVATION_KEYS,
     CHECKLIST_VISIBLE_RISK_TYPES,
+    GEMINI_FACTS_JSON_SCHEMA,
     GEMINI_RESPONSE_JSON_SCHEMA,
     GeminiVisionService,
     VALID_OBSERVATION_KEYS,
@@ -736,11 +738,11 @@ def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None
             "google.genai.types": types_module,
         },
     ):
-        with pytest.raises(ValueError, match="Gemini response"):
+        with pytest.raises(ValueError, match="Gemini facts"):
             asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
 
 
-def test_call_gemini_passes_canonical_response_json_schema() -> None:
+def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     captured: dict[str, object] = {}
 
     def generate_content(**kwargs: object) -> SimpleNamespace:
@@ -748,11 +750,23 @@ def test_call_gemini_passes_canonical_response_json_schema() -> None:
         return SimpleNamespace(
             text=json.dumps(
                 {
-                    "is_home_environment": True,
+                    "environment": "home",
                     "room_type": "hallway",
-                    "observations": {},
-                    "visible_hazards": [],
-                    "missing_safety_features": [],
+                    "visible_regions": ["floor", "walking_path"],
+                    "entities": [
+                        {
+                            "ref": "cord-1",
+                            "ontology_key": "hallway_cord",
+                            "bbox": {"x": 0.1, "y": 0.6, "w": 0.5, "h": 0.1},
+                            "visibility": "clear",
+                            "model_score": 0.9,
+                        }
+                    ],
+                    "feature_observations": [],
+                    "relationships": [
+                        {"subject": "cord-1", "predicate": "intersects", "object": "walking_path"}
+                    ],
+                    "not_applicable_reason_code": None,
                 }
             )
         )
@@ -785,71 +799,57 @@ def test_call_gemini_passes_canonical_response_json_schema() -> None:
 
     config = captured["config"]
     assert config.response_mime_type == "application/json"
-    assert config.response_json_schema is GEMINI_RESPONSE_JSON_SCHEMA
+    assert config.response_json_schema is GEMINI_FACTS_JSON_SCHEMA
 
     schema = config.response_json_schema
     assert schema["required"] == [
-        "is_home_environment",
+        "environment",
         "room_type",
-        "observations",
-        "visible_hazards",
-        "missing_safety_features",
+        "visible_regions",
+        "entities",
+        "feature_observations",
+        "relationships",
+        "not_applicable_reason_code",
     ]
-    assert schema["properties"]["room_type"]["enum"] == sorted(
-        {
-            "genkan",
-            "hallway",
-            "bathroom",
-            "toilet",
-            "bedroom",
-            "kitchen",
-            "auto",
-        }
-    )
-    assert schema["properties"]["observations"]["additionalProperties"] is False
-    assert set(schema["properties"]["observations"]["properties"]) == set(
-        VALID_OBSERVATION_KEYS
-    )
-    hazard_schema = schema["properties"]["visible_hazards"]["items"]
-    assert hazard_schema["required"] == [
-        "risk_type",
-        "label_ja",
-        "description_ja",
-        "severity",
-        "confidence",
-        "bbox",
-        "evidence_ja",
+    assert schema["properties"]["room_type"]["enum"] == [
+        "genkan",
+        "hallway",
+        "bathroom",
+        "toilet",
+        "bedroom",
+        "kitchen",
+        "unknown",
     ]
-    missing_schema = schema["properties"]["missing_safety_features"]["items"]
-    assert missing_schema["required"] == [
-        "feature_key",
-        "confidence",
-        "bbox",
-        "evidence_ja",
-    ]
-    assert hazard_schema["properties"]["risk_type"]["enum"] == sorted(
-        CHECKLIST_VISIBLE_RISK_TYPES
+    entity_schema = schema["properties"]["entities"]["items"]
+    feature_schema = schema["properties"]["feature_observations"]["items"]
+    relationship_schema = schema["properties"]["relationships"]["items"]
+    assert entity_schema["required"] == ["ref", "ontology_key", "bbox", "visibility", "model_score"]
+    assert feature_schema["required"] == ["feature_key", "state", "evidence_bbox", "model_score"]
+    assert relationship_schema["required"] == ["subject", "predicate", "object"]
+    assert entity_schema["properties"]["ontology_key"]["enum"] == sorted(
+        CHECKLIST_VISIBLE_OBSERVATION_KEYS
     )
-    assert missing_schema["properties"]["feature_key"]["enum"] == sorted(
+    assert feature_schema["properties"]["feature_key"]["enum"] == sorted(
         CHECKLIST_EXPECTED_FEATURE_KEYS
     )
-    for item_schema in (hazard_schema, missing_schema):
-        bbox_schema = item_schema["properties"]["bbox"]
-        assert bbox_schema["required"] == ["x", "y", "w", "h"]
-        assert bbox_schema["properties"]["w"]["minimum"] > 0
-        assert bbox_schema["properties"]["h"]["minimum"] > 0
-        assert bbox_schema["properties"]["x"]["minimum"] == 0
-        assert bbox_schema["properties"]["x"]["maximum"] == 1
+    for item_schema in (entity_schema, feature_schema, relationship_schema):
+        assert item_schema["additionalProperties"] is False
+    bbox_schema = entity_schema["properties"]["bbox"]
+    assert bbox_schema["required"] == ["x", "y", "w", "h"]
+    assert bbox_schema["properties"]["w"]["minimum"] > 0
+    assert bbox_schema["properties"]["h"]["minimum"] > 0
+    assert bbox_schema["properties"]["x"]["minimum"] == 0
+    assert bbox_schema["properties"]["x"]["maximum"] == 1
 
 
 def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None:
-    assert "If the photo is NOT a home/residential interior" in VISION_PROMPT
+    assert "minimal visual evidence" in VISION_PROMPT
     assert "Do not invent objects" in VISION_PROMPT
-    assert '"visible_hazards"' not in VISION_PROMPT
-    assert '"missing_safety_features"' not in VISION_PROMPT
+    assert "severity" in VISION_PROMPT
+    assert "action tiers" in VISION_PROMPT
+    assert "absent_with_full_coverage" in VISION_PROMPT
     assert "Output strict JSON only using this shape" not in VISION_PROMPT
-    assert "x + w must be at most 1" in VISION_PROMPT
-    assert "y + h must be at most 1" in VISION_PROMPT
+    assert "x + w and y + h must be at most 1" in VISION_PROMPT
 
 
 def test_gemini_vocabularies_match_room_checklists() -> None:
