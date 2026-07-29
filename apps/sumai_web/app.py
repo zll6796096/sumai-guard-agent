@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import math
 import os
 from contextlib import asynccontextmanager
 from typing import Any
@@ -1243,6 +1244,37 @@ INDEX_HTML = """<!DOCTYPE html>
 FRONTEND_REQUIRE_REAL_GEMINI = os.getenv("REQUIRE_REAL_GEMINI", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _positive_timeout_env(name: str, default: float | str) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+_analysis_timeout_fallback = _positive_timeout_env("ANALYSIS_TIMEOUT", 120.0)
+SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS = _positive_timeout_env(
+    "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", _analysis_timeout_fallback
+)
+SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS = _positive_timeout_env(
+    "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", 30.0
+)
+_proxy_timeout_override = os.getenv("SUMAI_AGENT_TIMEOUT_SECONDS", "").strip()
+SUMAI_AGENT_TIMEOUT_SECONDS = (
+    _positive_timeout_env("SUMAI_AGENT_TIMEOUT_SECONDS", 0.0)
+    if _proxy_timeout_override
+    else SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS + SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS
+)
+if SUMAI_AGENT_TIMEOUT_SECONDS <= SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS:
+    raise ValueError(
+        "SUMAI_AGENT_TIMEOUT_SECONDS must be greater than "
+        "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS"
+    )
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     try:
@@ -1257,7 +1289,12 @@ app = FastAPI(title="SumaiGuard Web", lifespan=lifespan)
 def backend_client() -> httpx.AsyncClient:
     global _backend_client
     if _backend_client is None:
-        _backend_client = httpx.AsyncClient(timeout=httpx.Timeout(120.0))
+        _backend_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                SUMAI_AGENT_TIMEOUT_SECONDS,
+                connect=min(10.0, SUMAI_AGENT_TIMEOUT_SECONDS / 2),
+            )
+        )
     return _backend_client
 
 

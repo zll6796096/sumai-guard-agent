@@ -11,10 +11,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
+from app import main
 from app.services.gemini_vision import GEMINI_FACTS_JSON_SCHEMA, GeminiVisionService
+from app.services.orchestrator import AnalysisOrchestrator
 
 
 def _valid_facts_json() -> str:
@@ -106,6 +109,104 @@ def test_web_backend_client_is_recreated_after_shutdown(monkeypatch) -> None:
     assert web._backend_client is None
     assert web.backend_client() is replacement
     fake_client.aclose.assert_awaited_once()
+
+
+def test_web_proxy_timeout_default_exceeds_backend_budget_and_configures_read_timeout(monkeypatch) -> None:
+    web = _load_web_module()
+    client_factory = MagicMock(return_value=SimpleNamespace())
+    monkeypatch.setattr(web.httpx, "AsyncClient", client_factory)
+
+    client = web.backend_client()
+
+    assert web.SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS == 120.0
+    assert web.SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS == 30.0
+    assert web.SUMAI_AGENT_TIMEOUT_SECONDS == 150.0
+    assert web.SUMAI_AGENT_TIMEOUT_SECONDS > web.SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS
+    assert client is client_factory.return_value
+    timeout = client_factory.call_args.kwargs["timeout"]
+    assert timeout.read == 150.0
+    assert timeout.connect < timeout.read
+
+
+def test_web_proxy_timeout_uses_valid_explicit_override(monkeypatch) -> None:
+    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "45")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "15")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "75")
+
+    web = _load_web_module()
+
+    assert web.SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS == 45.0
+    assert web.SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS == 15.0
+    assert web.SUMAI_AGENT_TIMEOUT_SECONDS == 75.0
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "0"),
+        ("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "nan"),
+        ("SUMAI_AGENT_TIMEOUT_SECONDS", "-1"),
+    ],
+)
+def test_web_proxy_timeout_rejects_non_finite_or_non_positive_values(monkeypatch, name: str, value: str) -> None:
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=name):
+        _load_web_module()
+
+
+def test_web_proxy_timeout_rejects_override_at_or_below_backend_budget(monkeypatch) -> None:
+    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "120")
+
+    with pytest.raises(ValueError, match="SUMAI_AGENT_TIMEOUT_SECONDS"):
+        _load_web_module()
+
+
+def test_gemini_client_close_is_idempotent_and_allows_recreation() -> None:
+    first_generate = AsyncMock(return_value=SimpleNamespace(text=_valid_facts_json()))
+    first_client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(generate_content=first_generate),
+            aclose=AsyncMock(),
+        )
+    )
+    second_client = SimpleNamespace(
+        aio=SimpleNamespace(
+            models=SimpleNamespace(
+                generate_content=AsyncMock(return_value=SimpleNamespace(text=_valid_facts_json()))
+            ),
+            aclose=AsyncMock(),
+        )
+    )
+    factory = MagicMock(side_effect=[first_client, second_client])
+    service = GeminiVisionService(client_factory=factory)
+
+    async def scenario() -> None:
+        await service._call_gemini(b"image", "auto")
+        await service.aclose()
+        await service.aclose()
+        await service._call_gemini(b"image", "auto")
+
+    asyncio.run(scenario())
+
+    first_client.aio.aclose.assert_awaited_once()
+    assert factory.call_count == 2
+    assert service._client is second_client
+
+
+def test_orchestrator_and_app_shutdown_close_vision_client(monkeypatch) -> None:
+    vision = SimpleNamespace(aclose=AsyncMock())
+    orchestrator = AnalysisOrchestrator(vision=vision)
+
+    asyncio.run(orchestrator.aclose())
+    vision.aclose.assert_awaited_once()
+
+    app_orchestrator = SimpleNamespace(aclose=AsyncMock())
+    monkeypatch.setattr(main, "orchestrator", app_orchestrator)
+    with TestClient(main.app):
+        pass
+    app_orchestrator.aclose.assert_awaited_once()
 
 
 def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None:

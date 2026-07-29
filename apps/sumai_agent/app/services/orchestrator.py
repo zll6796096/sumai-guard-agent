@@ -86,6 +86,9 @@ class AnalysisOrchestrator:
             ttl_seconds=settings.result_memo_ttl_seconds,
         )
 
+    async def aclose(self) -> None:
+        await self.vision.aclose()
+
     async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
         analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
         stage_timings_ms = _empty_stage_timings()

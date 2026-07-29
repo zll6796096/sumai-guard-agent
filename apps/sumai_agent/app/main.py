@@ -4,6 +4,7 @@ import json
 import logging
 import sys
 import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
@@ -45,8 +46,21 @@ def _setup_logging() -> None:
 _setup_logging()
 logger = logging.getLogger("sumai.main")
 
-app = FastAPI(title="SumaiGuard Agent", version=settings.version)
 orchestrator = AnalysisOrchestrator()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        try:
+            await orchestrator.aclose()
+        except Exception:
+            logger.error("orchestrator_close_failed")
+
+
+app = FastAPI(title="SumaiGuard Agent", version=settings.version, lifespan=lifespan)
 
 logger.info(
     "server_startup",

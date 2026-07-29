@@ -312,6 +312,16 @@ class GeminiVisionService:
                 self._client = genai.Client(api_key=settings.gemini_api_key)
         return self._client
 
+    async def aclose(self) -> None:
+        """Release the optional async provider client without retaining a closed instance."""
+        client = self._client
+        self._client = None
+        if client is None:
+            return
+        closer = getattr(getattr(client, "aio", None), "aclose", None)
+        if closer is not None:
+            await closer()
+
     async def analyze(
         self,
         image_png: bytes,
