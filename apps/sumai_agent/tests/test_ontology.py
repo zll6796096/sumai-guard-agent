@@ -52,6 +52,7 @@ def test_load_rejects_incomplete_relationship_target_coverage(tmp_path: Path) ->
 
     assert str(error.value) == "Invalid ontology YAML"
     assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 @pytest.mark.parametrize(
@@ -89,6 +90,8 @@ def test_load_validation_error_is_generic_for_arbitrary_extra_fields(
         OntologyRepository.load(malformed_path)
 
     assert str(error.value) == "Invalid ontology YAML"
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 def test_load_yaml_syntax_error_is_generic_without_source_fragment(
@@ -106,6 +109,7 @@ def test_load_yaml_syntax_error_is_generic_without_source_fragment(
     assert str(error.value) == "Invalid ontology YAML syntax"
     assert "SENSITIVE_SYNTAX_FRAGMENT" not in str(error.value)
     assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 def test_load_non_mapping_root_uses_generic_validation_error(
@@ -373,6 +377,7 @@ def test_legacy_normalization_default_validation_error_is_generic(
 
     assert str(error.value) == "Invalid ontology YAML"
     assert error.value.__cause__ is None
+    assert error.value.__context__ is None
 
 
 @pytest.mark.parametrize(

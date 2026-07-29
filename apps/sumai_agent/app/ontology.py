@@ -225,12 +225,15 @@ class OntologyRepository:
     def load(cls, path: Path) -> "OntologyRepository":
         raw_document = cls._read_yaml(path)
         normalized_document = cls._normalize_legacy_document(raw_document)
+        document: _OntologyDocumentSchema | None = None
         try:
             document = _OntologyDocumentSchema.model_validate(
                 normalized_document, strict=True
             )
         except ValidationError:
-            raise ValueError("Invalid ontology YAML") from None
+            pass
+        if document is None:
+            raise ValueError("Invalid ontology YAML")
         return cls._from_document(document)
 
     @classmethod
@@ -239,11 +242,15 @@ class OntologyRepository:
 
     @staticmethod
     def _read_yaml(path: Path) -> dict[str, Any]:
+        syntax_failed = False
+        document: Any = None
         try:
             with path.open("r", encoding="utf-8") as handle:
                 document = yaml.safe_load(handle)
         except yaml.YAMLError:
-            raise ValueError("Invalid ontology YAML syntax") from None
+            syntax_failed = True
+        if syntax_failed:
+            raise ValueError("Invalid ontology YAML syntax")
         if not isinstance(document, dict):
             raise ValueError("Invalid ontology YAML")
         return document
@@ -258,12 +265,15 @@ class OntologyRepository:
             return document
 
         default_document = cls._read_yaml(cls._default_path())
+        default_schema: _OntologyDocumentSchema | None = None
         try:
             default_schema = _OntologyDocumentSchema.model_validate(
                 default_document, strict=True
             )
         except ValidationError:
-            raise ValueError("Invalid ontology YAML") from None
+            pass
+        if default_schema is None:
+            raise ValueError("Invalid ontology YAML")
         metadata = default_schema.model_dump(exclude={"rooms"})
         legacy_visible_observation_keys = {
             item["key"]
