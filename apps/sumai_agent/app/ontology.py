@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 _ROOM_NAMES = ("toilet", "bathroom", "genkan", "hallway", "bedroom", "kitchen")
 RoomName = Literal["toilet", "bathroom", "genkan", "hallway", "bedroom", "kitchen"]
+OntologyRuleKind = Literal["visible_hazard", "expected_feature"]
 ActionList = list[str] | tuple[str, ...]
 
 
@@ -149,6 +150,7 @@ class OntologyRiskRule(BaseModel):
 
     room: str
     key: str
+    rule_kind: OntologyRuleKind
     risk_type: str
     label_ja: str
     severity: int = Field(ge=1, le=5)
@@ -325,22 +327,55 @@ class OntologyRepository:
         return tuple(dict.fromkeys((*visible, *missing)))
 
     def risk_rule(self, room: str, risk_type: str) -> OntologyRiskRule:
+        """Legacy compatibility lookup; exact inference paths must use rule()."""
         room_data = self.room(room)
         if room_data is None:
             raise KeyError(room)
 
         for item in room_data["visible_hazards"]:
             if item["risk_type"] == risk_type:
-                return self._rule_from_item(room, item, risk_type, expected_feature_key=None)
+                return self._rule_from_item(
+                    room,
+                    item,
+                    risk_type,
+                    rule_kind="visible_hazard",
+                    expected_feature_key=None,
+                )
         for item in room_data["expected_features"]:
             if item["missing_risk_type"] == risk_type:
                 return self._rule_from_item(
                     room,
                     item,
                     risk_type,
+                    rule_kind="expected_feature",
                     expected_feature_key=item["key"],
                 )
         raise KeyError((room, risk_type))
+
+    def rule(
+        self, room: str, ontology_key: str, rule_kind: OntologyRuleKind
+    ) -> OntologyRiskRule:
+        room_data = self.room(room)
+        if room_data is None:
+            raise KeyError(room)
+        if rule_kind == "visible_hazard":
+            collection = room_data["visible_hazards"]
+            risk_field = "risk_type"
+            expected_feature_key = None
+        else:
+            collection = room_data["expected_features"]
+            risk_field = "missing_risk_type"
+            expected_feature_key = ontology_key
+        for item in collection:
+            if item["key"] == ontology_key:
+                return self._rule_from_item(
+                    room,
+                    item,
+                    item[risk_field],
+                    rule_kind=rule_kind,
+                    expected_feature_key=expected_feature_key,
+                )
+        raise KeyError((room, ontology_key, rule_kind))
 
     def required_predicate(self, observation_key: str) -> str:
         return self.relationship_requirements[observation_key]
@@ -373,12 +408,14 @@ class OntologyRepository:
         room: str,
         item: dict[str, Any],
         risk_type: str,
+        rule_kind: OntologyRuleKind,
         expected_feature_key: str | None,
     ) -> OntologyRiskRule:
         basis_label = item["basis_label_ja"]
         return OntologyRiskRule(
             room=room,
             key=item["key"],
+            rule_kind=rule_kind,
             risk_type=risk_type,
             label_ja=item["missing_label_ja"]
             if expected_feature_key is not None

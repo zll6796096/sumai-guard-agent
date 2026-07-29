@@ -49,7 +49,7 @@ Evidence bboxes are normalized floating-point values in the inclusive 0..1 image
 
 The parser rejects malformed JSON, non-object responses, missing required fields, unknown vocabulary, unknown region, unknown predicate, duplicate entity refs, duplicate feature observations, dangling relationships, non-boolean/non-numeric strict values, and invalid or out-of-bounds bboxes. It logs only a safe failure reason and raw length, never raw provider content. It does not silently skip invalid facts.
 
-After parsing, `RelationshipEngine` verifies room-scoped ontology membership and the configured subject/predicate/target triple. `RuleEngine` then assigns severity, Japanese wording, source IDs, confidence treatment, and actions from `room_checklists.yaml`. Gemini cannot override the deterministic policy or its three action tiers.
+After parsing, `RelationshipEngine` verifies room-scoped ontology membership and the configured subject/predicate/target triple. It resolves the rule by exact `(room, ontology_key, rule_kind)` identity and carries that identity on the finding. `RuleEngine` then uses the same rule to assign severity, Japanese wording, source IDs, confidence treatment, and actions from `room_checklists.yaml`; duplicate `risk_type` values cannot redirect this path. Gemini cannot override the deterministic policy or its three action tiers.
 
 Non-home, uncertain, unknown-room, or explicitly not-applicable facts yield neutral not-applicable output rather than a low-risk/no-risk conclusion.
 
@@ -60,6 +60,8 @@ With `REQUIRE_REAL_GEMINI=true`, missing key, timeout, provider error, malformed
 With strict mode off, a real-call timeout, provider error, or parser rejection returns deterministic mock facts with mode `gemini_fallback(reason)`. Such fallback work is explicitly labelled and is not memoized. If no key is configured, the service enters direct `mock` mode; it does not claim a Gemini call occurred. Forced mock and configured mock are likewise explicit modes.
 
 The public response exposes `is_not_applicable` as a strict boolean. Only a true value is neutral not-applicable: it requires empty findings/actions and a non-empty neutral reason, so the web result screen hides its compatibility `overall_risk_level=low`, risk summary, images, and action navigation. A known home room with false plus ordinary empty findings remains the normal low-compatible “no obvious candidate detected” result, not neutral output. Its non-debug `analysis-mode-banner` always displays whether the result was Gemini, mock, local mock, or fallback; mock/fallback are never labelled as Gemini analysis.
+
+The web-only `local_mock` availability path is also neutral: if the backend is unreachable outside strict mode, it returns `is_not_applicable=true`, an auto room, empty findings/actions, and identical unannotated images. It is not the agent's deterministic mock analysis and never creates a synthetic red box or recommendation.
 
 ## Testing and safe operation
 

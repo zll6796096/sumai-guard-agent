@@ -38,9 +38,13 @@ Reason: availability must not turn a provider failure into a false claim of Gemi
 
 Reason: a schema-compatible empty response must not visually imply that the photo establishes a low-risk home.
 
-## Identity, rendering, and memoization
+## Exact rule identity, rendering, and memoization
 
-Every request has a random `analysis_id`. `result_key` hashes sanitized-pixel digest, hint, versions, model, and execution policy to identify reusable computation. `semantic_hash` covers stable reader-facing semantic output but excludes images, timing, mode, and presentation-only display bbox. The memo is bounded TTL/LRU, process-local, stores no image, and is not persistent or cross-process; rendering/report delivery remains per request.
+The relationship path resolves rules by `(room, ontology_key, rule_kind)` and carries that exact identity on each finding. Risk-type-only lookup exists only for legacy callers. This prevents duplicate risk types from selecting another rule's labels, basis, or actions.
+
+Every request has a random `analysis_id`. `result_key` hashes sanitized-pixel digest, hint, schema/ontology/preprocess/inference versions, model, and execution policy to identify reusable computation. `semantic_hash` covers stable reader-facing semantic output but excludes images, timing, mode, and presentation-only display bbox. Same-class findings with evidence-bbox IoU of at least 0.5 are deterministically deduplicated before policy output. The memo is bounded TTL/LRU, process-local, stores no image, and is not persistent or cross-process; rendering/report delivery remains per request.
+
+Annotated danger boxes always use positive, in-frame evidence coordinates. Visual-zone, room-anchor, and `display_bbox` mapping is limited to improvement callouts and cannot alter evidence or semantic identity. If the browser cannot reach the backend in non-strict local mode, its `local_mock` response is an empty neutral abstention with unannotated images, not fabricated medium-risk findings or actions.
 
 Reason: distinguish correlation, safe computation reuse, and semantic equality without retaining user images or treating cache behavior as durable state.
 

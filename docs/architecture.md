@@ -43,6 +43,10 @@ The subject must be clear and the predicate/target must be configured for that o
 
 The bathroom safety correction is explicit: the expected feature is `has_shower_chair`; a negative observation is not represented as a fictional `no_shower` feature. Non-home, uncertain, unknown-room, or explicit not-applicable facts produce neutral not-applicable output, not a low-risk or no-risk claim.
 
+Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`, where `rule_kind` distinguishes a visible hazard from a missing expected feature. `RiskFinding` carries that identity into `RuleEngine`, so duplicate `risk_type` values cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for legacy callers, not the relationship path.
+
+The public evidence bbox has positive width and height and must remain inside the normalized image frame. Danger selection, overlap suppression, annotated red boxes, canonical semantics, and benchmark validation all use that evidence bbox. Presentation mapping through `display_bbox`, visual zones, or room anchors is improvement-image-only and cannot relocate evidence. Canonicalization uses deterministic same-class IoU deduplication at `IoU >= 0.5`; different risk classes are retained.
+
 ## Ontology and action policy
 
 `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` is the versioned, room-scoped source of truth. `OntologyRepository` validates its strict schema and exposes:
@@ -63,13 +67,15 @@ Every generated known finding carries configured evidence source IDs. An empty s
 
 Each HTTP request receives a random `analysis_id` for correlation only. It is intentionally different even when semantic work is reused.
 
-`result_key` identifies computation inputs: sanitized pixel digest, normalized room hint, preprocess version, ontology version, configured model, inference configuration version, and the execution policy (for example configured mock, strict Gemini, or Gemini with fallback). It does not contain raw image bytes.
+`result_key` identifies computation inputs: sanitized pixel digest, normalized room hint, preprocess version, ontology version, `schema_version`, configured model, inference configuration version, and the execution policy (for example configured mock, strict Gemini, or Gemini with fallback). It does not contain raw image bytes.
 
 `semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, and action plan. It excludes generated images, timings, execution mode, and `display_bbox`; it includes the fixed not-applicable semantics described above. Findings are canonicalized before policy output so ordering and signed zero do not change the semantic result.
 
 The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
 
 Every completed result also shows the always-visible `analysis-mode-banner`, independent of the optional debug panel. It distinguishes `gemini`, `mock`, `local_mock`, and `gemini_fallback(...)`; mock and fallback wording explicitly says they are not Gemini analysis. Unknown modes receive a warning rather than an inferred provenance label.
+
+If the web proxy cannot reach the backend in non-strict local mode, `local_mock` is a neutral abstention rather than a fabricated analysis: `is_not_applicable=true`, `room_type=auto`, empty findings/actions, a nonblank reason, and identical unannotated sanitized images. The UI therefore hides risk summary, images, and suggestions. This availability fallback does not change the backend's ordinary deterministic mock capability.
 
 ## Async lifecycle and timing semantics
 

@@ -20,8 +20,15 @@ class BoundingBox(BaseModel):
 
     x: float = Field(..., ge=0.0, le=1.0)
     y: float = Field(..., ge=0.0, le=1.0)
-    w: float = Field(..., ge=0.0, le=1.0)
-    h: float = Field(..., ge=0.0, le=1.0)
+    w: float = Field(..., gt=0.0, le=1.0)
+    h: float = Field(..., gt=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _must_fit_normalized_frame(self) -> "BoundingBox":
+        tolerance = 1e-9
+        if self.x + self.w > 1.0 + tolerance or self.y + self.h > 1.0 + tolerance:
+            raise ValueError("bounding_box_must_fit_normalized_frame")
+        return self
 
 
 EnvironmentType = Literal["home", "non_home", "uncertain"]
@@ -94,6 +101,10 @@ class RiskFinding(BaseModel):
     basis_label_ja: str
     basis_summary_ja: str
     needs_human_confirmation: bool
+    # Exact ontology identity is mandatory on the relationship path. Optional
+    # values preserve compatibility with legacy callers that only know risk_type.
+    ontology_key: str | None = None
+    ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None = None
 
 
 class ActionItem(BaseModel):

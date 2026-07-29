@@ -113,6 +113,7 @@ class AnalysisOrchestrator:
             room_hint=normalized_hint,
             preprocess_version=PREPROCESS_VERSION,
             ontology_version=self.ontology.version,
+            schema_version=self.ontology.schema_version,
             model=configured_model,
             inference_config_version=self.ontology.inference_config_version,
             execution_mode=execution_mode,

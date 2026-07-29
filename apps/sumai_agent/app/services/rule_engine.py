@@ -35,10 +35,16 @@ class RuleEngine:
         )
 
     def _find_checklist_item(
-        self, room_type: str, risk_type: str
+        self, room_type: str, finding: RiskFinding | str
     ) -> OntologyRiskRule | None:
         try:
-            return self.ontology.risk_rule(room_type, risk_type)
+            if isinstance(finding, str):
+                return self.ontology.risk_rule(room_type, finding)
+            if finding.ontology_key and finding.ontology_rule_kind:
+                return self.ontology.rule(
+                    room_type, finding.ontology_key, finding.ontology_rule_kind
+                )
+            return self.ontology.risk_rule(room_type, finding.risk_type)
         except KeyError:
             return None
 
@@ -56,7 +62,7 @@ class RuleEngine:
             if finding.confidence < 0.45:
                 continue
 
-            is_known = self._find_checklist_item(room_type, finding.risk_type) is not None
+            is_known = self._find_checklist_item(room_type, finding) is not None
 
             if 0.45 <= finding.confidence < 0.60:
                 if not is_known:
@@ -70,12 +76,17 @@ class RuleEngine:
             filtered_findings.append(finding)
 
         for index, finding in enumerate(filtered_findings, start=1):
-            chk_item = self._find_checklist_item(room_type, finding.risk_type)
+            chk_item = self._find_checklist_item(room_type, finding)
             
-            # Populate basis if not already filled by checklist engine
             basis_label = finding.basis_label_ja
             basis_summary = finding.basis_summary_ja
-            if chk_item:
+            exact_rule_identity = bool(
+                finding.ontology_key and finding.ontology_rule_kind and chk_item
+            )
+            if chk_item and exact_rule_identity:
+                basis_label = chk_item.basis_label_ja
+                basis_summary = chk_item.basis_summary_ja
+            elif chk_item:
                 if not basis_label:
                     basis_label = chk_item.basis_label_ja
                 if not basis_summary:
@@ -93,6 +104,20 @@ class RuleEngine:
                     "basis_label_ja": basis_label,
                     "basis_summary_ja": basis_summary,
                     "needs_human_confirmation": needs_confirm,
+                    **(
+                        {
+                            "risk_type": chk_item.risk_type,
+                            "label_ja": chk_item.label_ja,
+                            "severity": chk_item.severity,
+                            "evidence_source_ids": list(
+                                chk_item.evidence_source_ids
+                            ),
+                            "ontology_key": chk_item.key,
+                            "ontology_rule_kind": chk_item.rule_kind,
+                        }
+                        if chk_item and exact_rule_identity
+                        else {}
+                    ),
                 }
             )
             normalized_findings.append(normalized)

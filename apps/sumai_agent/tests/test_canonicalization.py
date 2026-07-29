@@ -14,6 +14,7 @@ from app.services.canonicalization import (
 )
 from app.services import orchestrator
 from app.services.orchestrator import analysis_semantic_payload
+from app.services.rule_engine import RuleEngine
 
 
 def _finding(
@@ -51,6 +52,7 @@ def test_result_key_changes_for_each_identity_input() -> None:
         room_hint="genkan",
         preprocess_version="1.0.0",
         ontology_version="1.0.0",
+        schema_version="2.0.0",
         model="gemini-test",
         inference_config_version="1.0.0",
         execution_mode="forced_mock",
@@ -61,6 +63,7 @@ def test_result_key_changes_for_each_identity_input() -> None:
         "room_hint": "bathroom",
         "preprocess_version": "2.0.0",
         "ontology_version": "2.0.0",
+        "schema_version": "3.0.0",
         "model": "gemini-other",
         "inference_config_version": "2.0.0",
         "execution_mode": "configured_mock",
@@ -75,6 +78,7 @@ def test_result_key_uses_unambiguous_canonical_encoding() -> None:
         room_hint="genkan",
         preprocess_version="1.0.0",
         ontology_version="1.0.0",
+        schema_version="2.0.0",
         execution_mode="forced_mock",
     )
 
@@ -83,6 +87,53 @@ def test_result_key_uses_unambiguous_canonical_encoding() -> None:
 
     assert first != second
     assert first == result_key(model="model|i", inference_config_version="c", **common)
+
+
+def test_canonicalize_findings_deduplicates_same_class_high_iou_deterministically() -> None:
+    preferred = _finding(
+        risk_type="cluttered_path",
+        severity=4,
+        confidence=0.9,
+        bbox=BoundingBox(x=0.1, y=0.1, w=0.4, h=0.4),
+        label="優先",
+    )
+    duplicate = _finding(
+        risk_type="cluttered_path",
+        severity=3,
+        confidence=0.8,
+        bbox=BoundingBox(x=0.12, y=0.12, w=0.4, h=0.4),
+        label="重複",
+    )
+    other_class = duplicate.model_copy(
+        update={"risk_type": "loose_mat", "label_ja": "別クラス"}
+    )
+
+    forward = canonicalize_findings([duplicate, other_class, preferred])
+    reverse = canonicalize_findings([preferred, other_class, duplicate])
+
+    assert [item.model_dump(mode="json") for item in forward] == [
+        item.model_dump(mode="json") for item in reverse
+    ]
+    assert [(item.risk_type, item.label_ja) for item in forward] == [
+        ("cluttered_path", "優先"),
+        ("loose_mat", "別クラス"),
+    ]
+    forward_findings, forward_plan = RuleEngine().apply(forward, "genkan")
+    reverse_findings, reverse_plan = RuleEngine().apply(reverse, "genkan")
+    assert semantic_hash(
+        analysis_semantic_payload("genkan", forward_findings, forward_plan)
+    ) == semantic_hash(
+        analysis_semantic_payload("genkan", reverse_findings, reverse_plan)
+    )
+    action_titles = [
+        action.title_ja
+        for action in (
+            *forward_plan.family_no_cost,
+            *forward_plan.care_manager_purchase,
+            *forward_plan.contractor_construction,
+        )
+    ]
+    assert len(action_titles) == len(set(action_titles))
 
 
 @pytest.mark.parametrize(

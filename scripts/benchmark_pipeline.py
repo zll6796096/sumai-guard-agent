@@ -250,8 +250,18 @@ def _unit_number(value: object) -> bool:
 
 
 def _valid_bbox(value: object) -> bool:
-    return isinstance(value, dict) and set(value) == {"x", "y", "w", "h"} and all(
-        _unit_number(coordinate) for coordinate in value.values()
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"x", "y", "w", "h"}
+        or not all(_unit_number(coordinate) for coordinate in value.values())
+    ):
+        return False
+    x, y, width, height = value["x"], value["y"], value["w"], value["h"]
+    return (
+        width > 0
+        and height > 0
+        and x + width <= 1.0 + 1e-9
+        and y + height <= 1.0 + 1e-9
     )
 
 

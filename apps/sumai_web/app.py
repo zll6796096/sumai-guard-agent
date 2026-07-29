@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
+import json
 import logging
 import math
 import os
@@ -12,7 +14,7 @@ import httpx
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 
 load_dotenv()
@@ -31,7 +33,6 @@ DISCLAIMER = (
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
-WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -1435,119 +1436,108 @@ def healthz() -> dict[str, str]:
 
 
 def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[str, Any]:
-    """Generates the local mock payload internally using PIL if the backend is unreachable."""
+    """Return a neutral abstention when the analysis backend is unreachable."""
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception:
-        # Generate raw placeholder if corrupt
         image = Image.new("RGB", (800, 600), (15, 16, 32))
 
-    annotated = image.copy()
-    draw = ImageDraw.Draw(annotated)
-    width, height = annotated.size
-    box = (int(width * 0.16), int(height * 0.55), int(width * 0.72), int(height * 0.82))
-    draw.rectangle(box, outline=(220, 38, 38), width=max(5, width // 120))
-    draw.rectangle((box[0], max(0, box[1] - 34), box[0] + 58, box[1]), fill=(220, 38, 38))
-    draw.text((box[0] + 8, max(0, box[1] - 28)), "注意", fill=(255, 255, 255), font=_font(24))
-
-    improvement = _local_improvement_image(image, annotated)
-    room_label = ROOM_LABELS.get(room_hint, "おまかせ")
+    image_base64 = _to_base64_png(image)
+    pixel_payload = (
+        image.mode.encode("ascii")
+        + image.width.to_bytes(4, "big")
+        + image.height.to_bytes(4, "big")
+        + image.tobytes()
+    )
+    pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
+    result_identity = {
+        "execution_mode": "local_mock_abstention",
+        "inference_config_version": "1.0.0",
+        "model": "N/A",
+        "ontology_version": "1.0.0",
+        "pixel_digest": pixel_digest,
+        "preprocess_version": "1.0.0",
+        "room_hint": room_hint,
+        "schema_version": "2.0.0",
+    }
+    result_key = hashlib.sha256(
+        json.dumps(
+            result_identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    not_applicable_reason = (
+        "解析バックエンドに接続できないため、安全上の判定を保留しました。"
+        f"再接続後に解析してください（{reason[:120]}）。"
+    )
+    semantic_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "action_plan": {
+                    "care_manager_purchase": [],
+                    "contractor_construction": [],
+                    "family_no_cost": [],
+                },
+                "findings": [],
+                "is_home_environment": True,
+                "not_applicable_reason_ja": not_applicable_reason,
+                "room_type": "auto",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    neutral_report = (
+        "## 判定保留\n\n"
+        f"{not_applicable_reason}\n\n"
+        "この表示は写真の安全性を評価した結果ではありません。"
+    )
+    empty_actions = "## 表示なし\n\n判定保留中のため、行動候補を表示していません。"
     return {
-        "analysis_id": "local_fallback",
-        "room_type": room_hint,
-        "overall_risk_level": "medium",
+        "analysis_id": f"local_{result_key[:12]}",
+        "room_type": "auto",
+        "overall_risk_level": "low",
         "mode": "local_mock",
         "is_home_environment": True,
-        "is_not_applicable": False,
-        "findings": [{"id": "注意"}],
-        "annotated_image_base64": _to_base64_png(annotated),
-        "improvement_image_base64": _to_base64_png(improvement),
-        "risk_summary_markdown": (
-            "## リスク概要\n"
-            f"- 部屋: {room_label}\n"
-            "- 総合リスク: 中\n\n"
-            "### 注意箇所: 動線上の注意箇所\n"
-            "- 危険な理由: 写真上の床・通路まわりに、つまずきや滑りにつながる可能性があります。\n"
-            "- 参考根拠: 高齢者住宅安全チェックの一般原則\n"
-            "- 信頼度: ローカルフォールバック\n"
-            f"- 備考: バックエンド未接続のためローカルフォールバック表示しています。`{reason[:120]}`"
-        ),
-        "family_actions_markdown": (
-            "## 家族で今日できること\n\n"
-            "### 通る場所だけ先に空ける\n"
-            "- 内容: 床・段差・通路にある物を移動し、足を置く場所を広くします。\n"
-            "- 理由: 追加費用なしで、つまずきや回避動作を減らすためです。"
-        ),
-        "care_manager_actions_markdown": (
-            "## ケアマネ・福祉用具に相談\n\n"
-            "### 福祉用具の候補を相談\n"
-            "- 内容: 滑り止め、置き型手すり、補助用品などが必要か相談します。\n"
-            "- 理由: 写真だけでは本人の動作や寸法に合うか判断できないためです。"
-        ),
-        "contractor_actions_markdown": (
-            "## 専門施工・現地確認\n\n"
-            "### 現地確認の要否を判断\n"
-            "- 内容: 固定手すりや床材変更が必要そうな場合だけ、専門職が現地で確認します。\n"
-            "- 理由: 施工可否、下地、寸法は写真だけでは判断しないためです。"
-        ),
+        "is_not_applicable": True,
+        "not_applicable_reason_ja": not_applicable_reason,
+        "findings": [],
+        "action_plan": {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        },
+        "annotated_image_base64": image_base64,
+        "improvement_image_base64": image_base64,
+        "risk_summary_markdown": neutral_report,
+        "family_actions_markdown": empty_actions,
+        "care_manager_actions_markdown": empty_actions,
+        "contractor_actions_markdown": empty_actions,
         "disclaimer_ja": DISCLAIMER,
+        "model": "N/A",
+        "result_key": result_key,
+        "semantic_hash": semantic_hash,
+        "schema_version": "2.0.0",
+        "ontology_version": "1.0.0",
+        "preprocess_version": "1.0.0",
+        "inference_config_version": "1.0.0",
+        "stage_timings_ms": {
+            "intake": 0,
+            "memo_lookup": 0,
+            "vision": 0,
+            "ontology": 0,
+            "render": 0,
+            "report": 0,
+            "serialize": 0,
+            "total": 0,
+        },
     }
-
-
-def _local_improvement_image(image: Image.Image, annotated: Image.Image) -> Image.Image:
-    canvas = image.convert("RGB").copy()
-    width, height = canvas.size
-    footer_h = max(36, height // 16)
-    output = Image.new("RGB", (width, height + footer_h), (248, 250, 252))
-    output.paste(canvas, (0, 0))
-
-    draw = ImageDraw.Draw(output, "RGBA")
-    label_font = _font(max(16, width // 42))
-    small_font = _font(max(12, width // 54))
-
-    safe_zone = (int(width * 0.16), int(height * 0.58), int(width * 0.72), int(height * 0.82))
-    draw.rounded_rectangle(safe_zone, radius=10, fill=(22, 163, 74, 48), outline=(22, 163, 74, 230), width=4)
-    draw.rounded_rectangle((36, 36, 206, 82), radius=8, fill=(255, 255, 255, 235))
-    draw.text((50, 48), "動線確保", fill=(17, 24, 39), font=label_font)
-
-    footer_y = height
-    draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255, 235))
-    draw.text((16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
-    return output
-
-
-def _font(size: int) -> ImageFont.ImageFont:
-    candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/Library/Fonts/Arial Unicode.ttf",
-    ]
-    for path in candidates:
-        try:
-            if os.path.exists(path):
-                return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
 
 
 def _to_base64_png(image: Image.Image) -> str:
     output = io.BytesIO()
     image.save(output, format="PNG", optimize=True)
     return base64.b64encode(output.getvalue()).decode("ascii")
-
-
-ROOM_LABELS = {
-    "auto": "おまかせ",
-    "genkan": "玄関",
-    "hallway": "廊下",
-    "bathroom": "浴室",
-    "toilet": "トイレ",
-    "bedroom": "寝室",
-    "kitchen": "キッチン",
-}
-
 
 if __name__ == "__main__":
     import uvicorn

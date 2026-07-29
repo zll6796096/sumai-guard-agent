@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app import main
+from app.models import AnalysisResponse
 from app.services.gemini_vision import GEMINI_FACTS_JSON_SCHEMA, GeminiVisionService
 from app.services.orchestrator import AnalysisOrchestrator
 
@@ -251,7 +252,37 @@ def test_web_backend_503_is_safe_and_non_strict_unreachable_falls_back() -> None
             files={"image": ("room.png", _image_bytes(), "image/png")},
         )
     assert fallback.status_code == 200
-    assert fallback.json()["mode"] == "local_mock"
-    assert fallback.json()["is_not_applicable"] is False
+    payload = fallback.json()
+    assert payload["mode"] == "local_mock"
+    assert payload["is_not_applicable"] is True
+    assert payload["room_type"] == "auto"
+    assert payload["overall_risk_level"] == "low"
+    assert payload["findings"] == []
+    assert payload["action_plan"] == {
+        "family_no_cost": [],
+        "care_manager_purchase": [],
+        "contractor_construction": [],
+    }
+    assert payload["not_applicable_reason_ja"].strip()
+    assert payload["annotated_image_base64"] == payload["improvement_image_base64"]
+    assert len(payload["result_key"]) == 64
+    assert len(payload["semantic_hash"]) == 64
+    assert set(payload["stage_timings_ms"]) == {
+        "intake", "memo_lookup", "vision", "ontology",
+        "render", "report", "serialize", "total",
+    }
+    misleading = " ".join(
+        payload[field]
+        for field in (
+            "risk_summary_markdown",
+            "family_actions_markdown",
+            "care_manager_actions_markdown",
+            "contractor_actions_markdown",
+        )
+    )
+    assert "総合リスク" not in misleading
+    assert "未検出" not in misleading
+    assert "###" not in misleading
     assert "SECRET_INTERNAL_URL" not in fallback.text
     assert "backend_unreachable" in fallback.text
+    AnalysisResponse.model_validate(payload)

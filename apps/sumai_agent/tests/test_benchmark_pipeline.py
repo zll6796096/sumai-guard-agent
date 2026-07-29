@@ -235,6 +235,25 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(payload) is False
 
 
+@pytest.mark.parametrize(
+    "bbox",
+    [
+        {"x": 0.1, "y": 0.1, "w": 0.0, "h": 0.2},
+        {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.0},
+        {"x": 0.8, "y": 0.1, "w": 0.3, "h": 0.2},
+        {"x": 0.1, "y": 0.8, "w": 0.2, "h": 0.3},
+    ],
+)
+def test_schema_helper_rejects_zero_area_and_out_of_frame_bbox(
+    bbox: dict[str, float],
+) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    payload["findings"][0]["bbox"] = bbox  # type: ignore[index]
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
 def test_not_applicable_response_requires_empty_findings_actions_and_reason() -> None:
     benchmark = _load_module()
     payload = _valid_payload(findings=[])

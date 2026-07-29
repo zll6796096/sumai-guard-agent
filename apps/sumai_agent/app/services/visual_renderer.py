@@ -147,9 +147,9 @@ def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
 def _select_visual_findings(
     findings: list[RiskFinding], room_type: str | None, max_items: int = 3
 ) -> list[tuple[RiskFinding, BoundingBox]]:
-    candidates = []
-    for f in findings:
-        candidates.append((f, _get_mapped_bbox(f, room_type)))
+    # Danger annotations are evidence, so selection and overlap suppression use
+    # provider evidence coordinates. Presentation mapping is improvement-only.
+    candidates = [(finding, finding.bbox) for finding in findings]
 
     # Sort by severity desc, then confidence desc
     candidates.sort(key=lambda item: (-item[0].severity, -item[0].confidence))
@@ -176,7 +176,11 @@ class VisualRenderer:
     ) -> tuple[str, str]:
         selected_findings = _select_visual_findings(findings, room_type, max_items=3)
         annotated = self._annotated_image(image, selected_findings)
-        improvement = self._improvement_image(image, selected_findings)
+        improvement_findings = [
+            (finding, _get_mapped_bbox(finding, room_type))
+            for finding, _ in selected_findings
+        ]
+        improvement = self._improvement_image(image, improvement_findings)
         return _to_base64_png(annotated), _to_base64_png(improvement)
 
     def render_not_applicable(self, image: Image.Image) -> tuple[str, str]:

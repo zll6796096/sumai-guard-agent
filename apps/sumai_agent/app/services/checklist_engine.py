@@ -50,7 +50,7 @@ class ChecklistEngine:
                 continue
 
             confidence = 0.80
-            bbox = BoundingBox(x=0.0, y=0.0, w=0.0, h=0.0)
+            bbox = BoundingBox(x=0.0, y=0.0, w=1.0, h=1.0)
             evidence = "写真内に対象項目が確認できません。"
             if key in missing_map:
                 missing = missing_map[key]
@@ -62,7 +62,7 @@ class ChecklistEngine:
             if confidence < 0.60:
                 continue
 
-            rule = self.ontology.risk_rule(room, missing_risk_type)
+            rule = self.ontology.rule(room, key, "expected_feature")
             findings.append(
                 RiskFinding(
                     id=rule.risk_type,
@@ -79,6 +79,8 @@ class ChecklistEngine:
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
                     needs_human_confirmation=confidence < 0.75,
+                    ontology_key=rule.key,
+                    ontology_rule_kind=rule.rule_kind,
                 )
             )
 
@@ -91,7 +93,13 @@ class ChecklistEngine:
             if finding.confidence < 0.45:
                 continue
             try:
-                rule = self.ontology.risk_rule(room, finding.risk_type)
+                rule = (
+                    self.ontology.rule(
+                        room, finding.ontology_key, finding.ontology_rule_kind
+                    )
+                    if finding.ontology_key and finding.ontology_rule_kind
+                    else self.ontology.risk_rule(room, finding.risk_type)
+                )
             except KeyError:
                 if finding.confidence >= 0.60:
                     findings.append(finding)
@@ -103,6 +111,8 @@ class ChecklistEngine:
                         "basis_label_ja": rule.basis_label_ja,
                         "basis_summary_ja": rule.basis_summary_ja,
                         "needs_human_confirmation": finding.confidence < 0.60,
+                        "ontology_key": rule.key,
+                        "ontology_rule_kind": rule.rule_kind,
                     }
                 )
             )
@@ -114,7 +124,7 @@ class ChecklistEngine:
             risk_type = hazard_check_map[key].get("risk_type")
             if not isinstance(risk_type, str) or risk_type in existing_types:
                 continue
-            rule = self.ontology.risk_rule(room, risk_type)
+            rule = self.ontology.rule(room, key, "visible_hazard")
             findings.append(
                 RiskFinding(
                     id=rule.risk_type,
@@ -126,11 +136,13 @@ class ChecklistEngine:
                     ),
                     severity=rule.severity,
                     confidence=0.80,
-                    bbox=BoundingBox(x=0.0, y=0.0, w=0.0, h=0.0),
+                    bbox=BoundingBox(x=0.0, y=0.0, w=1.0, h=1.0),
                     evidence_ja=f"写真観察により{rule.label_ja}が確認されました。",
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
                     needs_human_confirmation=False,
+                    ontology_key=rule.key,
+                    ontology_rule_kind=rule.rule_kind,
                 )
             )
         return findings

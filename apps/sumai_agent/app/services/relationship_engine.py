@@ -60,8 +60,9 @@ class RelationshipEngine:
                 )
             ):
                 continue
-            risk_type = visible_hazards[entity.ontology_key]["risk_type"]
-            rule = self.ontology.risk_rule(room, risk_type)
+            rule = self.ontology.rule(
+                room, entity.ontology_key, "visible_hazard"
+            )
             findings.append(
                 RiskFinding(
                     id="pending",
@@ -77,6 +78,8 @@ class RelationshipEngine:
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
                     needs_human_confirmation=entity.model_score < 0.60,
+                    ontology_key=rule.key,
+                    ontology_rule_kind=rule.rule_kind,
                 )
             )
 
@@ -91,8 +94,9 @@ class RelationshipEngine:
                 or feature.evidence_bbox is None
             ):
                 continue
-            risk_type = expected_features[feature.feature_key]["missing_risk_type"]
-            rule = self.ontology.risk_rule(room, risk_type)
+            rule = self.ontology.rule(
+                room, feature.feature_key, "expected_feature"
+            )
             findings.append(
                 RiskFinding(
                     id="pending",
@@ -110,6 +114,8 @@ class RelationshipEngine:
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
                     needs_human_confirmation=feature.model_score < 0.60,
+                    ontology_key=rule.key,
+                    ontology_rule_kind=rule.rule_kind,
                 )
             )
         return findings

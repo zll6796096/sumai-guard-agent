@@ -24,6 +24,11 @@ def test_architecture_documents_the_current_typed_pipeline_and_identity_boundary
         "not recognition evidence",
         "scored_applicable_response_coverage",
         "results are abstentions",
+        "rule identity",
+        "evidence bbox",
+        "IoU",
+        "schema_version",
+        "local_mock",
     ):
         assert required in architecture
 

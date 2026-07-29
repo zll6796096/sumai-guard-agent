@@ -8,6 +8,8 @@ from PIL import Image
 
 from app.models import BoundingBox, RiskFinding
 
+SAME_CLASS_DEDUP_IOU_THRESHOLD = 0.5
+
 
 def canonical_pixel_digest(image: Image.Image) -> str:
     """Hash normalized RGB pixels, independent of image container metadata."""
@@ -27,6 +29,7 @@ def result_key(
     room_hint: str,
     preprocess_version: str,
     ontology_version: str,
+    schema_version: str,
     model: str,
     inference_config_version: str,
     execution_mode: str = "default",
@@ -39,6 +42,7 @@ def result_key(
         "pixel_digest": pixel_digest,
         "preprocess_version": preprocess_version,
         "room_hint": room_hint,
+        "schema_version": schema_version,
     }
     encoded = json.dumps(
         canonical_inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")
@@ -75,9 +79,20 @@ def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:
             json.dumps(full_dump, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
         )
 
+    ordered = sorted(normalized, key=sort_key)
+    deduplicated: list[RiskFinding] = []
+    for finding in ordered:
+        if any(
+            kept.risk_type == finding.risk_type
+            and _bbox_iou(kept.bbox, finding.bbox) >= SAME_CLASS_DEDUP_IOU_THRESHOLD
+            for kept in deduplicated
+        ):
+            continue
+        deduplicated.append(finding)
+
     return [
         finding.model_copy(update={"id": f"R{index}"})
-        for index, finding in enumerate(sorted(normalized, key=sort_key), start=1)
+        for index, finding in enumerate(deduplicated, start=1)
     ]
 
 
@@ -89,6 +104,20 @@ def _canonical_bbox(bbox: BoundingBox) -> BoundingBox:
         w=0.0 if bbox.w == 0.0 else bbox.w,
         h=0.0 if bbox.h == 0.0 else bbox.h,
     )
+
+
+def _bbox_iou(left: BoundingBox, right: BoundingBox) -> float:
+    intersection_width = max(
+        0.0,
+        min(left.x + left.w, right.x + right.w) - max(left.x, right.x),
+    )
+    intersection_height = max(
+        0.0,
+        min(left.y + left.h, right.y + right.h) - max(left.y, right.y),
+    )
+    intersection = intersection_width * intersection_height
+    union = left.w * left.h + right.w * right.h - intersection
+    return intersection / union if union > 0.0 else 0.0
 
 
 def normalize_signed_zero(payload: Any) -> Any:
