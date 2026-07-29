@@ -859,7 +859,7 @@ def test_gemini_vocabularies_match_room_checklists() -> None:
         / "knowledge_base"
         / "room_checklists.yaml"
     )
-    checklists = yaml.safe_load(checklist_path.read_text(encoding="utf-8"))
+    checklists = yaml.safe_load(checklist_path.read_text(encoding="utf-8"))["rooms"]
 
     expected_feature_keys = {
         item["key"]

@@ -449,27 +449,27 @@ def test_rule_engine_confidence_filtering() -> None:
     findings, _ = engine.apply([
         _make_finding("hallway_cord", 0.44),  # Known but too low confidence
         _make_finding("unknown_risk", 0.44)   # Unknown and too low confidence
-    ])
+    ], "hallway")
     assert len(findings) == 0
 
     # 2. 0.45 <= confidence < 0.60 with known risk: kept, needs_human_confirmation=True
     findings, _ = engine.apply([
         _make_finding("hallway_cord", 0.50)
-    ])
+    ], "hallway")
     assert len(findings) == 1
     assert findings[0].needs_human_confirmation is True
 
     # 3. 0.45 <= confidence < 0.60 with unknown risk: dropped
     findings, _ = engine.apply([
         _make_finding("unknown_risk", 0.50)
-    ])
+    ], "hallway")
     assert len(findings) == 0
 
     # 4. Unknown risk type: kept only if confidence >= 0.75
     findings, _ = engine.apply([
         _make_finding("unknown_risk", 0.74),  # Too low for unknown
         _make_finding("unknown_risk", 0.76)   # High enough
-    ])
+    ], "hallway")
     assert len(findings) == 1
     assert findings[0].risk_type == "unknown_risk"
     assert findings[0].confidence == 0.76

@@ -123,7 +123,7 @@ def test_action_tiers() -> None:
         ]
     )
     findings = engine.process(vision_result)
-    norm_findings, action_plan = rule_engine.apply(findings)
+    norm_findings, action_plan = rule_engine.apply(findings, "toilet")
 
     # Check emergency call actions
     # - family actions should exist
@@ -149,7 +149,7 @@ def test_action_tiers() -> None:
         ]
     )
     findings2 = engine.process(vision_result2)
-    norm_findings2, action_plan2 = rule_engine.apply(findings2)
+    norm_findings2, action_plan2 = rule_engine.apply(findings2, "toilet")
 
     # Handrail missing can go to care manager and contractor
     assert any("手すり" in act.title_ja for act in action_plan2.care_manager_purchase)
