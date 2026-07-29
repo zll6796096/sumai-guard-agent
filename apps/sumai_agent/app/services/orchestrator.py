@@ -4,6 +4,7 @@ import logging
 import time
 import unicodedata
 import uuid
+from dataclasses import dataclass
 
 from fastapi import UploadFile
 from PIL import Image
@@ -23,6 +24,7 @@ from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
 from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
+from app.services.result_memo import AsyncResultMemo
 from app.services.rule_engine import RuleEngine
 from app.services.visual_renderer import VisualRenderer
 
@@ -36,15 +38,41 @@ DISCLAIMER_JA = (
 )
 
 
+@dataclass
+class ComputedAnalysis:
+    """Structured semantic output only; request images remain outside the memo."""
+
+    response_room: RoomType
+    overall_risk: RiskLevel
+    findings: list[RiskFinding]
+    action_plan: ActionPlan
+    reports: dict[str, str]
+    mode: str
+    model_name: str
+    semantic_hash: str
+    is_home_environment: bool
+    not_applicable_reason_ja: str | None
+    is_not_applicable: bool
+
+
 class AnalysisOrchestrator:
-    def __init__(self) -> None:
-        self.vision = GeminiVisionService()
+    def __init__(
+        self,
+        *,
+        vision: GeminiVisionService | None = None,
+        result_memo: AsyncResultMemo[ComputedAnalysis] | None = None,
+    ) -> None:
+        self.vision = vision or GeminiVisionService()
         self.ontology = OntologyRepository.load_default()
         self.checklist_engine = ChecklistEngine(ontology=self.ontology)
         self.relationship_engine = RelationshipEngine(self.ontology)
         self.rule_engine = RuleEngine(ontology=self.ontology)
         self.visual_renderer = VisualRenderer()
         self.report_renderer = ReportRenderer()
+        self.result_memo = result_memo or AsyncResultMemo(
+            max_items=settings.result_memo_max_items,
+            ttl_seconds=settings.result_memo_ttl_seconds,
+        )
 
     async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
         analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
@@ -73,90 +101,115 @@ class AnalysisOrchestrator:
             execution_mode=execution_mode,
         )
 
-        vision_facts, mode = await self.vision.analyze(
-            image_png=safe_png,
-            room_hint=normalized_hint,
-            force_mock=mock,
-            analysis_id=analysis_id,
-        )
-        response_room: RoomType = (
-            vision_facts.room_type
-            if vision_facts.room_type in self.ontology.room_names
-            else "auto"
-        )
-        findings: list[RiskFinding] = []
-        action_plan = ActionPlan()
-        is_home_environment = vision_facts.environment == "home"
-        is_not_applicable = (
-            not is_home_environment
-            or vision_facts.room_type == "unknown"
-            or vision_facts.not_applicable_reason_code is not None
-        )
-        if is_not_applicable:
-            findings, action_plan = [], ActionPlan()
-            response_room = "auto"
-        not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
-        overall_risk = overall_risk_level(findings)
-        if is_not_applicable:
-            annotated, improvement = self.visual_renderer.render_not_applicable(image)
-            reports = self.report_renderer.render_not_applicable(not_applicable_reason_ja or "写真から判定できません。")
-        else:
-            derived_findings = self.relationship_engine.derive(vision_facts)
-            findings, action_plan = self.rule_engine.apply(
-                canonicalize_findings(derived_findings), response_room
+        async def compute_semantics() -> tuple[ComputedAnalysis, bool]:
+            vision_facts, mode = await self.vision.analyze(
+                image_png=safe_png,
+                room_hint=normalized_hint,
+                force_mock=mock,
+                analysis_id=analysis_id,
             )
+            response_room: RoomType = (
+                vision_facts.room_type
+                if vision_facts.room_type in self.ontology.room_names
+                else "auto"
+            )
+            findings: list[RiskFinding] = []
+            action_plan = ActionPlan()
+            is_home_environment = vision_facts.environment == "home"
+            is_not_applicable = (
+                not is_home_environment
+                or vision_facts.room_type == "unknown"
+                or vision_facts.not_applicable_reason_code is not None
+            )
+            if is_not_applicable:
+                response_room = "auto"
+            not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
+            if is_not_applicable:
+                reports = self.report_renderer.render_not_applicable(
+                    not_applicable_reason_ja or "写真から判定できません。"
+                )
+            else:
+                derived_findings = self.relationship_engine.derive(vision_facts)
+                findings, action_plan = self.rule_engine.apply(
+                    canonicalize_findings(derived_findings), response_room
+                )
+                reports = self.report_renderer.render(
+                    room_type=response_room,
+                    overall_risk_level=overall_risk_level(findings),
+                    findings=findings,
+                    action_plan=action_plan,
+                )
             overall_risk = overall_risk_level(findings)
-            annotated, improvement = self.visual_renderer.render(image, findings, response_room)
-            reports = self.report_renderer.render(
-                room_type=response_room,
-                overall_risk_level=overall_risk,
-                findings=findings,
-                action_plan=action_plan,
+            model_name = "N/A" if mode == "mock" else configured_model
+            stable_semantic_hash = semantic_hash(
+                analysis_semantic_payload(
+                    response_room,
+                    findings,
+                    action_plan,
+                    is_home_environment=is_home_environment,
+                    not_applicable_reason_ja=not_applicable_reason_ja,
+                )
+            )
+            return (
+                ComputedAnalysis(
+                    response_room=response_room,
+                    overall_risk=overall_risk,
+                    findings=findings,
+                    action_plan=action_plan,
+                    reports=reports,
+                    mode=mode,
+                    model_name=model_name,
+                    semantic_hash=stable_semantic_hash,
+                    is_home_environment=is_home_environment,
+                    not_applicable_reason_ja=not_applicable_reason_ja,
+                    is_not_applicable=is_not_applicable,
+                ),
+                mode in {"mock", "gemini"},
+            )
+
+        computed, _memo_hit = await self.result_memo.get_or_compute(
+            stable_result_key, compute_semantics
+        )
+        if computed.is_not_applicable:
+            annotated, improvement = self.visual_renderer.render_not_applicable(image)
+        else:
+            annotated, improvement = self.visual_renderer.render(
+                image, computed.findings, computed.response_room
             )
 
         latency_ms = int((time.monotonic() - start_time) * 1000)
-        model_name = "N/A" if mode == "mock" else configured_model
-        stable_semantic_hash = semantic_hash(
-            analysis_semantic_payload(
-                response_room,
-                findings,
-                action_plan,
-                is_home_environment=is_home_environment,
-                not_applicable_reason_ja=not_applicable_reason_ja,
-            )
-        )
         logger.info(
             "analysis_complete",
             extra={
                 "analysis_id": analysis_id,
                 "room_hint": normalized_hint,
-                "mock_or_gemini": mode,
-                "model": model_name,
-                "number_of_findings": len(findings),
+                "mock_or_gemini": computed.mode,
+                "model": computed.model_name,
+                "number_of_findings": len(computed.findings),
                 "latency_ms": latency_ms,
             },
         )
 
         return AnalysisResponse(
             analysis_id=analysis_id,
-            room_type=response_room,
-            overall_risk_level=overall_risk,
-            findings=findings,
-            action_plan=action_plan,
+            room_type=computed.response_room,
+            overall_risk_level=computed.overall_risk,
+            findings=computed.findings,
+            action_plan=computed.action_plan,
             annotated_image_base64=annotated,
             improvement_image_base64=improvement,
             disclaimer_ja=DISCLAIMER_JA,
-            mode=mode,
-            is_home_environment=is_home_environment,
-            not_applicable_reason_ja=not_applicable_reason_ja,
-            model=model_name,
+            mode=computed.mode,
+            is_home_environment=computed.is_home_environment,
+            not_applicable_reason_ja=computed.not_applicable_reason_ja,
+            model=computed.model_name,
             result_key=stable_result_key,
-            semantic_hash=stable_semantic_hash,
+            semantic_hash=computed.semantic_hash,
             schema_version=self.ontology.schema_version,
             ontology_version=self.ontology.version,
             preprocess_version=PREPROCESS_VERSION,
             inference_config_version=self.ontology.inference_config_version,
-            **reports,
+            **computed.reports,
         )
 
 
