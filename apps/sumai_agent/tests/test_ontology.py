@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
+from typing import Any, Callable
 
+import pytest
+import yaml
+
+from app.models import VisionResult
 from app.ontology import OntologyRepository
 from app.services.checklist_engine import ChecklistEngine
 from app.services.rule_engine import RuleEngine
@@ -59,3 +65,62 @@ def test_engines_load_a_custom_ontology_path(tmp_path: Path) -> None:
 
     assert checklist_engine.ontology.room_names == rule_engine.ontology.room_names
     assert rule_engine._find_checklist_item("toilet", "cluttered_path") is not None
+
+
+def test_engines_load_a_legacy_flat_room_mapping(tmp_path: Path) -> None:
+    source_path = Path(__file__).resolve().parents[1] / "app" / "knowledge_base" / "room_checklists.yaml"
+    default_document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    legacy_document = {
+        "toilet": default_document["rooms"]["toilet"],
+        "kitchen": default_document["rooms"]["kitchen"],
+    }
+    legacy_path = tmp_path / "legacy_room_checklists.yaml"
+    legacy_path.write_text(
+        yaml.safe_dump(legacy_document, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    checklist_engine = ChecklistEngine(checklists_path=legacy_path)
+    findings = checklist_engine.process(
+        VisionResult(
+            room_type="toilet",
+            is_home_environment=True,
+            observations={"has_handrail": False},
+            visible_hazards=[],
+            missing_safety_features=[],
+        )
+    )
+    normalized, actions = RuleEngine(checklists_path=legacy_path).apply(findings, "toilet")
+
+    assert normalized[0].risk_type == "toilet_missing_handrail"
+    assert actions.family_no_cost
+
+
+@pytest.mark.parametrize(
+    "mutate_document",
+    [
+        lambda document: document["rooms"]["toilet"]["visible_hazards"][0].update(
+            {"severty": document["rooms"]["toilet"]["visible_hazards"][0].pop("severity")}
+        ),
+        lambda document: document["rooms"].__setitem__("toilet", "not-a-room-object"),
+        lambda document: document["basis_source_map"].__setitem__(
+            "厚労省 福祉用具・住宅改修の考え方に関連", ["UNKNOWN_SOURCE"]
+        ),
+        lambda document: document["rooms"]["toilet"].__setitem__(
+            "visible_hazards", {"not": "a-list"}
+        ),
+    ],
+)
+def test_load_rejects_malformed_safety_documents(
+    tmp_path: Path, mutate_document: Callable[[dict[str, Any]], None]
+) -> None:
+    source_path = Path(__file__).resolve().parents[1] / "app" / "knowledge_base" / "room_checklists.yaml"
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    mutate_document(document)
+    malformed_path = tmp_path / "malformed.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError):
+        OntologyRepository.load(malformed_path)
