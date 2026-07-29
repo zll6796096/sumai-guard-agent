@@ -47,8 +47,80 @@ def test_load_rejects_incomplete_relationship_target_coverage(tmp_path: Path) ->
         yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
 
-    with pytest.raises(ValueError, match="relationship_targets"):
+    with pytest.raises(ValueError) as error:
         OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML"
+    assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize(
+    "mutate_document",
+    [
+        lambda document: document.__setitem__(
+            "SENSITIVE_ONTOLOGY_FIELD_NAME",
+            "SENSITIVE_ONTOLOGY_FIELD_VALUE",
+        ),
+        lambda document: document["rooms"]["genkan"]["visible_hazards"][0].update(
+            {
+                "SENSITIVE_RULE_FIELD_NAME": "SENSITIVE_RULE_FIELD_VALUE",
+            }
+        ),
+    ],
+)
+def test_load_validation_error_is_generic_for_arbitrary_extra_fields(
+    tmp_path: Path,
+    mutate_document: Callable[[dict[str, Any]], None],
+) -> None:
+    source_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    document = deepcopy(yaml.safe_load(source_path.read_text(encoding="utf-8")))
+    mutate_document(document)
+    malformed_path = tmp_path / "sensitive-extra-field.yaml"
+    malformed_path.write_text(
+        yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML"
+
+
+def test_load_yaml_syntax_error_is_generic_without_source_fragment(
+    tmp_path: Path,
+) -> None:
+    malformed_path = tmp_path / "invalid-syntax.yaml"
+    malformed_path.write_text(
+        "rooms:\n  SENSITIVE_SYNTAX_FRAGMENT: [\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML syntax"
+    assert "SENSITIVE_SYNTAX_FRAGMENT" not in str(error.value)
+    assert error.value.__cause__ is None
+
+
+def test_load_non_mapping_root_uses_generic_validation_error(
+    tmp_path: Path,
+) -> None:
+    malformed_path = tmp_path / "non-mapping.yaml"
+    malformed_path.write_text(
+        "- SENSITIVE_ROOT_VALUE\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML"
 
 
 @pytest.mark.parametrize(
@@ -82,7 +154,7 @@ def test_load_rejects_duplicate_room_rule_keys_without_leaking_document_content(
     with pytest.raises(ValueError) as error:
         OntologyRepository.load(malformed_path)
 
-    assert "SENSITIVE_ONTOLOGY_DOCUMENT_CONTENT" not in str(error.value)
+    assert str(error.value) == "Invalid ontology YAML"
 
 
 def test_load_allows_the_same_room_key_across_distinct_rule_kinds(
@@ -177,8 +249,10 @@ def test_load_rejects_rule_without_explicit_basis_registration(tmp_path: Path) -
         yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as error:
         OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML"
 
 
 @pytest.mark.parametrize(
@@ -213,7 +287,7 @@ def test_load_validation_errors_do_not_echo_unknown_reference_content(
     with pytest.raises(ValueError) as error:
         OntologyRepository.load(malformed_path)
 
-    assert "SENSITIVE_ONTOLOGY_REFERENCE" not in str(error.value)
+    assert str(error.value) == "Invalid ontology YAML"
 
 
 def test_engines_load_a_custom_ontology_path(tmp_path: Path) -> None:
@@ -264,6 +338,43 @@ def test_engines_load_a_legacy_flat_room_mapping(tmp_path: Path) -> None:
     assert actions.family_no_cost
 
 
+def test_legacy_normalization_default_validation_error_is_generic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_path = (
+        Path(__file__).resolve().parents[1]
+        / "app"
+        / "knowledge_base"
+        / "room_checklists.yaml"
+    )
+    default_document = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+    legacy_document = {"toilet": default_document["rooms"]["toilet"]}
+    legacy_path = tmp_path / "legacy.yaml"
+    legacy_path.write_text(
+        yaml.safe_dump(legacy_document, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    invalid_default = deepcopy(default_document)
+    invalid_default["SENSITIVE_DEFAULT_FIELD_NAME"] = "SENSITIVE_DEFAULT_FIELD_VALUE"
+    invalid_default_path = tmp_path / "invalid-default.yaml"
+    invalid_default_path.write_text(
+        yaml.safe_dump(invalid_default, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        OntologyRepository,
+        "_default_path",
+        classmethod(lambda cls: invalid_default_path),
+    )
+
+    with pytest.raises(ValueError) as error:
+        OntologyRepository.load(legacy_path)
+
+    assert str(error.value) == "Invalid ontology YAML"
+    assert error.value.__cause__ is None
+
+
 @pytest.mark.parametrize(
     "mutate_document",
     [
@@ -290,5 +401,7 @@ def test_load_rejects_malformed_safety_documents(
         yaml.safe_dump(document, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as error:
         OntologyRepository.load(malformed_path)
+
+    assert str(error.value) == "Invalid ontology YAML"

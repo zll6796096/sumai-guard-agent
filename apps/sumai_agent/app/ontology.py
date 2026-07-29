@@ -229,19 +229,8 @@ class OntologyRepository:
             document = _OntologyDocumentSchema.model_validate(
                 normalized_document, strict=True
             )
-        except ValidationError as exc:
-            safe_issues = []
-            for issue in exc.errors(
-                include_url=False,
-                include_context=False,
-                include_input=False,
-            ):
-                location = ".".join(str(part) for part in issue["loc"])
-                message = issue["msg"]
-                safe_issues.append(f"{location}: {message}" if location else message)
-            raise ValueError(
-                "Invalid ontology YAML: " + "; ".join(safe_issues)
-            ) from exc
+        except ValidationError:
+            raise ValueError("Invalid ontology YAML") from None
         return cls._from_document(document)
 
     @classmethod
@@ -253,10 +242,10 @@ class OntologyRepository:
         try:
             with path.open("r", encoding="utf-8") as handle:
                 document = yaml.safe_load(handle)
-        except yaml.YAMLError as exc:
-            raise ValueError(f"Invalid ontology YAML syntax: {exc}") from exc
+        except yaml.YAMLError:
+            raise ValueError("Invalid ontology YAML syntax") from None
         if not isinstance(document, dict):
-            raise ValueError("Ontology root must be a mapping")
+            raise ValueError("Invalid ontology YAML")
         return document
 
     @classmethod
@@ -273,8 +262,8 @@ class OntologyRepository:
             default_schema = _OntologyDocumentSchema.model_validate(
                 default_document, strict=True
             )
-        except ValidationError as exc:
-            raise ValueError(f"Invalid default ontology YAML: {exc}") from exc
+        except ValidationError:
+            raise ValueError("Invalid ontology YAML") from None
         metadata = default_schema.model_dump(exclude={"rooms"})
         legacy_visible_observation_keys = {
             item["key"]

@@ -75,3 +75,20 @@ def test_decisions_retires_rag_lite_demo_rules_language() -> None:
     assert "analysis-mode-banner" in decisions
     assert "scored_applicable_response_coverage" in decisions
     assert "demo_rules.yaml" not in decisions
+
+
+def test_government_review_docs_reflect_source_layer_without_overclaiming() -> None:
+    risk_gaps = _document("risk_gap_analysis.md")
+    pre_review = _document("pre_government_review.md")
+
+    for document in (risk_gaps, pre_review):
+        assert "room_checklists.yaml" in document
+        assert "OntologyRepository" in document
+        assert "source_registry" in document
+        assert "basis_source_map" in document
+        assert "demo_rules.yaml" not in document
+        assert "government endorsement" in document
+
+    assert "No government pilot protocol" in risk_gaps
+    assert "No formal evaluation metrics" in risk_gaps
+    assert "Not suitable now" in pre_review
