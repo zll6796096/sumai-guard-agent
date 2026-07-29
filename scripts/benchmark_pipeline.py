@@ -195,8 +195,12 @@ def _is_public_response_text(payload: dict[str, object]) -> bool:
         "disclaimer_ja", "mode", "model", "schema_version", "ontology_version",
         "preprocess_version", "inference_config_version",
     }
-    return all(isinstance(payload.get(field), str) for field in string_fields) and isinstance(
-        payload.get("is_home_environment"), bool
+    reason = payload.get("not_applicable_reason_ja")
+    return (
+        "not_applicable_reason_ja" in payload
+        and (reason is None or isinstance(reason, str))
+        and all(isinstance(payload.get(field), str) for field in string_fields)
+        and isinstance(payload.get("is_home_environment"), bool)
     )
 
 

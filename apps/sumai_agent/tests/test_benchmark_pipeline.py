@@ -187,6 +187,7 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "risk_summary_markdown": "summary", "family_actions_markdown": "family",
         "care_manager_actions_markdown": "care", "contractor_actions_markdown": "contractor",
         "disclaimer_ja": "POC", "mode": "mock", "is_home_environment": True, "model": "N/A",
+        "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
         "schema_version": "2.0.0", "ontology_version": "1.0.0",
         "preprocess_version": "1.0.0", "inference_config_version": "1.0.0",
@@ -213,6 +214,12 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["action_plan"] = {}
+    assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed.pop("not_applicable_reason_ja")
+    assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed["not_applicable_reason_ja"] = 42
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["stage_timings_ms"]["total"] = True  # type: ignore[index]
@@ -348,6 +355,28 @@ def test_invalid_response_is_excluded_from_schema_and_risk_metrics() -> None:
         "available": False, "precision": None, "recall": None, "f1": None,
         "tp": 0, "fp": 0, "fn": 0,
     }
+
+
+def test_invalid_applicability_reason_does_not_enter_metrics() -> None:
+    benchmark = _load_module()
+    client = _ValidClient()
+
+    def invalid_post(_url: str, **_kwargs: object) -> _Response:
+        payload = _valid_payload()
+        payload["not_applicable_reason_ja"] = 42
+        return _Response(200, payload)
+
+    client.post = invalid_post  # type: ignore[method-assign]
+    summary = benchmark.run_benchmark(
+        {"version": "1", "classification": "synthetic", "cases": [{
+            "id": "hallway", "image": "apps/sumai_web/assets/samples/hallway_sample.png",
+            "room_hint": "hallway", "expected_risk_types": ["hallway_cord"],
+        }]},
+        repeat=1, base_url="http://test", real=False, timeout_seconds=1,
+        client_factory=lambda **_kwargs: client,
+    )
+    assert summary["schema_valid_count"] == 0
+    assert summary["risk_metrics"]["available"] is False
 
 
 def test_empty_valid_observation_uses_empty_set_metric_semantics() -> None:
