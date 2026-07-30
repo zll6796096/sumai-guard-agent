@@ -1797,9 +1797,9 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
     result_identity = {
         "execution_mode": "local_mock_abstention",
-        "inference_config_version": "1.0.5",
+        "inference_config_version": "1.0.6",
         "model": "N/A",
-        "ontology_version": "1.0.0",
+        "ontology_version": "1.0.1",
         "pixel_digest": pixel_digest,
         "preprocess_version": "1.0.0",
         "room_hint": room_hint,
@@ -1869,9 +1869,9 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "result_key": result_key,
         "semantic_hash": semantic_hash,
         "schema_version": "2.1.0",
-        "ontology_version": "1.0.0",
+        "ontology_version": "1.0.1",
         "preprocess_version": "1.0.0",
-        "inference_config_version": "1.0.5",
+        "inference_config_version": "1.0.6",
         "stage_timings_ms": {
             "intake": 0,
             "memo_lookup": 0,

@@ -53,8 +53,9 @@ def test_risk_and_stability_documents_state_the_live_safety_thresholds() -> None
     risk_policy = _document("risk_policy.md")
     stability = _document("llm_stability_plan.md")
 
-    for threshold in ("0.45", "0.60", "0.75"):
+    for threshold in ("0.45", "0.60"):
         assert threshold in risk_policy
+    assert "Unknown risks are not accepted at any confidence." in risk_policy
     assert "absent_with_full_coverage" in stability
     assert "is_not_applicable" in stability
     assert "analysis-mode-banner" in stability
@@ -114,7 +115,8 @@ def test_documents_define_visible_findings_and_neutral_confirmations_as_separate
 
     assert "`findings` and `confirmation_items` are separate output channels" in architecture
     assert "schema `2.1.0`" in architecture
-    assert "inference config `1.0.5`" in architecture
+    assert "ontology `1.0.1`" in architecture
+    assert "inference config `1.0.6`" in architecture
     assert "`semantic_hash` includes `confirmation_items`" in architecture
     assert "Actual-photo browser verification remains required" in architecture
     assert "`findings` contains only `visible_hazard`" in risk_policy
@@ -135,3 +137,41 @@ def test_government_review_limits_red_boxes_to_localized_visible_hazards() -> No
     )
     assert "missing handrails in visible areas" not in pre_review
     assert "maps observations and missing visible features to risk findings" not in pre_review
+
+
+def test_current_state_docs_never_promote_expected_non_detections_to_risks() -> None:
+    stability = _document("llm_stability_plan.md")
+    gemini = _document("gemini_integration.md")
+    evidence_map = _document("japan_housing_evidence_map.md")
+
+    for document in (stability, gemini, evidence_map):
+        assert (
+            "Expected-feature non-detections enter only neutral "
+            "`confirmation_items`; they never enter `findings`, `RuleEngine`, "
+            "actions, or overlays."
+        ) in document
+        assert (
+            "Only localized `visible_hazard` evidence may enter `findings` "
+            "and `RuleEngine`."
+        ) in document
+
+    for retired_claim in (
+        "required for a missing-feature finding",
+        "coordinate-backed missing feature or visible hazard",
+        "preserves exact `(room, ontology_key, rule_kind)` identity into `RuleEngine`",
+    ):
+        assert retired_claim not in stability
+
+    assert "it creates no missing-feature finding" not in gemini
+    assert "carries that identity on the finding. `RuleEngine`" not in gemini
+
+    for retired_route in (
+        "`bathroom_missing_non_slip`",
+        "`toilet_missing_handrail`",
+        "`toilet_transfer_support`",
+        "`toilet_slip`",
+        "`kitchen_slip`",
+        "`kitchen_unreachable_storage`",
+        "Must be in report renderer and rule engine as a first-class section.",
+    ):
+        assert retired_route not in evidence_map

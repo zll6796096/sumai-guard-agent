@@ -71,6 +71,28 @@ def test_legacy_known_visible_risk_gets_rule_kind_for_visual_rendering() -> None
     ]
 
 
+def test_unambiguous_legacy_visible_rule_overrides_policy_owned_fields() -> None:
+    evidence_bbox = BoundingBox(x=0.2, y=0.3, w=0.4, h=0.2)
+    finding = _finding("cluttered_path", severity=5).model_copy(
+        update={
+            "label_ja": "任意のラベル",
+            "description_ja": "写真内の局所的な障害物です。",
+            "bbox": evidence_bbox,
+            "evidence_source_ids": ["UNTRUSTED_SOURCE"],
+        }
+    )
+
+    findings, _ = RuleEngine().apply([finding], "bedroom")
+
+    assert len(findings) == 1
+    assert findings[0].risk_type == "cluttered_path"
+    assert findings[0].label_ja == "寝室の床の障害物"
+    assert findings[0].severity == 3
+    assert findings[0].evidence_source_ids == ["CAA_FALL_PREVENTION"]
+    assert findings[0].description_ja == "写真内の局所的な障害物です。"
+    assert findings[0].bbox == evidence_bbox
+
+
 @pytest.mark.parametrize(
     ("ontology_key", "ontology_rule_kind", "room_type", "risk_type"),
     [
@@ -126,6 +148,29 @@ def test_legacy_expected_feature_is_not_a_finding_or_action() -> None:
     )
 
     findings, plan = RuleEngine().apply([finding], "toilet")
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+@pytest.mark.parametrize(
+    ("room_type", "risk_type"),
+    [
+        ("toilet", "toilet_transfer_support"),
+        ("toilet", "toilet_slip"),
+        ("kitchen", "kitchen_slip"),
+        ("kitchen", "kitchen_unreachable_storage"),
+        ("hallway", "unknown_risk"),
+    ],
+)
+def test_rule_engine_rejects_unknown_or_removed_legacy_risk_types(
+    room_type: str,
+    risk_type: str,
+) -> None:
+    findings, plan = RuleEngine().apply(
+        [_finding(risk_type, confidence=0.99)],
+        room_type,
+    )
 
     assert findings == []
     assert plan == ActionPlan()

@@ -130,7 +130,8 @@ def test_analysis_response_defaults_to_current_public_identity() -> None:
     )
 
     assert response.schema_version == "2.1.0"
-    assert response.inference_config_version == "1.0.5"
+    assert response.ontology_version == "1.0.1"
+    assert response.inference_config_version == "1.0.6"
 
 
 def test_confirmation_only_analysis_is_neutral_canonical_and_cached(
@@ -331,4 +332,5 @@ def test_web_local_abstention_uses_current_schema_identity_and_empty_confirmatio
     assert "写真だけでは確認できない項目" in payload["confirmation_items_markdown"]
     assert "中性確認" not in payload["confirmation_items_markdown"]
     assert payload["schema_version"] == "2.1.0"
-    assert payload["inference_config_version"] == "1.0.5"
+    assert payload["ontology_version"] == "1.0.1"
+    assert payload["inference_config_version"] == "1.0.6"

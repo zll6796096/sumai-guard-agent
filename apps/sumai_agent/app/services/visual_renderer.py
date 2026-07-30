@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -17,22 +18,56 @@ BLACK = (17, 24, 39)
 WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
 DANGER_LABELS = {
-    "toilet_transfer_support": "支え不足",
-    "stairs": "支え不足",
-
-    "toilet_slip": "滑り",
-    "bathroom_slip": "滑り",
-    "kitchen_slip": "滑り",
-    "looks_slippery_floor": "滑り",
-    "loose_mat": "滑り",
-
+    "bathroom_slip": "水濡れ",
+    "loose_mat": "敷物",
     "genkan_step": "段差",
-    "large_step": "段差",
-    "genkan_invisible_step": "段差",
     "bathtub_stepover": "段差",
-
     "hallway_cord": "コード",
+    "cluttered_path": "障害物",
 }
+
+IMPROVEMENT_LABELS = {
+    "genkan_step": "段差対策",
+    "hallway_cord": "コード整理",
+    "cluttered_path": "片付け",
+    "loose_mat": "敷物固定",
+    "bathroom_slip": "水分除去",
+    "bathtub_stepover": "またぎ対策",
+}
+
+
+@lru_cache(maxsize=1)
+def _visible_finding_identities() -> frozenset[tuple[str, str, str]]:
+    from app.ontology import OntologyRepository
+
+    ontology = OntologyRepository.load_default()
+    return frozenset(
+        (room, str(rule["key"]), str(rule["risk_type"]))
+        for room in ontology.room_names
+        for rule in (ontology.room(room) or {})["visible_hazards"]
+    )
+
+
+def _matches_visible_ontology(
+    finding: RiskFinding,
+    room_type: str | None,
+) -> bool:
+    if (
+        finding.ontology_rule_kind != "visible_hazard"
+        or not finding.ontology_key
+    ):
+        return False
+    identities = _visible_finding_identities()
+    if room_type is not None:
+        return (
+            room_type,
+            finding.ontology_key,
+            finding.risk_type,
+        ) in identities
+    return any(
+        ontology_key == finding.ontology_key and risk_type == finding.risk_type
+        for _, ontology_key, risk_type in identities
+    )
 
 
 def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
@@ -62,7 +97,7 @@ def _select_visual_findings(
     candidates = [
         (finding, finding.bbox)
         for finding in findings
-        if finding.ontology_rule_kind == "visible_hazard"
+        if _matches_visible_ontology(finding, room_type)
     ]
 
     # Sort by severity desc, then confidence desc
@@ -259,29 +294,7 @@ class VisualRenderer:
 
 
 def _improvement_label(risk_type: str) -> str:
-    labels = {
-        "genkan_step": "段差対策",
-        "large_step": "段差対策",
-        "stairs": "手すり候補",
-        "hallway_cord": "コード整理",
-        "cluttered_path": "片付け",
-        "loose_mat": "マット固定",
-        "bathroom_slip": "滑り止め",
-        "bathtub_stepover": "またぎ対策",
-        "toilet_transfer": "手すり候補",
-        "missing_handrail": "手すり候補",
-        "poor_lighting": "照明追加",
-        "kitchen_slip": "滑り止め",
-        "toilet_transfer_support": "手すり候補",
-        "toilet_slip": "滑り止め",
-        "genkan_invisible_step": "段差対策",
-        "hallway_narrow_path": "動線確保",
-        "bedroom_blocked_path": "動線確保",
-        "kitchen_cluttered_floor": "片付け",
-        "kitchen_narrow_path": "動線確保",
-        "kitchen_unreachable_storage": "収納見直し",
-    }
-    return labels.get(risk_type, "改善案")
+    return IMPROVEMENT_LABELS.get(risk_type, "改善案")
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:

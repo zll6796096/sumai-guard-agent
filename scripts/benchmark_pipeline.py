@@ -80,7 +80,13 @@ class BenchmarkError(ValueError):
 
 def _load_ontology_contract(
     path: Path,
-) -> tuple[str, str, str, frozenset[tuple[str, str, str]]]:
+) -> tuple[
+    str,
+    str,
+    str,
+    frozenset[tuple[str, str, str]],
+    frozenset[tuple[str, str]],
+]:
     """Load public versions and room-scoped visible identities or fail closed."""
     try:
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -106,6 +112,7 @@ def _load_ontology_contract(
         raise BenchmarkError("invalid_ontology_contract")
 
     identities: set[tuple[str, str, str]] = set()
+    confirmation_identities: set[tuple[str, str]] = set()
     for room_name, room_document in rooms.items():
         if not isinstance(room_document, dict):
             raise BenchmarkError("invalid_ontology_contract")
@@ -128,10 +135,32 @@ def _load_ontology_contract(
                 raise BenchmarkError("invalid_ontology_contract")
             room_keys.add(ontology_key)
             identities.add((room_name, ontology_key, risk_type))
+        expected_features = room_document.get("expected_features")
+        if not isinstance(expected_features, list):
+            raise BenchmarkError("invalid_ontology_contract")
+        expected_keys: set[str] = set()
+        for rule in expected_features:
+            if not isinstance(rule, dict):
+                raise BenchmarkError("invalid_ontology_contract")
+            feature_key = rule.get("key")
+            if (
+                not isinstance(feature_key, str)
+                or not feature_key.strip()
+                or feature_key in expected_keys
+            ):
+                raise BenchmarkError("invalid_ontology_contract")
+            expected_keys.add(feature_key)
+            confirmation_identities.add((room_name, feature_key))
     if not identities:
         raise BenchmarkError("invalid_ontology_contract")
 
-    return versions[0], versions[1], versions[2], frozenset(identities)
+    return (
+        versions[0],
+        versions[1],
+        versions[2],
+        frozenset(identities),
+        frozenset(confirmation_identities),
+    )
 
 
 (
@@ -139,6 +168,7 @@ def _load_ontology_contract(
     EXPECTED_ONTOLOGY_VERSION,
     EXPECTED_INFERENCE_CONFIG_VERSION,
     VISIBLE_FINDING_IDENTITIES,
+    EXPECTED_CONFIRMATION_IDENTITIES,
 ) = _load_ontology_contract(ONTOLOGY_CONTRACT_PATH)
 
 
@@ -301,6 +331,12 @@ def validate_response_schema(payload: object) -> bool:
     if (
         not isinstance(confirmation_items, list)
         or not all(_valid_confirmation_item(item) for item in confirmation_items)
+    ):
+        return False
+    if any(
+        (room_type, item["feature_key"])
+        not in EXPECTED_CONFIRMATION_IDENTITIES
+        for item in confirmation_items
     ):
         return False
     if payload.get("overall_risk_level") != _risk_level_for_findings(findings):

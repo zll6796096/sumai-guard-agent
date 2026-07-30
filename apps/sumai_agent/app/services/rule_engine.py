@@ -124,25 +124,16 @@ class RuleEngine:
                 finding = finding.model_copy(update={"needs_human_confirmation": True})
 
             if not is_known:
-                if finding.confidence < 0.75:
-                    continue
+                continue
 
             filtered_findings.append((finding, chk_item))
 
         for index, (finding, chk_item) in enumerate(filtered_findings, start=1):
             basis_label = finding.basis_label_ja
             basis_summary = finding.basis_summary_ja
-            exact_rule_identity = bool(
-                finding.ontology_key and finding.ontology_rule_kind and chk_item
-            )
-            if chk_item and exact_rule_identity:
+            if chk_item:
                 basis_label = chk_item.basis_label_ja
                 basis_summary = chk_item.basis_summary_ja
-            elif chk_item:
-                if not basis_label:
-                    basis_label = chk_item.basis_label_ja
-                if not basis_summary:
-                    basis_summary = chk_item.basis_summary_ja
 
             if not basis_label:
                 basis_label = "高齢者住宅安全チェックの一般原則"
@@ -178,7 +169,7 @@ class RuleEngine:
                                 chk_item.evidence_source_ids
                             ),
                         }
-                        if chk_item and exact_rule_identity
+                        if chk_item
                         else {}
                     ),
                 }

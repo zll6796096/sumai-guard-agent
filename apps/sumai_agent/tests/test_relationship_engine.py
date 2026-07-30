@@ -78,6 +78,28 @@ def _finding_payload(
     }
 
 
+def _action_payload(
+    *,
+    action_id: str = "A1",
+    risk_id: str = "risk-1",
+    tier: str = "FAMILY_NO_COST",
+    cost_level: str = "ZERO",
+    requires_professional: bool = False,
+    title_ja: str = "コードを壁沿いに寄せる",
+) -> dict[str, object]:
+    return {
+        "id": action_id,
+        "risk_id": risk_id,
+        "tier": tier,
+        "title_ja": title_ja,
+        "description_ja": "見えるコードを安全な位置へ移動します。",
+        "why_ja": "つまずきの原因を減らすためです。",
+        "cost_level": cost_level,
+        "requires_professional": requires_professional,
+        "disclaimer_ja": "無理のない範囲で行ってください。",
+    }
+
+
 @pytest.mark.parametrize(
     ("ontology_key", "ontology_rule_kind"),
     [
@@ -167,6 +189,7 @@ def test_not_applicable_response_requires_empty_confirmations() -> None:
 def test_applicable_response_accepts_finding_with_complete_visible_identity() -> None:
     response = AnalysisResponse.model_validate(
         _analysis_response_payload(
+            overall_risk_level="medium",
             findings=[
                 _finding_payload(
                     ontology_key="hallway_cord",
@@ -177,6 +200,284 @@ def test_applicable_response_accepts_finding_with_complete_visible_identity() ->
     )
 
     assert len(response.findings) == 1
+
+
+@pytest.mark.parametrize("overall_risk_level", ["medium", "high"])
+def test_analysis_response_zero_findings_requires_low_risk(
+    overall_risk_level: str,
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="overall_risk_level_must_match_findings",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level=overall_risk_level,
+            )
+        )
+
+
+def test_analysis_response_zero_findings_requires_empty_actions() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="zero_findings_require_empty_actions",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                action_plan={"family_no_cost": [_action_payload(risk_id="C1")]},
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("severity", "overall_risk_level"),
+    [
+        (1, "medium"),
+        (2, "low"),
+        (3, "high"),
+        (4, "medium"),
+        (5, "medium"),
+    ],
+)
+def test_analysis_response_overall_risk_must_match_max_finding_severity(
+    severity: int,
+    overall_risk_level: str,
+) -> None:
+    finding = _finding_payload(
+        ontology_key="hallway_cord",
+        ontology_rule_kind="visible_hazard",
+    )
+    finding["severity"] = severity
+
+    with pytest.raises(
+        ValidationError,
+        match="overall_risk_level_must_match_findings",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level=overall_risk_level,
+                findings=[finding],
+            )
+        )
+
+
+def test_analysis_response_action_must_reference_a_finding() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="action_risk_id_must_reference_finding",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level="medium",
+                findings=[
+                    _finding_payload(
+                        ontology_key="hallway_cord",
+                        ontology_rule_kind="visible_hazard",
+                    )
+                ],
+                action_plan={
+                    "family_no_cost": [_action_payload(risk_id="C1")],
+                },
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("action_plan", "error_code"),
+    [
+        (
+            {
+                "family_no_cost": [
+                    _action_payload(
+                        tier="CARE_MANAGER_PURCHASE",
+                    )
+                ]
+            },
+            "action_must_match_plan_tier",
+        ),
+        (
+            {
+                "family_no_cost": [
+                    _action_payload(
+                        cost_level="LOW",
+                    )
+                ]
+            },
+            "action_must_match_plan_policy",
+        ),
+        (
+            {
+                "family_no_cost": [
+                    _action_payload(
+                        requires_professional=True,
+                    )
+                ]
+            },
+            "action_must_match_plan_policy",
+        ),
+        (
+            {
+                "family_no_cost": [
+                    _action_payload(
+                        title_ja="専門業者に工事を依頼する",
+                    )
+                ]
+            },
+            "family_action_contains_forbidden_word",
+        ),
+        (
+            {
+                "care_manager_purchase": [
+                    _action_payload(
+                        tier="CONTRACTOR_CONSTRUCTION",
+                        cost_level="HIGH",
+                        requires_professional=True,
+                    )
+                ]
+            },
+            "action_must_match_plan_tier",
+        ),
+    ],
+)
+def test_analysis_response_rejects_action_plan_policy_mismatches(
+    action_plan: dict[str, object],
+    error_code: str,
+) -> None:
+    with pytest.raises(ValidationError, match=error_code):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level="medium",
+                findings=[
+                    _finding_payload(
+                        ontology_key="hallway_cord",
+                        ontology_rule_kind="visible_hazard",
+                    )
+                ],
+                action_plan=action_plan,
+            )
+        )
+
+
+def test_analysis_response_action_ids_are_unique_across_tiers() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="action_ids_must_be_unique",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level="medium",
+                findings=[
+                    _finding_payload(
+                        ontology_key="hallway_cord",
+                        ontology_rule_kind="visible_hazard",
+                    )
+                ],
+                action_plan={
+                    "family_no_cost": [_action_payload(action_id="A1")],
+                    "care_manager_purchase": [
+                        _action_payload(
+                            action_id="A1",
+                            tier="CARE_MANAGER_PURCHASE",
+                            cost_level="LOW",
+                            requires_professional=True,
+                        )
+                    ],
+                },
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "forbidden_word",
+    ["購入", "レンタル", "工事", "施工", "設置を依頼", "専門"],
+)
+def test_analysis_response_rejects_every_family_forbidden_word(
+    forbidden_word: str,
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="family_action_contains_forbidden_word",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level="medium",
+                findings=[
+                    _finding_payload(
+                        ontology_key="hallway_cord",
+                        ontology_rule_kind="visible_hazard",
+                    )
+                ],
+                action_plan={
+                    "family_no_cost": [
+                        _action_payload(title_ja=f"{forbidden_word}する")
+                    ],
+                },
+            )
+        )
+
+
+def test_analysis_response_accepts_consistent_finding_and_actions() -> None:
+    response = AnalysisResponse.model_validate(
+        _analysis_response_payload(
+            overall_risk_level="medium",
+            findings=[
+                _finding_payload(
+                    ontology_key="hallway_cord",
+                    ontology_rule_kind="visible_hazard",
+                )
+            ],
+            action_plan={
+                "family_no_cost": [_action_payload()],
+                "care_manager_purchase": [
+                    _action_payload(
+                        action_id="A2",
+                        tier="CARE_MANAGER_PURCHASE",
+                        cost_level="LOW",
+                        requires_professional=True,
+                    )
+                ],
+                "contractor_construction": [
+                    _action_payload(
+                        action_id="A3",
+                        tier="CONTRACTOR_CONSTRUCTION",
+                        cost_level="HIGH",
+                        requires_professional=True,
+                    )
+                ],
+            },
+        )
+    )
+
+    assert response.overall_risk_level == "medium"
+    assert len(response.action_plan.family_no_cost) == 1
+
+
+@pytest.mark.parametrize("feature_key", ["has_handrail", "invented_device"])
+def test_applicable_response_rejects_confirmation_outside_room_expected_ontology(
+    feature_key: str,
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="applicable_confirmation_items_must_match_expected_ontology",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                room_type="hallway",
+                confirmation_items=[
+                    {
+                        "id": "C1",
+                        "feature_key": feature_key,
+                        "label_ja": "確認項目",
+                        "description_ja": "写真外も含めて現地で確認してください。",
+                        "confidence": 0.8,
+                        "evidence_source_ids": [],
+                        "basis_label_ja": "写真で確認できる範囲",
+                        "basis_summary_ja": "写真だけでは実際の有無を判断できません。",
+                        "needs_human_confirmation": True,
+                    }
+                ],
+            )
+        )
 
 
 def test_analysis_response_requires_non_empty_confirmation_markdown() -> None:
@@ -544,6 +845,35 @@ def test_missing_feature_with_full_frame_placeholder_is_not_derived() -> None:
     assert result.confirmation_items == []
 
 
+def test_toilet_without_explicit_visible_obstacle_has_no_visible_risk() -> None:
+    result = _engine().derive(
+        _facts(
+            room_type="toilet",
+            visible_regions=["room"],
+            entities=[],
+            feature_observations=[
+                {
+                    "feature_key": "has_handrail",
+                    "state": "absent_with_full_coverage",
+                    "evidence_bbox": {
+                        "x": 0.1,
+                        "y": 0.1,
+                        "w": 0.8,
+                        "h": 0.8,
+                    },
+                    "model_score": 0.9,
+                }
+            ],
+            relationships=[],
+        )
+    )
+
+    assert result.visible_findings == []
+    assert [item.feature_key for item in result.confirmation_items] == [
+        "has_handrail"
+    ]
+
+
 def test_missing_shower_chair_requires_full_coverage_evidence() -> None:
     cannot_determine = _facts(
         room_type="bathroom",
@@ -625,7 +955,7 @@ def test_partial_or_uncertain_entity_does_not_derive_findings(visibility: str) -
         ("bathroom", "bathroom_slip"),
         ("toilet", "cluttered_path"),
         ("bedroom", "cluttered_path"),
-        ("kitchen", "kitchen_slip"),
+        ("kitchen", "cluttered_path"),
     ],
 )
 def test_mock_facts_include_required_relationship_for_each_room(
@@ -639,3 +969,68 @@ def test_mock_facts_include_required_relationship_for_each_room(
         feature.state == "cannot_determine"
         for feature in mock_vision_facts(room).feature_observations
     )
+
+
+@pytest.mark.parametrize(
+    ("room_type", "ontology_key", "predicate", "target"),
+    [
+        ("toilet", "space_looks_narrow", "obstructs", "walking_path"),
+        ("toilet", "looks_slippery_floor", "located_in", "floor"),
+        ("kitchen", "kitchen_slip", "located_in", "floor"),
+        ("kitchen", "reachable_storage_issue", "located_in", "storage"),
+    ],
+)
+def test_non_visual_inference_keys_never_derive_visible_findings(
+    room_type: str,
+    ontology_key: str,
+    predicate: str,
+    target: str,
+) -> None:
+    result = _engine().derive(
+        _facts(
+            room_type=room_type,
+            visible_regions=[target],
+            entities=[
+                {
+                    "ref": "e1",
+                    "ontology_key": ontology_key,
+                    "bbox": {"x": 0.2, "y": 0.2, "w": 0.3, "h": 0.3},
+                    "visibility": "clear",
+                    "model_score": 0.99,
+                }
+            ],
+            feature_observations=[],
+            relationships=[
+                {"subject": "e1", "predicate": predicate, "object": target}
+            ],
+        )
+    )
+
+    assert result.visible_findings == []
+    assert result.confirmation_items == []
+
+
+def test_explicit_localized_wet_floor_still_derives_bathroom_slip() -> None:
+    result = _engine().derive(
+        _facts(
+            room_type="bathroom",
+            visible_regions=["floor"],
+            entities=[
+                {
+                    "ref": "e1",
+                    "ontology_key": "wet_floor",
+                    "bbox": {"x": 0.2, "y": 0.6, "w": 0.3, "h": 0.2},
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                }
+            ],
+            feature_observations=[],
+            relationships=[
+                {"subject": "e1", "predicate": "located_in", "object": "floor"}
+            ],
+        )
+    )
+
+    assert [finding.risk_type for finding in result.visible_findings] == [
+        "bathroom_slip"
+    ]

@@ -239,8 +239,8 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "is_not_applicable": False, "model": "N/A",
         "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
-        "schema_version": "2.1.0", "ontology_version": "1.0.0",
-        "preprocess_version": "1.0.0", "inference_config_version": "1.0.5",
+        "schema_version": "2.1.0", "ontology_version": "1.0.1",
+        "preprocess_version": "1.0.0", "inference_config_version": "1.0.6",
         "stage_timings_ms": {
             "intake": 1, "memo_lookup": 0, "vision": 1, "ontology": 1,
             "render": 1, "report": 1, "serialize": 1, "total": 6,
@@ -480,6 +480,21 @@ def test_confirmation_only_applicable_response_is_schema_valid() -> None:
     })
 
     assert benchmark.validate_response_schema(payload) is True
+
+
+@pytest.mark.parametrize("feature_key", ["has_handrail", "invented_device"])
+def test_confirmation_must_match_room_expected_ontology(feature_key: str) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload(findings=[])
+    confirmation = _valid_confirmation_item()
+    confirmation["feature_key"] = feature_key
+    payload.update({
+        "room_type": "hallway",
+        "overall_risk_level": "low",
+        "confirmation_items": [confirmation],
+    })
+
+    assert benchmark.validate_response_schema(payload) is False
 
 
 def test_confirmation_ids_must_be_canonical_and_follow_response_order() -> None:

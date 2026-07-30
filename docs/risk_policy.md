@@ -25,8 +25,8 @@ The public field remains named `confidence` for API compatibility, but it carrie
 - Confidence `< 0.45`: drop the candidate.
 - Known ontology rule and `0.45 <= confidence < 0.60`: keep it and set `needs_human_confirmation=true`.
 - Known ontology rule and `confidence >= 0.60`: keep it (while preserving any existing confirmation flag).
-- Unknown rule with `confidence < 0.75`: drop it.
-- Unknown rule with `confidence >= 0.75`: use the conservative fallback policy only if it somehow reaches the rule engine. The facts/ontology pipeline should prevent this route for ordinary provider output.
+
+Unknown risks are not accepted at any confidence.
 
 No provider score bypasses relationship validation, ontology scope, or tier policy. Gemini supplies facts only; it cannot set final severity, copy, or action routing.
 

@@ -33,6 +33,37 @@ def _default_visible_finding_identities() -> frozenset[tuple[str, str, str]]:
     return frozenset(identities)
 
 
+@lru_cache(maxsize=1)
+def _default_expected_confirmation_identities() -> frozenset[tuple[str, str]]:
+    from app.ontology import OntologyRepository
+
+    ontology = OntologyRepository.load_default()
+    identities: set[tuple[str, str]] = set()
+    for room in ontology.room_names:
+        room_data = ontology.room(room)
+        if room_data is None:
+            raise ValueError("default_ontology_room_missing")
+        identities.update(
+            (room, str(item["key"]))
+            for item in room_data["expected_features"]
+        )
+    return frozenset(identities)
+
+
+@lru_cache(maxsize=1)
+def _default_family_forbidden_words() -> tuple[str, ...]:
+    from app.ontology import OntologyRepository
+
+    ontology = OntologyRepository.load_default()
+    family_policy = ontology.action_policy.get("family", {})
+    words = family_policy.get("forbidden_words", ())
+    if not isinstance(words, (list, tuple)) or not all(
+        isinstance(word, str) and word for word in words
+    ):
+        raise ValueError("default_family_policy_invalid")
+    return tuple(words)
+
+
 class BoundingBox(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -164,6 +195,67 @@ class ActionPlan(BaseModel):
     contractor_construction: list[ActionItem] = Field(default_factory=list)
 
 
+def _risk_level_for_findings(findings: list[RiskFinding]) -> RiskLevel:
+    if not findings:
+        return "low"
+    maximum = max(finding.severity for finding in findings)
+    if maximum >= 4:
+        return "high"
+    if maximum >= 2:
+        return "medium"
+    return "low"
+
+
+def _validate_action_plan(
+    action_plan: ActionPlan,
+    finding_ids: set[str],
+) -> None:
+    policies = (
+        (
+            action_plan.family_no_cost,
+            "FAMILY_NO_COST",
+            "ZERO",
+            False,
+        ),
+        (
+            action_plan.care_manager_purchase,
+            "CARE_MANAGER_PURCHASE",
+            "LOW",
+            True,
+        ),
+        (
+            action_plan.contractor_construction,
+            "CONTRACTOR_CONSTRUCTION",
+            "HIGH",
+            True,
+        ),
+    )
+    action_ids: set[str] = set()
+    for actions, tier, cost_level, requires_professional in policies:
+        for action in actions:
+            if action.id in action_ids:
+                raise ValueError("action_ids_must_be_unique")
+            action_ids.add(action.id)
+            if action.risk_id not in finding_ids:
+                raise ValueError("action_risk_id_must_reference_finding")
+            if action.tier != tier:
+                raise ValueError("action_must_match_plan_tier")
+            if (
+                action.cost_level != cost_level
+                or action.requires_professional is not requires_professional
+            ):
+                raise ValueError("action_must_match_plan_policy")
+            if tier == "FAMILY_NO_COST":
+                text = " ".join(
+                    (action.title_ja, action.description_ja, action.why_ja)
+                )
+                if any(
+                    forbidden in text
+                    for forbidden in _default_family_forbidden_words()
+                ):
+                    raise ValueError("family_action_contains_forbidden_word")
+
+
 class AnalysisResponse(BaseModel):
     """Validated public response with request-local logging metadata kept private."""
 
@@ -191,9 +283,9 @@ class AnalysisResponse(BaseModel):
     result_key: str = ""
     semantic_hash: str = ""
     schema_version: str = "2.1.0"
-    ontology_version: str = "1.0.0"
+    ontology_version: str = "1.0.1"
     preprocess_version: str = "1.0.0"
-    inference_config_version: str = "1.0.5"
+    inference_config_version: str = "1.0.6"
     stage_timings_ms: dict[str, int] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -232,6 +324,28 @@ class AnalysisResponse(BaseModel):
             for finding in self.findings
         ):
             raise ValueError("applicable_findings_must_match_visible_ontology")
+        elif any(
+            (self.room_type, item.feature_key)
+            not in _default_expected_confirmation_identities()
+            for item in self.confirmation_items
+        ):
+            raise ValueError(
+                "applicable_confirmation_items_must_match_expected_ontology"
+            )
+
+        if self.overall_risk_level != _risk_level_for_findings(self.findings):
+            raise ValueError("overall_risk_level_must_match_findings")
+        actions = (
+            self.action_plan.family_no_cost
+            + self.action_plan.care_manager_purchase
+            + self.action_plan.contractor_construction
+        )
+        if not self.findings and actions:
+            raise ValueError("zero_findings_require_empty_actions")
+        _validate_action_plan(
+            self.action_plan,
+            {finding.id for finding in self.findings},
+        )
         return self
 
 

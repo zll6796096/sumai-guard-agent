@@ -201,15 +201,20 @@ def test_ambiguous_risk_type_only_legacy_finding_is_rejected() -> None:
 
 def test_unambiguous_risk_type_only_visible_legacy_finding_is_normalized() -> None:
     evidence_bbox = BoundingBox(x=0.2, y=0.3, w=0.4, h=0.2)
+    legacy_finding = _risk_finding(
+        risk_type="cluttered_path",
+        bbox=evidence_bbox,
+    ).model_copy(
+        update={
+            "label_ja": "任意のラベル",
+            "severity": 5,
+            "evidence_source_ids": ["UNTRUSTED_SOURCE"],
+        }
+    )
     vision_result = VisionResult(
         room_type="bedroom",
         is_home_environment=True,
-        visible_hazards=[
-            _risk_finding(
-                risk_type="cluttered_path",
-                bbox=evidence_bbox,
-            )
-        ],
+        visible_hazards=[legacy_finding],
     )
 
     findings = ChecklistEngine().process(vision_result)
@@ -219,6 +224,9 @@ def test_unambiguous_risk_type_only_visible_legacy_finding_is_normalized() -> No
     assert findings[0].bbox == evidence_bbox
     assert findings[0].ontology_key == "cluttered_path"
     assert findings[0].ontology_rule_kind == "visible_hazard"
+    assert findings[0].label_ja == "寝室の床の障害物"
+    assert findings[0].severity == 3
+    assert findings[0].evidence_source_ids == ["CAA_FALL_PREVENTION"]
 
 
 def test_legacy_observations_without_visible_hazards_create_no_findings() -> None:

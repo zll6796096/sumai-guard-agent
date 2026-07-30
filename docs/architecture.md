@@ -57,7 +57,7 @@ Canonicalization clears render-only `display_bbox` before sorting, winner select
 
 `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` is the versioned, room-scoped source of truth. `OntologyRepository` validates its strict schema and exposes:
 
-- `ontology_version`, schema `2.1.0`, and inference config `1.0.5`;
+- ontology `1.0.1`, schema `2.1.0`, and inference config `1.0.6`;
 - allowed relationship predicates and per-observation targets;
 - rooms, visible hazards, and expected features;
 - a source registry plus basis-to-source mapping; and
