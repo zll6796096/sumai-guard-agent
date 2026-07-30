@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import yaml
 
+from app.config import Settings
+from app.models import VisionFacts
 from app.services.gemini_vision import (
     CHECKLIST_EXPECTED_FEATURE_KEYS,
     CHECKLIST_VISIBLE_OBSERVATION_KEYS,
@@ -20,6 +22,7 @@ from app.services.gemini_vision import (
     ONTOLOGY,
     VALID_OBSERVATION_KEYS,
     VISION_PROMPT,
+    _has_actionable_local_evidence,
     _normalize_bbox,
     mock_vision_result,
     parse_vision_json,
@@ -747,8 +750,11 @@ def test_call_gemini_does_not_replace_empty_response_with_valid_object() -> None
 
 def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     captured: dict[str, object] = {}
+    call_count = 0
 
     async def generate_content(**kwargs: object) -> SimpleNamespace:
+        nonlocal call_count
+        call_count += 1
         captured.update(kwargs)
         return SimpleNamespace(
             text=json.dumps(
@@ -800,6 +806,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     ):
         asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
 
+    assert call_count == 1
     config = captured["config"]
     assert config.response_mime_type == "application/json"
     assert config.response_json_schema is GEMINI_FACTS_JSON_SCHEMA
@@ -860,11 +867,8 @@ def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None
     assert "subject must be the ref of an emitted entity" in VISION_PROMPT
 
 
-def test_vision_prompt_enumerates_every_room_scoped_checklist_for_auto_mode() -> None:
-    assert (
-        "Emit exactly one feature_observation for every expected feature of the detected room."
-        in VISION_PROMPT
-    )
+def test_auto_prompt_does_not_eagerly_enumerate_every_room_checklist() -> None:
+    assert "Emit exactly one feature_observation for every expected feature" not in VISION_PROMPT
     assert "Never use the entire image as evidence_bbox." in VISION_PROMPT
 
     for room_name in ONTOLOGY.room_names:
@@ -880,7 +884,277 @@ def test_vision_prompt_enumerates_every_room_scoped_checklist_for_auto_mode() ->
             f"- {room_name}: expected_features=[{expected_features}]; "
             f"visible_hazards=[{visible_hazards}]"
         )
-        assert expected_line in VISION_PROMPT
+        assert expected_line not in VISION_PROMPT
+
+
+def test_auto_call_retries_once_with_only_the_detected_room_checklist() -> None:
+    prompts: list[str] = []
+    responses = [
+        {
+            "environment": "home",
+            "room_type": "toilet",
+            "visible_regions": ["floor", "room", "walking_path"],
+            "entities": [],
+            "feature_observations": [],
+            "relationships": [],
+            "not_applicable_reason_code": None,
+        },
+        {
+            "environment": "home",
+            "room_type": "toilet",
+            "visible_regions": ["room", "transfer_zone"],
+            "entities": [],
+            "feature_observations": [
+                {
+                    "feature_key": "has_handrail",
+                    "state": "absent_with_full_coverage",
+                    "evidence_bbox": {"x": 0.05, "y": 0.2, "w": 0.25, "h": 0.6},
+                    "model_score": 0.92,
+                },
+                {
+                    "feature_key": "has_emergency_call_button",
+                    "state": "cannot_determine",
+                    "evidence_bbox": None,
+                    "model_score": 0.55,
+                }
+            ],
+            "relationships": [],
+            "not_applicable_reason_code": None,
+        },
+    ]
+
+    async def generate_content(**kwargs: object) -> SimpleNamespace:
+        contents = kwargs["contents"]
+        assert isinstance(contents, list)
+        prompt = contents[0]
+        assert isinstance(prompt, str)
+        prompts.append(prompt)
+        return SimpleNamespace(text=json.dumps(responses[len(prompts) - 1]))
+
+    client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    google_module = ModuleType("google")
+    genai_module = ModuleType("google.genai")
+    types_module = ModuleType("google.genai.types")
+    genai_module.Client = lambda **_kwargs: client  # type: ignore[attr-defined]
+    types_module.Part = SimpleNamespace(  # type: ignore[attr-defined]
+        from_bytes=lambda **_kwargs: object()
+    )
+    types_module.GenerateContentConfig = (  # type: ignore[attr-defined]
+        lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    google_module.genai = genai_module  # type: ignore[attr-defined]
+    genai_module.types = types_module  # type: ignore[attr-defined]
+
+    with patch.dict(
+        sys.modules,
+        {
+            "google": google_module,
+            "google.genai": genai_module,
+            "google.genai.types": types_module,
+        },
+    ):
+        result = asyncio.run(GeminiVisionService()._call_gemini(b"image", "auto"))
+
+    assert len(prompts) == 2
+    assert "room_hint: auto" in prompts[0]
+    assert "- toilet: expected_features=[" not in prompts[0]
+    assert "room_hint: toilet" in prompts[1]
+    assert "- toilet: expected_features=[" in prompts[1]
+    assert "- bathroom: expected_features=[" not in prompts[1]
+    assert (
+        "Emit exactly one feature_observation for every expected feature"
+        in prompts[1]
+    )
+    assert result.feature_observations[0].state == "absent_with_full_coverage"
+
+
+def test_targeted_followup_rejects_a_changed_room() -> None:
+    responses = [
+        {
+            "environment": "home",
+            "room_type": "toilet",
+            "visible_regions": ["room"],
+            "entities": [],
+            "feature_observations": [],
+            "relationships": [],
+            "not_applicable_reason_code": None,
+        },
+        {
+            "environment": "home",
+            "room_type": "bathroom",
+            "visible_regions": ["floor"],
+            "entities": [],
+            "feature_observations": [],
+            "relationships": [],
+            "not_applicable_reason_code": None,
+        },
+    ]
+    generate = AsyncMock(
+        side_effect=[
+            SimpleNamespace(text=json.dumps(payload))
+            for payload in responses
+        ]
+    )
+    service = GeminiVisionService(
+        client_factory=lambda: SimpleNamespace(
+            aio=SimpleNamespace(
+                models=SimpleNamespace(generate_content=generate)
+            )
+        )
+    )
+
+    with pytest.raises(ValueError, match="Targeted follow-up"):
+        asyncio.run(service._call_gemini(b"image", "auto"))
+
+
+def test_non_strict_followup_failure_returns_neutral_partial_result_not_mock() -> None:
+    initial_payload = {
+        "environment": "home",
+        "room_type": "toilet",
+        "visible_regions": ["room"],
+        "entities": [],
+        "feature_observations": [],
+        "relationships": [],
+        "not_applicable_reason_code": None,
+    }
+    generate = AsyncMock(
+        side_effect=[
+            SimpleNamespace(text=json.dumps(initial_payload)),
+            SimpleNamespace(text=""),
+        ]
+    )
+    service = GeminiVisionService(
+        client_factory=lambda: SimpleNamespace(
+            aio=SimpleNamespace(
+                models=SimpleNamespace(generate_content=generate)
+            )
+        )
+    )
+    non_strict_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+        analysis_timeout=5,
+    )
+
+    with patch("app.services.gemini_vision.settings", non_strict_settings):
+        result, mode = asyncio.run(
+            service._analyze_with_gemini(b"image", "auto", "sumai_test")
+        )
+
+    assert mode == "gemini_partial(followup_invalid_response)"
+    assert result.environment == "uncertain"
+    assert result.room_type == "unknown"
+    assert result.entities == []
+    assert result.feature_observations == []
+
+
+def test_non_strict_exhausted_followup_budget_abstains_before_second_call() -> None:
+    initial_payload = {
+        "environment": "home",
+        "room_type": "toilet",
+        "visible_regions": ["room"],
+        "entities": [],
+        "feature_observations": [],
+        "relationships": [],
+        "not_applicable_reason_code": None,
+    }
+    generate = AsyncMock(
+        return_value=SimpleNamespace(text=json.dumps(initial_payload))
+    )
+    service = GeminiVisionService(
+        client_factory=lambda: SimpleNamespace(
+            aio=SimpleNamespace(
+                models=SimpleNamespace(generate_content=generate)
+            )
+        )
+    )
+    non_strict_settings = Settings(
+        require_real_gemini=False,
+        gemini_api_key="dummy_key",
+        mock_mode=False,
+        analysis_timeout=1,
+    )
+
+    with (
+        patch("app.services.gemini_vision.settings", non_strict_settings),
+        patch(
+            "app.services.gemini_vision._FOLLOWUP_TIMEOUT_GUARD_SECONDS",
+            2.0,
+        ),
+    ):
+        result, mode = asyncio.run(
+            service._analyze_with_gemini(b"image", "auto", "sumai_test")
+        )
+
+    assert generate.await_count == 1
+    assert mode == "gemini_partial(followup_gemini_timeout)"
+    assert result.environment == "uncertain"
+    assert result.room_type == "unknown"
+
+
+def test_full_frame_feature_evidence_does_not_suppress_targeted_followup() -> None:
+    facts_payload = {
+        "environment": "home",
+        "room_type": "toilet",
+        "visible_regions": ["room"],
+        "entities": [],
+        "feature_observations": [
+            {
+                "feature_key": "has_handrail",
+                "state": "absent_with_full_coverage",
+                "evidence_bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                "model_score": 0.9,
+            }
+        ],
+        "relationships": [],
+        "not_applicable_reason_code": None,
+    }
+
+    assert not _has_actionable_local_evidence(VisionFacts.model_validate(facts_payload))
+
+    facts_payload["feature_observations"][0]["evidence_bbox"] = {
+        "x": 0.05,
+        "y": 0.2,
+        "w": 0.25,
+        "h": 0.6,
+    }
+    assert _has_actionable_local_evidence(VisionFacts.model_validate(facts_payload))
+
+    facts_payload["not_applicable_reason_code"] = "insufficient_evidence"
+    assert not _has_actionable_local_evidence(VisionFacts.model_validate(facts_payload))
+
+
+def test_full_frame_entity_evidence_does_not_suppress_targeted_followup() -> None:
+    facts = VisionFacts.model_validate(
+        {
+            "environment": "home",
+            "room_type": "hallway",
+            "visible_regions": ["walking_path"],
+            "entities": [
+                {
+                    "ref": "entity_1",
+                    "ontology_key": "hallway_cord",
+                    "bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                }
+            ],
+            "feature_observations": [],
+            "relationships": [
+                {
+                    "subject": "entity_1",
+                    "predicate": "intersects",
+                    "object": "walking_path",
+                }
+            ],
+            "not_applicable_reason_code": None,
+        }
+    )
+
+    assert not _has_actionable_local_evidence(facts)
 
 
 def test_gemini_vocabularies_match_room_checklists() -> None:

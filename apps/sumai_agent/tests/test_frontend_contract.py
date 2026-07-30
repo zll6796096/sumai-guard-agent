@@ -25,8 +25,10 @@ def test_completed_result_exposes_mode_provenance_without_debug_mode() -> None:
     assert "モック結果（AI実解析ではありません）" in html
     assert "ローカルモック結果（AI実解析ではありません）" in html
     assert "フォールバック結果（Gemini解析として扱わないでください）" in html
+    assert "部分解析（補完に失敗したため安全判定として扱わないでください）" in html
     assert "実行モードを確認できません" in html
     assert "mode.startsWith('gemini_fallback(')" in html
+    assert "mode.startsWith('gemini_partial(')" in html
 
 
 def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> None:

@@ -66,6 +66,31 @@ def test_hallway_cord_requires_configured_relationship_target() -> None:
     assert findings == []
 
 
+def test_visible_hazard_with_full_frame_placeholder_is_not_derived() -> None:
+    findings = _engine().derive(
+        _facts(
+            entities=[
+                {
+                    "ref": "e1",
+                    "ontology_key": "hallway_cord",
+                    "bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                }
+            ],
+            relationships=[
+                {
+                    "subject": "e1",
+                    "predicate": "intersects",
+                    "object": "walking_path",
+                }
+            ],
+        )
+    )
+
+    assert findings == []
+
+
 def test_visible_rule_identity_uses_observation_key_not_duplicate_risk_type() -> None:
     findings = _engine().derive(
         _facts(

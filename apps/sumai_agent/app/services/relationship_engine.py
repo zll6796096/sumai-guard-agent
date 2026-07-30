@@ -58,6 +58,7 @@ class RelationshipEngine:
             if (
                 entity.ontology_key not in visible_hazards
                 or entity.visibility != "clear"
+                or _is_full_frame_placeholder(entity.bbox)
                 or not any(
                     (
                         entity.ref,

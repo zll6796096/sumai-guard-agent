@@ -21,6 +21,15 @@ from app.ontology import OntologyRepository
 
 
 logger = logging.getLogger("sumai.gemini_vision")
+_FOLLOWUP_TIMEOUT_GUARD_SECONDS = 0.25
+
+
+class TargetedFollowupError(ValueError):
+    """Stable internal signal that the optional room-scoped provider call failed."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__("Targeted follow-up analysis failed.")
+        self.reason = reason
 
 ONTOLOGY = OntologyRepository.load_default()
 VALID_ROOMS: set[str] = {*ONTOLOGY.room_names, "auto"}
@@ -215,23 +224,20 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
-def _room_scoped_fact_checklist() -> str:
-    lines: list[str] = []
-    for room_name in ONTOLOGY.room_names:
-        room = ONTOLOGY.room(room_name)
-        if room is None:
-            continue
-        expected_features = ",".join(
-            item["key"] for item in room["expected_features"]
-        )
-        visible_hazards = ",".join(
-            item["key"] for item in room["visible_hazards"]
-        )
-        lines.append(
-            f"- {room_name}: expected_features=[{expected_features}]; "
-            f"visible_hazards=[{visible_hazards}]"
-        )
-    return "\n".join(lines)
+def _room_scoped_fact_checklist(room_name: str) -> str:
+    room = ONTOLOGY.room(room_name)
+    if room is None:
+        return ""
+    expected_features = ",".join(
+        item["key"] for item in room["expected_features"]
+    )
+    visible_hazards = ",".join(
+        item["key"] for item in room["visible_hazards"]
+    )
+    return (
+        f"- {room_name}: expected_features=[{expected_features}]; "
+        f"visible_hazards=[{visible_hazards}]"
+    )
 
 
 VISION_PROMPT = f"""Extract only minimal visual evidence from one photo of a possible home.
@@ -248,17 +254,143 @@ Environment and coverage rules:
 4. A feature can be absent_with_full_coverage only when its relevant region is completely visible.
    Use cannot_determine for cropped, obscured, or ambiguous areas. Never infer an absence from a
    missing or out-of-frame region.
-   Emit exactly one feature_observation for every expected feature of the detected room.
-   Do this also when room_hint=auto. Use evidence_bbox for present or
-   absent_with_full_coverage and null for cannot_determine.
+   Use evidence_bbox for present or absent_with_full_coverage and null for cannot_determine.
    Never use the entire image as evidence_bbox.
    Bound only the relevant visible wall, floor, fixture, or transfer region.
 5. Relationships must use supplied ontology predicates. Their subject must be the ref of an emitted entity.
    The object must be another emitted entity ref or a named visible region.
    Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
-6. Use only the expected feature keys and visible hazard entity keys listed for the detected room:
-{_room_scoped_fact_checklist()}
 """
+
+
+def _prompt_for_room_hint(room_hint: RoomType) -> str:
+    prompt = f"{VISION_PROMPT}\nroom_hint: {room_hint}\n"
+    if room_hint == "auto":
+        return f"{prompt}Return JSON only."
+
+    checklist = _room_scoped_fact_checklist(room_hint)
+    return f"""{prompt}
+Room-specific completeness check:
+Review only this room-scoped checklist; do not use keys from other rooms.
+{checklist}
+Emit exactly one feature_observation for every expected feature in this checklist.
+For present or absent_with_full_coverage, use a tight local evidence_bbox around the relevant
+visible fixture, wall, floor, or transfer region. Use null for cannot_determine.
+Never use the entire image as evidence_bbox.
+Return JSON only."""
+
+
+def _is_full_frame_bbox(bbox: BoundingBox) -> bool:
+    return (
+        bbox.x <= 0.01
+        and bbox.y <= 0.01
+        and bbox.x + bbox.w >= 0.99
+        and bbox.y + bbox.h >= 0.99
+    )
+
+
+def _has_actionable_local_evidence(facts: VisionFacts) -> bool:
+    if (
+        facts.environment != "home"
+        or facts.room_type not in ONTOLOGY.room_names
+        or facts.not_applicable_reason_code is not None
+    ):
+        return False
+
+    room = ONTOLOGY.room(facts.room_type)
+    if room is None:
+        return False
+    visible_hazards = {
+        item["key"]
+        for item in room["visible_hazards"]
+    }
+    relationship_triples = {
+        (relationship.subject, relationship.predicate, relationship.object)
+        for relationship in facts.relationships
+    }
+    for entity in facts.entities:
+        if (
+            entity.ontology_key in visible_hazards
+            and entity.visibility == "clear"
+            and not _is_full_frame_bbox(entity.bbox)
+            and any(
+                (
+                    entity.ref,
+                    ONTOLOGY.required_predicate(entity.ontology_key),
+                    target,
+                )
+                in relationship_triples
+                for target in ONTOLOGY.required_targets(entity.ontology_key)
+            )
+        ):
+            return True
+
+    expected_features = {
+        item["key"]
+        for item in room["expected_features"]
+    }
+    return any(
+        feature.feature_key in expected_features
+        and feature.state == "absent_with_full_coverage"
+        and feature.evidence_bbox is not None
+        and not _is_full_frame_bbox(feature.evidence_bbox)
+        for feature in facts.feature_observations
+    )
+
+
+def _validate_targeted_facts(facts: VisionFacts, target_room: str) -> None:
+    room = ONTOLOGY.room(target_room)
+    if (
+        room is None
+        or facts.environment != "home"
+        or facts.room_type != target_room
+        or facts.not_applicable_reason_code is not None
+    ):
+        _raise_facts_error("targeted_room_or_applicability_mismatch")
+
+    allowed_entity_keys = {
+        item["key"]
+        for item in room["visible_hazards"]
+    }
+    if any(
+        entity.ontology_key not in allowed_entity_keys
+        or _is_full_frame_bbox(entity.bbox)
+        for entity in facts.entities
+    ):
+        _raise_facts_error("targeted_entity_out_of_scope")
+
+    expected_feature_keys = {
+        item["key"]
+        for item in room["expected_features"]
+    }
+    observed_feature_keys = {
+        feature.feature_key
+        for feature in facts.feature_observations
+    }
+    if observed_feature_keys != expected_feature_keys:
+        _raise_facts_error("targeted_feature_set_incomplete")
+
+    for feature in facts.feature_observations:
+        if feature.state == "cannot_determine":
+            if feature.evidence_bbox is not None:
+                _raise_facts_error("targeted_uncertain_feature_has_bbox")
+        elif (
+            feature.evidence_bbox is None
+            or _is_full_frame_bbox(feature.evidence_bbox)
+        ):
+            _raise_facts_error("targeted_feature_lacks_local_bbox")
+
+
+def _targeted_followup_abstention() -> VisionFacts:
+    return VisionFacts(
+        environment="uncertain",
+        room_type="unknown",
+        visible_regions=[],
+        entities=[],
+        feature_observations=[],
+        relationships=[],
+        not_applicable_reason_code="targeted_followup_failed",
+    )
 
 
 def _raise_facts_error(reason: str, *, raw_length: int | None = None) -> NoReturn:
@@ -322,6 +454,8 @@ def parse_vision_facts_json(raw_json: str) -> VisionFacts:
 
 
 def _gemini_failure_reason(exc: Exception) -> str:
+    if isinstance(exc, TargetedFollowupError):
+        return f"followup_{exc.reason}"
     if isinstance(exc, TimeoutError):
         return "gemini_timeout"
     if isinstance(exc, ValueError):
@@ -480,6 +614,22 @@ class GeminiVisionService:
             )
             return result, "gemini"
 
+        except TargetedFollowupError as exc:
+            latency_ms = int((time.monotonic() - start_time) * 1000)
+            fallback_reason = _gemini_failure_reason(exc)
+            logger.warning(
+                "vision_targeted_followup_abstained",
+                extra={
+                    "analysis_id": analysis_id,
+                    "mode": "gemini_partial",
+                    "fallback_reason": fallback_reason,
+                    "latency_ms": latency_ms,
+                },
+            )
+            return (
+                _targeted_followup_abstention(),
+                f"gemini_partial({fallback_reason})",
+            )
         except Exception as exc:
             fallback_reason = _gemini_failure_reason(exc)
 
@@ -496,9 +646,48 @@ class GeminiVisionService:
         return mock_vision_facts(room_hint), f"gemini_fallback({fallback_reason})"
 
     async def _call_gemini(self, image_png: bytes, room_hint: RoomType) -> VisionFacts:
+        started_at = time.monotonic()
+        first_result = await self._call_gemini_once(image_png, room_hint)
+        if (
+            room_hint == "auto"
+            and first_result.environment == "home"
+            and first_result.room_type in ONTOLOGY.room_names
+            and not _has_actionable_local_evidence(first_result)
+        ):
+            remaining_budget = (
+                settings.analysis_timeout
+                - (time.monotonic() - started_at)
+                - _FOLLOWUP_TIMEOUT_GUARD_SECONDS
+            )
+            if remaining_budget <= 0:
+                raise TargetedFollowupError("gemini_timeout")
+            try:
+                async with asyncio.timeout(remaining_budget):
+                    targeted_result = await self._call_gemini_once(
+                        image_png,
+                        first_result.room_type,
+                    )
+                _validate_targeted_facts(
+                    targeted_result,
+                    first_result.room_type,
+                )
+                return targeted_result
+            except TargetedFollowupError:
+                raise
+            except Exception as exc:
+                raise TargetedFollowupError(
+                    _gemini_failure_reason(exc)
+                ) from None
+        return first_result
+
+    async def _call_gemini_once(
+        self,
+        image_png: bytes,
+        room_hint: RoomType,
+    ) -> VisionFacts:
         from google.genai import types
 
-        prompt = f"{VISION_PROMPT}\nroom_hint: {room_hint}\nReturn JSON only."
+        prompt = _prompt_for_room_hint(room_hint)
         response = await self._get_client().aio.models.generate_content(
             model=settings.gemini_model,
             contents=[

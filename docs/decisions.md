@@ -28,7 +28,7 @@ Reason: a safety candidate is useful only if the next step remains within its au
 
 ## Mock mode and strict real mode
 
-Mock mode is required for local development, tests, and credential-free demonstrations. In strict real mode (`REQUIRE_REAL_GEMINI=true`), missing key, timeout, provider error, malformed facts, or parser rejection fails safely with HTTP 503. Non-strict fallback is explicitly labelled `gemini_fallback(reason)` and is uncached; it cannot be presented as a real analysis. The ordinary completed screen has an always-visible `analysis-mode-banner` that separately labels Gemini, mock, local mock, and fallback rather than relying on the optional debug panel.
+Mock mode is required for local development, tests, and credential-free demonstrations. In strict real mode (`REQUIRE_REAL_GEMINI=true`), missing key, timeout, provider error, malformed facts, parser rejection, or an invalid room-scoped follow-up fails safely with HTTP 503. Non-strict first-call fallback is explicitly labelled `gemini_fallback(reason)`. A failed optional room-scoped follow-up returns a neutral abstention labelled `gemini_partial(followup_reason)` instead of inventing a mock finding. Both are uncached and cannot be presented as a complete real analysis. The ordinary completed screen has an always-visible `analysis-mode-banner` that separately labels Gemini, mock, local mock, fallback, and partial analysis rather than relying on the optional debug panel.
 
 Reason: availability must not turn a provider failure into a false claim of Gemini recognition.
 

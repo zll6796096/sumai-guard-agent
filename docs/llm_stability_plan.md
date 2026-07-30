@@ -26,7 +26,7 @@ Scope: current defenses for the local SumaiGuard POC and the remaining evidence 
 | Timing/logs | Final structured logs carry stage timings and private cache-hit metadata; instrumented total is not HTTP end-to-end. | Diagnostic timing is not misrepresented as browser latency. |
 | Benchmark | Synthetic fixtures have repeat bounded to 50. Schema-valid `is_not_applicable=true` results are abstentions, excluded from risk P/R/F1; `scored_applicable_response_count` and `scored_applicable_response_coverage` (denominator: repeated `request_count`) report the scoring coverage. | Synthetic metrics are **not recognition evidence**; no applicable scored response leaves metrics unavailable rather than assigning empty-set accuracy. |
 
-The completed result includes an always-visible `analysis-mode-banner`; it does not depend on `?debug=1`. It labels Gemini, mock, local mock, and `gemini_fallback(...)` separately, so fallback and mock output cannot look like Gemini analysis in the ordinary UI.
+The completed result includes an always-visible `analysis-mode-banner`; it does not depend on `?debug=1`. It labels Gemini, mock, local mock, `gemini_fallback(...)`, and `gemini_partial(...)` separately, so fallback, partial, and mock output cannot look like a complete Gemini analysis in the ordinary UI.
 
 When the browser cannot reach the backend in non-strict local mode, or the explicit invalid-200/5xx fallback policy applies, `local_mock` returns a neutral not-applicable abstention with empty findings/actions and identical unannotated images. Its `analysis_id` is request-local while stable inputs retain stable result and semantic hashes. It does not fabricate a medium-risk box or recommendations. Client-input 4xx responses never enter this path. This is separate from the agent's intentional deterministic mock mode used by tests and credential-free POC runs.
 
@@ -34,7 +34,7 @@ When the browser cannot reach the backend in non-strict local mode, or the expli
 
 For a real-Gemini demonstration, set `MOCK_MODE=false`, `REQUIRE_REAL_GEMINI=true`, and provide a valid key by the runtime environment. Missing key, timeout, provider error, malformed facts, or parser rejection returns safe 503. The UI/operator must treat that as a failed analysis, not substitute sample output.
 
-For non-strict local work, a real-call failure may return `gemini_fallback(reason)` using deterministic mock facts. It is visibly mode-labelled, uncached, and unsuitable as evidence that Gemini recognized the photo. Missing key enters direct mock mode rather than claiming a provider attempt.
+For non-strict local work, a first-call failure may return `gemini_fallback(reason)` using deterministic mock facts. A failed optional room-scoped follow-up returns a neutral not-applicable result as `gemini_partial(followup_reason)` rather than replacing the first real room classification with unrelated mock risk evidence. Both are visibly mode-labelled, uncached, and unsuitable as evidence that Gemini completed the photo analysis. Missing key enters direct mock mode rather than claiming a provider attempt.
 
 ## What is intentionally not inferred
 

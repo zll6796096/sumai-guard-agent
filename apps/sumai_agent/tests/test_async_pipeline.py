@@ -27,9 +27,23 @@ def _valid_facts_json() -> str:
             "environment": "home",
             "room_type": "hallway",
             "visible_regions": ["floor", "walking_path"],
-            "entities": [],
+            "entities": [
+                {
+                    "ref": "entity_1",
+                    "ontology_key": "hallway_cord",
+                    "bbox": {"x": 0.1, "y": 0.6, "w": 0.5, "h": 0.1},
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                }
+            ],
             "feature_observations": [],
-            "relationships": [],
+            "relationships": [
+                {
+                    "subject": "entity_1",
+                    "predicate": "intersects",
+                    "object": "walking_path",
+                }
+            ],
             "not_applicable_reason_code": None,
         }
     )

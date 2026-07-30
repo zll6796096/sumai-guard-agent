@@ -1441,6 +1441,9 @@ INDEX_HTML = """<!DOCTYPE html>
             } else if (mode.startsWith('gemini_fallback(')) {
                 text = 'フォールバック結果（Gemini解析として扱わないでください）';
                 style = 'mode-warning';
+            } else if (mode.startsWith('gemini_partial(')) {
+                text = '部分解析（補完に失敗したため安全判定として扱わないでください）';
+                style = 'mode-warning';
             }
 
             banner.textContent = text;
