@@ -2,7 +2,7 @@
 
 Review date: 2026-07-13 JST
 
-Repository-state correction: 2026-07-29 JST (source layer and rule-source facts only).
+Repository-state correction: 2026-07-31 JST (visible-risk and neutral-confirmation boundary).
 
 Scope: SumaiGuard Agent / 親の家 安全チェックAI as a preventive elderly home visible-risk PoC before any contact with Funabashi City or similar municipalities.
 
@@ -17,7 +17,8 @@ Relevant first-principles rule: risk control first, verifiable value second, per
 Minimum verifiable deliverable:
 
 - One photo in, visible risk candidates out.
-- Red boxes show only visible or explicitly missing visible safety features.
+- Red boxes show only localized `visible_hazard` findings.
+- Photo-scoped expected-feature non-detections stay in a neutral confirmation channel and never create risk, action, overlay, improvement, or suggestion output.
 - Japanese report uses cautious language and separates uncertainty.
 - Actions are routed into exactly three tiers: family no-cost, care-manager/welfare-equipment consultation, professional construction/on-site confirmation.
 - Demo/production mode cannot silently replace real Gemini analysis with mock output.
@@ -91,7 +92,7 @@ Avoid:
 
 The app's actual value mechanism is:
 
-1. Visible environmental risk discovery: steps, cords, clutter, wet/slippery areas, missing handrails in visible areas, lighting problems, toilet/bathroom transfer points.
+1. Visible environmental risk discovery: localized steps, cords, clutter, wet/slippery areas, lighting problems, and toilet/bathroom transfer points.
 2. Hidden-to-visible conversion: red boxes make ambiguous family concern discussable.
 3. Standardized risk language: risk type, severity, uncalibrated model score, evidence, basis summary.
 4. Deterministic action-tier routing: Gemini can identify candidates, but rules decide action categories.
@@ -131,7 +132,7 @@ Current repo support:
 - `apps/sumai_agent/app/services/image_intake.py`: EXIF orientation normalization and PNG re-encoding.
 - `apps/sumai_agent/app/services/gemini_vision.py`: structured JSON prompt, home/non-home guard, Gemini/mock/fallback modes.
 - `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` plus `apps/sumai_agent/app/ontology.py`: the `source_registry`, `basis_source_map`, publisher/URL metadata, and typed `OntologyRepository` rule source.
-- `apps/sumai_agent/app/services/checklist_engine.py`: maps observations and missing visible features to risk findings.
+- `apps/sumai_agent/app/services/checklist_engine.py`: legacy adapter that ignores observations/missing-feature inputs and admits only visible hazards through the shared rule gate.
 - `apps/sumai_agent/app/services/rule_engine.py`: uncalibrated model-score filtering and deterministic action tiers.
 - `apps/sumai_agent/app/services/report_renderer.py`: Japanese markdown reports with an explicitly uncalibrated score label and basis fields.
 - `apps/sumai_agent/tests/`: tests for health, mock analysis, strict production, Gemini parsing, rules, visual rendering.

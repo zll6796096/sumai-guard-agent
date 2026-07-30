@@ -105,3 +105,33 @@ def test_government_review_docs_reflect_source_layer_without_overclaiming() -> N
     assert "No government pilot protocol" in risk_gaps
     assert "No formal evaluation metrics" in risk_gaps
     assert "Not suitable now" in pre_review
+
+
+def test_documents_define_visible_findings_and_neutral_confirmations_as_separate_channels() -> None:
+    architecture = _document("architecture.md")
+    risk_policy = _document("risk_policy.md")
+    decisions = _document("decisions.md")
+
+    assert "`findings` and `confirmation_items` are separate output channels" in architecture
+    assert "schema `2.1.0`" in architecture
+    assert "inference config `1.0.5`" in architecture
+    assert "`semantic_hash` includes `confirmation_items`" in architecture
+    assert "Actual-photo browser verification remains required" in architecture
+    assert "`findings` contains only `visible_hazard`" in risk_policy
+    assert "`confirmation_items` never affects overall risk" in risk_policy
+    assert "has no bbox, severity, risk level, or action" in risk_policy
+    assert "No visible hazard means `overall_risk_level=low`" in risk_policy
+    assert "A photo-scoped non-detection does not create an action" in decisions
+    assert "ignores legacy `observations` and `missing_safety_features`" in decisions
+
+
+def test_government_review_limits_red_boxes_to_localized_visible_hazards() -> None:
+    pre_review = _document("pre_government_review.md")
+
+    assert "Red boxes show only localized `visible_hazard` findings." in pre_review
+    assert (
+        "Red boxes show only visible or explicitly missing visible safety features."
+        not in pre_review
+    )
+    assert "missing handrails in visible areas" not in pre_review
+    assert "maps observations and missing visible features to risk findings" not in pre_review

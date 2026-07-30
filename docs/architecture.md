@@ -35,21 +35,21 @@ For a known home room, `is_not_applicable=false` with ordinary empty findings in
 
 Gemini is limited to `VisionFacts`: environment, room type, visible regions, visible entities, feature observations, and relationships. The provider is not asked for severity, Japanese labels, action tiers, recommendations, reports, or final risk decisions.
 
-`RelationshipEngine` accepts a visible hazard only when it has a complete, valid triple:
+`findings` and `confirmation_items` are separate output channels. `RelationshipEngine` accepts a visible hazard into `findings` only when it has a complete, valid triple:
 
 `subject entity ref` + `ontology predicate` + `target visible region/entity`.
 
-The subject must be clear and the predicate/target must be configured for that ontology key. An expected feature becomes a missing-feature finding only when its state is `absent_with_full_coverage` and it has an in-bounds evidence bbox. `cannot_determine` produces no finding. This avoids treating cropped, obscured, or ambiguous areas as absent.
+The subject must be clear and the predicate/target must be configured for that ontology key. An expected feature may become a neutral `confirmation_items` entry only when its state is `absent_with_full_coverage` and the input facts contain an in-bounds coverage bbox. The public confirmation item deliberately carries no bbox, severity, risk level, or action. `cannot_determine` produces neither a finding nor a confirmation item. This avoids treating cropped, obscured, or ambiguous areas as absent or hazardous.
 
 The bathroom safety correction is explicit: the expected feature is `has_shower_chair`; a negative observation is not represented as a fictional `no_shower` feature. Non-home, uncertain, unknown-room, or explicit not-applicable facts produce neutral not-applicable output, not a low-risk or no-risk claim.
 
-Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`, where `rule_kind` distinguishes a visible hazard from a missing expected feature. `RiskFinding` carries that identity into `RuleEngine`, so duplicate `risk_type` values cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for legacy callers, not the relationship path.
+Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`. Only `visible_hazard` identities enter `RiskFinding` and `RuleEngine`; expected-feature non-detections remain neutral confirmation items. Duplicate `risk_type` values therefore cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for unambiguous visible-hazard callers, not the relationship path.
 
 The public `confidence` field remains for API compatibility and deterministic thresholding. Its provider-originated value is an uncalibrated model detection score, not a calibrated probability that the finding is correct. Ordinary reports therefore label it `モデル検出スコア（未校正）`, not confidence.
 
-The public evidence bbox has positive width and height and must remain inside the normalized image frame. Its meaning depends on exact rule identity. For `visible_hazard`, it is a localized visible-evidence region and may participate in danger selection, overlap suppression, and image rendering. For `expected_feature`, it is only a coverage region proving that a relevant area was visible enough for a cautious non-detection; it is not the location of a missing object or an installation position.
+The public evidence bbox on a `RiskFinding` has positive width and height, stays inside the normalized image frame, and always represents a localized `visible_hazard`. A provider-side expected-feature bbox is only a coverage region used to decide whether a cautious neutral confirmation is supportable; it is not exposed on `ConfirmationItem`, is not the location of a missing object, and is not an installation position.
 
-Accordingly, only `visible_hazard` findings receive image overlays. Red boxes and improvement callouts both remain on the same provider evidence bbox. The renderer contains no visual-zone or room-template relocation and never invents a handrail, call-button, product, or construction location. When a result contains only expected-feature non-detections, both image payloads remain the sanitized unannotated photo; the web UI shows one context photo, hides the duplicate improvement card, and explains why the non-detections have no image position. Legacy boolean observations without localized exact visible-hazard evidence cannot create an image overlay.
+Accordingly, only `visible_hazard` findings receive image overlays. Red boxes and improvement callouts both remain on the same provider evidence bbox. The renderer contains no visual-zone or room-template relocation and never invents a handrail, call-button, product, or construction location. When a result contains only confirmation items, both image payloads remain the sanitized unannotated photo; the web UI shows one clean context photo, hides the improvement card and suggestion navigation, and keeps the ordinary applicable low-risk state. Legacy `ChecklistEngine` input has no neutral confirmation return channel, so it ignores `observations` and `missing_safety_features`; only `visible_hazards` can pass the shared `RuleEngine` gate.
 
 Canonicalization clears render-only `display_bbox` before sorting, winner selection, and semantic output. IoU deduplication at `IoU >= 0.5` first matches exact `(ontology_rule_kind, ontology_key)` identity. A `risk_type` fallback is used only when both findings are legacy findings without exact identity, so distinct ontology rules sharing one risk type retain their separate evidence and actions.
 
@@ -57,7 +57,7 @@ Canonicalization clears render-only `display_bbox` before sorting, winner select
 
 `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` is the versioned, room-scoped source of truth. `OntologyRepository` validates its strict schema and exposes:
 
-- `ontology_version`, `schema_version`, and `inference_config_version`;
+- `ontology_version`, schema `2.1.0`, and inference config `1.0.5`;
 - allowed relationship predicates and per-observation targets;
 - rooms, visible hazards, and expected features;
 - a source registry plus basis-to-source mapping; and
@@ -77,7 +77,7 @@ Each HTTP request receives a random `analysis_id` for correlation only. It is in
 
 `result_key` identifies computation inputs: sanitized pixel digest, normalized room hint, preprocess version, ontology version, `schema_version`, configured model, inference configuration version, and the execution policy (for example configured mock, strict Gemini, or Gemini with fallback). It does not contain raw image bytes.
 
-`semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, and action plan. It excludes generated images, timings, execution mode, and render-only `display_bbox`; it includes the fixed not-applicable semantics described above. Findings are canonicalized before policy output so ordering, display mapping, and signed zero do not change the semantic result.
+`semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, confirmation items, and action plan. In other words, `semantic_hash` includes `confirmation_items`. It excludes generated images, timings, execution mode, and render-only `display_bbox`; it includes the fixed not-applicable semantics described above. Findings and confirmation items are canonicalized before policy output so ordering, display mapping, and signed zero do not change the semantic result.
 
 The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
 
@@ -95,7 +95,7 @@ The agent timeout defaults to 120 seconds. The local web proxy adds a 30-second 
 
 ## Benchmark interpretation
 
-The benchmark fixtures are synthetic and repeats are bounded to at most 50. In mock mode, P/R/F1 = 1 only checks that the deterministic pipeline matches those fixtures; it is **not recognition evidence** and must not be presented as visual-recognition accuracy. A real-mode benchmark requires strict status, a reviewed real-photo gold set, and reviewed labels before any accuracy claim.
+The benchmark fixtures are synthetic and repeats are bounded to at most 50. In mock mode, P/R/F1 = 1 only checks that the deterministic pipeline matches those fixtures; it is **not recognition evidence** and must not be presented as visual-recognition accuracy. A real-mode benchmark requires strict status, a reviewed real-photo gold set, and reviewed labels before any accuracy claim. Actual-photo browser verification remains required before claiming that overlays, zero-risk applicable UI, confirmation-only presentation, or recognition behavior work on real homes.
 
 Benchmark output separates schema validity from scoring applicability. `schema_valid_count` includes every schema-valid response. Schema-valid `is_not_applicable=true` results are abstentions, so they do not enter risk P/R/F1, including when the gold risk set is empty. `scored_applicable_response_count` and `scored_applicable_response_coverage` report scored applicable responses, with coverage using the repeated `request_count` as its denominator; `abstained_not_applicable_response_count` reports the excluded valid abstentions. When no applicable response was scored, risk metrics are unavailable with a reason rather than reporting an empty-set accuracy.
 
