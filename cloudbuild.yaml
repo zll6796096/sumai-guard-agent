@@ -266,7 +266,7 @@ steps:
     waitFor: [push-web, gate-agent-candidate]
 
   - id: probe-web-candidate
-    name: curlimages/curl:8.12.1
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: sh
     args:
       - -ceu
