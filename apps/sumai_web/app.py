@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
+import json
 import logging
+import math
 import os
+import uuid
+from contextlib import asynccontextmanager
 from typing import Any
 
-import requests
+import httpx
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 
 load_dotenv()
@@ -22,14 +27,13 @@ SUMAI_AGENT_URL = os.getenv("SUMAI_AGENT_URL", "http://localhost:8080").rstrip("
 SUMAI_WEB_PORT = int(os.getenv("SUMAI_WEB_PORT", "8081"))
 FRONTEND_MOCK = os.getenv("MOCK_MODE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
-app = FastAPI(title="SumaiGuard Web")
+_backend_client: httpx.AsyncClient | None = None
 
 DISCLAIMER = (
     "POC版です。医療・介護・施工判断を代替しません。\n"
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
-WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -475,6 +479,28 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-shrink: 0;
         }
 
+        .analysis-mode-banner {
+            border-radius: 10px;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        .analysis-mode-banner.mode-gemini {
+            background-color: rgba(16, 185, 129, 0.12);
+            border: 1px solid var(--success-color);
+            color: #8BF0C7;
+        }
+
+        .analysis-mode-banner.mode-mock,
+        .analysis-mode-banner.mode-warning {
+            background-color: rgba(245, 158, 11, 0.1);
+            border: 1px solid var(--warning-color);
+            color: #FFD580;
+        }
+
         .summary-item {
             display: flex;
             flex-direction: column;
@@ -810,6 +836,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
             <!-- 2. Completed State Container -->
             <div id="result-completed-container" style="display: none;">
+                <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
                         <span class="summary-label">総合リスク</span>
@@ -1115,6 +1142,14 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function renderResults(payload) {
+            const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
+            const resultSummary = document.querySelector('.result-summary');
+            const notAppContainer = document.getElementById('not-applicable-container');
+            const notAppMsg = document.getElementById('not-applicable-message');
+            const imagesList = document.querySelector('.result-images-list');
+
+            renderAnalysisModeBanner(payload);
+
             // Set risk badge
             const riskBadge = document.getElementById('risk-badge');
             const overallRisk = payload.overall_risk_level || 'medium';
@@ -1125,18 +1160,17 @@ INDEX_HTML = """<!DOCTYPE html>
             const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
 
-            // Check if home environment
-            const notAppContainer = document.getElementById('not-applicable-container');
-            const notAppMsg = document.getElementById('not-applicable-message');
-            const imagesList = document.querySelector('.result-images-list');
-
-            if (payload.is_home_environment === false) {
-                notAppMsg.textContent = payload.not_applicable_reason_ja || "住宅内の安全確認対象ではない可能性があります。";
+            if (isNotApplicable) {
+                notAppMsg.textContent = payload.not_applicable_reason_ja || "この写真では確認結果を表示できません。";
                 notAppContainer.style.display = 'block';
+                resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
+                btnShowSuggestions.style.display = 'none';
             } else {
                 notAppContainer.style.display = 'none';
+                resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
+                btnShowSuggestions.style.display = '';
                 
                 // Set Images
                 document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
@@ -1170,9 +1204,33 @@ INDEX_HTML = """<!DOCTYPE html>
             clearStepAnimation();
             
             // Switch title and transition to completed layout inside Screen 2
-            document.getElementById('screen2-title').textContent = "診断結果";
+            document.getElementById('screen2-title').textContent = "確認結果";
             document.getElementById('result-analyzing-container').style.display = 'none';
             document.getElementById('result-completed-container').style.display = 'block';
+        }
+
+        function renderAnalysisModeBanner(payload) {
+            const banner = document.getElementById('analysis-mode-banner');
+            const mode = typeof payload.mode === 'string' ? payload.mode : '';
+            let text = '実行モードを確認できません';
+            let style = 'mode-warning';
+
+            if (mode === 'gemini') {
+                text = 'Gemini解析結果';
+                style = 'mode-gemini';
+            } else if (mode === 'mock') {
+                text = 'モック結果（AI実解析ではありません）';
+                style = 'mode-mock';
+            } else if (mode === 'local_mock') {
+                text = 'ローカルモック結果（AI実解析ではありません）';
+                style = 'mode-mock';
+            } else if (mode.startsWith('gemini_fallback(')) {
+                text = 'フォールバック結果（Gemini解析として扱わないでください）';
+                style = 'mode-warning';
+            }
+
+            banner.textContent = text;
+            banner.className = 'analysis-mode-banner ' + style;
         }
 
         function updateDebugPanel(payload) {
@@ -1242,6 +1300,101 @@ INDEX_HTML = """<!DOCTYPE html>
 FRONTEND_REQUIRE_REAL_GEMINI = os.getenv("REQUIRE_REAL_GEMINI", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _positive_timeout_env(name: str, default: float | str) -> float:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+_analysis_timeout_fallback = _positive_timeout_env("ANALYSIS_TIMEOUT", 120.0)
+SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS = _positive_timeout_env(
+    "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", _analysis_timeout_fallback
+)
+SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS = _positive_timeout_env(
+    "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", 30.0
+)
+_proxy_timeout_override = os.getenv("SUMAI_AGENT_TIMEOUT_SECONDS", "").strip()
+SUMAI_AGENT_TIMEOUT_SECONDS = (
+    _positive_timeout_env("SUMAI_AGENT_TIMEOUT_SECONDS", 0.0)
+    if _proxy_timeout_override
+    else SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS + SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS
+)
+_required_proxy_timeout = (
+    SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS + SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS
+)
+if SUMAI_AGENT_TIMEOUT_SECONDS < _required_proxy_timeout:
+    raise ValueError(
+        "SUMAI_AGENT_TIMEOUT_SECONDS must be at least "
+        "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS plus "
+        "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS"
+    )
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        await close_backend_client()
+
+
+app = FastAPI(title="SumaiGuard Web", lifespan=lifespan)
+
+
+def backend_client() -> httpx.AsyncClient:
+    global _backend_client
+    if _backend_client is None:
+        _backend_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                SUMAI_AGENT_TIMEOUT_SECONDS,
+                connect=min(10.0, SUMAI_AGENT_TIMEOUT_SECONDS / 2),
+            )
+        )
+    return _backend_client
+
+
+async def close_backend_client() -> None:
+    """Close the reusable backend client before its event loop is discarded."""
+    global _backend_client
+    client = _backend_client
+    _backend_client = None
+    if client is None:
+        return
+    try:
+        await client.aclose()
+    except Exception as exc:
+        logger.warning("backend_client_close_failed", extra={"failure_type": type(exc).__name__})
+
+
+def _safe_backend_unavailable() -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "error": "gemini_unavailable",
+            "message": "Real Gemini analysis is required but unavailable.",
+        },
+    )
+
+
+def _safe_backend_client_error(status_code: int) -> JSONResponse:
+    if status_code in {400, 422}:
+        content = {
+            "error": "invalid_upload",
+            "message": "画像または入力内容が無効です。内容を確認して、もう一度お試しください。",
+        }
+    else:
+        content = {
+            "error": "backend_request_rejected",
+            "message": "分析リクエストを処理できませんでした。入力内容を確認してください。",
+        }
+    return JSONResponse(status_code=status_code, content=content)
+
+
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
@@ -1259,34 +1412,59 @@ async def analyze(
     try:
         files = {"image": (image.filename or "photo.png", image_bytes, image.content_type or "image/png")}
         data = {"room_hint": room_hint, "mock": "true" if FRONTEND_MOCK else "false"}
-        response = requests.post(f"{SUMAI_AGENT_URL}/analyze", data=data, files=files, timeout=60)
+        response = await backend_client().post(
+            f"{SUMAI_AGENT_URL}/analyze", data=data, files=files
+        )
 
         if response.status_code == 200:
-            return JSONResponse(content=response.json())
-
-        # Strict mode: never fallback on error
-        if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
             try:
-                err_data = response.json()
-            except Exception:
-                err_data = {"error": "gemini_unavailable", "message": f"Backend returned status {response.status_code}"}
-            return JSONResponse(status_code=503, content=err_data)
+                return JSONResponse(content=response.json())
+            except Exception as exc:
+                if FRONTEND_REQUIRE_REAL_GEMINI:
+                    return _safe_backend_unavailable()
+                logger.warning(
+                    "backend_invalid_json", extra={"failure_type": type(exc).__name__}
+                )
+                payload = _build_local_mock(image_bytes, room_hint, "backend_invalid_response")
+                return JSONResponse(content=payload)
 
-        logger.warning(f"Backend returned non-200: {response.status_code}, using fallback mock.")
-        payload = _build_local_mock(image_bytes, room_hint, f"Backend HTTP {response.status_code}")
-        return JSONResponse(content=payload)
-
-    except Exception as exc:
-        if FRONTEND_REQUIRE_REAL_GEMINI:
-            return JSONResponse(
-                status_code=503,
-                content={
-                    "error": "gemini_unavailable",
-                    "message": f"Real Gemini analysis is required but backend is unreachable: {exc}"
-                }
+        # Client errors describe this request, not backend availability. Preserve
+        # their status without trusting or forwarding the upstream body.
+        if 400 <= response.status_code < 500:
+            logger.warning(
+                "backend_request_rejected",
+                extra={"status_code": response.status_code},
             )
-        logger.warning(f"Backend call failed: {exc}, using fallback mock.")
-        payload = _build_local_mock(image_bytes, room_hint, str(exc))
+            return _safe_backend_client_error(response.status_code)
+
+        # A backend 503 always indicates that the strict provider path failed.
+        # Its response body is not trusted because it may contain provider details.
+        if FRONTEND_REQUIRE_REAL_GEMINI or response.status_code == 503:
+            return _safe_backend_unavailable()
+
+        if 500 <= response.status_code < 600:
+            logger.warning(
+                "backend_non_200", extra={"status_code": response.status_code}
+            )
+            payload = _build_local_mock(image_bytes, room_hint, "backend_http_error")
+            return JSONResponse(content=payload)
+
+        logger.warning(
+            "backend_invalid_status", extra={"status_code": response.status_code}
+        )
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": "backend_invalid_response",
+                "message": "分析サービスから有効な応答を受け取れませんでした。",
+            },
+        )
+
+    except httpx.RequestError as exc:
+        if FRONTEND_REQUIRE_REAL_GEMINI:
+            return _safe_backend_unavailable()
+        logger.warning("backend_call_failed", extra={"failure_type": type(exc).__name__})
+        payload = _build_local_mock(image_bytes, room_hint, "backend_unreachable")
         return JSONResponse(content=payload)
 
 
@@ -1296,117 +1474,108 @@ def healthz() -> dict[str, str]:
 
 
 def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[str, Any]:
-    """Generates the local mock payload internally using PIL if the backend is unreachable."""
+    """Return a neutral abstention when the analysis backend is unreachable."""
     try:
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception:
-        # Generate raw placeholder if corrupt
         image = Image.new("RGB", (800, 600), (15, 16, 32))
 
-    annotated = image.copy()
-    draw = ImageDraw.Draw(annotated)
-    width, height = annotated.size
-    box = (int(width * 0.16), int(height * 0.55), int(width * 0.72), int(height * 0.82))
-    draw.rectangle(box, outline=(220, 38, 38), width=max(5, width // 120))
-    draw.rectangle((box[0], max(0, box[1] - 34), box[0] + 58, box[1]), fill=(220, 38, 38))
-    draw.text((box[0] + 8, max(0, box[1] - 28)), "注意", fill=(255, 255, 255), font=_font(24))
-
-    improvement = _local_improvement_image(image, annotated)
-    room_label = ROOM_LABELS.get(room_hint, "おまかせ")
-    return {
-        "analysis_id": "local_fallback",
-        "room_type": room_hint,
-        "overall_risk_level": "medium",
-        "mode": "local_mock",
-        "findings": [{"id": "注意"}],
-        "annotated_image_base64": _to_base64_png(annotated),
-        "improvement_image_base64": _to_base64_png(improvement),
-        "risk_summary_markdown": (
-            "## リスク概要\n"
-            f"- 部屋: {room_label}\n"
-            "- 総合リスク: 中\n\n"
-            "### 注意箇所: 動線上の注意箇所\n"
-            "- 危険な理由: 写真上の床・通路まわりに、つまずきや滑りにつながる可能性があります。\n"
-            "- 参考根拠: 高齢者住宅安全チェックの一般原則\n"
-            "- 信頼度: ローカルフォールバック\n"
-            f"- 備考: バックエンド未接続のためローカルフォールバック表示しています。`{reason[:120]}`"
-        ),
-        "family_actions_markdown": (
-            "## 家族で今日できること\n\n"
-            "### 通る場所だけ先に空ける\n"
-            "- 内容: 床・段差・通路にある物を移動し、足を置く場所を広くします。\n"
-            "- 理由: 追加費用なしで、つまずきや回避動作を減らすためです。"
-        ),
-        "care_manager_actions_markdown": (
-            "## ケアマネ・福祉用具に相談\n\n"
-            "### 福祉用具の候補を相談\n"
-            "- 内容: 滑り止め、置き型手すり、補助用品などが必要か相談します。\n"
-            "- 理由: 写真だけでは本人の動作や寸法に合うか判断できないためです。"
-        ),
-        "contractor_actions_markdown": (
-            "## 専門施工・現地確認\n\n"
-            "### 現地確認の要否を判断\n"
-            "- 内容: 固定手すりや床材変更が必要そうな場合だけ、専門職が現地で確認します。\n"
-            "- 理由: 施工可否、下地、寸法は写真だけでは判断しないためです。"
-        ),
-        "disclaimer_ja": DISCLAIMER,
+    image_base64 = _to_base64_png(image)
+    pixel_payload = (
+        image.mode.encode("ascii")
+        + image.width.to_bytes(4, "big")
+        + image.height.to_bytes(4, "big")
+        + image.tobytes()
+    )
+    pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
+    result_identity = {
+        "execution_mode": "local_mock_abstention",
+        "inference_config_version": "1.0.0",
+        "model": "N/A",
+        "ontology_version": "1.0.0",
+        "pixel_digest": pixel_digest,
+        "preprocess_version": "1.0.0",
+        "room_hint": room_hint,
+        "schema_version": "2.0.0",
     }
-
-
-def _local_improvement_image(image: Image.Image, annotated: Image.Image) -> Image.Image:
-    canvas = image.convert("RGB").copy()
-    width, height = canvas.size
-    footer_h = max(36, height // 16)
-    output = Image.new("RGB", (width, height + footer_h), (248, 250, 252))
-    output.paste(canvas, (0, 0))
-
-    draw = ImageDraw.Draw(output, "RGBA")
-    label_font = _font(max(16, width // 42))
-    small_font = _font(max(12, width // 54))
-
-    safe_zone = (int(width * 0.16), int(height * 0.58), int(width * 0.72), int(height * 0.82))
-    draw.rounded_rectangle(safe_zone, radius=10, fill=(22, 163, 74, 48), outline=(22, 163, 74, 230), width=4)
-    draw.rounded_rectangle((36, 36, 206, 82), radius=8, fill=(255, 255, 255, 235))
-    draw.text((50, 48), "動線確保", fill=(17, 24, 39), font=label_font)
-
-    footer_y = height
-    draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255, 235))
-    draw.text((16, footer_y + 8), WATERMARK, fill=(71, 85, 105), font=small_font)
-    return output
-
-
-def _font(size: int) -> ImageFont.ImageFont:
-    candidates = [
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",
-        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
-        "/Library/Fonts/Arial Unicode.ttf",
-    ]
-    for path in candidates:
-        try:
-            if os.path.exists(path):
-                return ImageFont.truetype(path, size=size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    result_key = hashlib.sha256(
+        json.dumps(
+            result_identity, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    not_applicable_reason = (
+        "解析バックエンドに接続できないため、安全上の判定を保留しました。"
+        f"再接続後に解析してください（{reason[:120]}）。"
+    )
+    semantic_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "action_plan": {
+                    "care_manager_purchase": [],
+                    "contractor_construction": [],
+                    "family_no_cost": [],
+                },
+                "findings": [],
+                "is_home_environment": True,
+                "not_applicable_reason_ja": not_applicable_reason,
+                "room_type": "auto",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    neutral_report = (
+        "## 判定保留\n\n"
+        f"{not_applicable_reason}\n\n"
+        "この表示は写真の安全性を評価した結果ではありません。"
+    )
+    empty_actions = "## 表示なし\n\n判定保留中のため、行動候補を表示していません。"
+    return {
+        "analysis_id": f"local_{uuid.uuid4().hex}",
+        "room_type": "auto",
+        "overall_risk_level": "low",
+        "mode": "local_mock",
+        "is_home_environment": True,
+        "is_not_applicable": True,
+        "not_applicable_reason_ja": not_applicable_reason,
+        "findings": [],
+        "action_plan": {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        },
+        "annotated_image_base64": image_base64,
+        "improvement_image_base64": image_base64,
+        "risk_summary_markdown": neutral_report,
+        "family_actions_markdown": empty_actions,
+        "care_manager_actions_markdown": empty_actions,
+        "contractor_actions_markdown": empty_actions,
+        "disclaimer_ja": DISCLAIMER,
+        "model": "N/A",
+        "result_key": result_key,
+        "semantic_hash": semantic_hash,
+        "schema_version": "2.0.0",
+        "ontology_version": "1.0.0",
+        "preprocess_version": "1.0.0",
+        "inference_config_version": "1.0.0",
+        "stage_timings_ms": {
+            "intake": 0,
+            "memo_lookup": 0,
+            "vision": 0,
+            "ontology": 0,
+            "render": 0,
+            "report": 0,
+            "serialize": 0,
+            "total": 0,
+        },
+    }
 
 
 def _to_base64_png(image: Image.Image) -> str:
     output = io.BytesIO()
     image.save(output, format="PNG", optimize=True)
     return base64.b64encode(output.getvalue()).decode("ascii")
-
-
-ROOM_LABELS = {
-    "auto": "おまかせ",
-    "genkan": "玄関",
-    "hallway": "廊下",
-    "bathroom": "浴室",
-    "toilet": "トイレ",
-    "bedroom": "寝室",
-    "kitchen": "キッチン",
-}
-
 
 if __name__ == "__main__":
     import uvicorn

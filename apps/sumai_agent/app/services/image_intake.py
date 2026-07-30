@@ -6,6 +6,7 @@ from PIL import Image, ImageOps
 
 
 MAX_DIMENSION = 1600
+PREPROCESS_VERSION = "1.0.0"
 
 
 def read_and_sanitize_image(image_bytes: bytes, max_dimension: int = MAX_DIMENSION) -> tuple[Image.Image, bytes]:

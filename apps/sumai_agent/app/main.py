@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import sys
+import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
@@ -28,7 +30,7 @@ def _setup_logging() -> None:
             for key in ("analysis_id", "mode", "model", "room_hint", "mock_or_gemini",
                         "number_of_findings", "latency_ms", "fallback_reason",
                         "finding_count", "reason", "raw_length", "index", "error",
-                        "original", "type"):
+                        "original", "type", "stage_timings_ms", "cache_hit"):
                 value = getattr(record, key, None)
                 if value is not None:
                     log_entry[key] = value
@@ -44,8 +46,21 @@ def _setup_logging() -> None:
 _setup_logging()
 logger = logging.getLogger("sumai.main")
 
-app = FastAPI(title="SumaiGuard Agent", version=settings.version)
 orchestrator = AnalysisOrchestrator()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        yield
+    finally:
+        try:
+            await orchestrator.aclose()
+        except Exception:
+            logger.error("orchestrator_close_failed")
+
+
+app = FastAPI(title="SumaiGuard Agent", version=settings.version, lifespan=lifespan)
 
 logger.info(
     "server_startup",
@@ -93,7 +108,30 @@ async def analyze(
         raise HTTPException(status_code=400, detail="画像ファイルを指定してください。")
 
     try:
-        return await orchestrator.analyze(upload=image, room_hint=room_hint, mock=mock)
+        response = await orchestrator.analyze(upload=image, room_hint=room_hint, mock=mock)
+        serialize_started = time.monotonic()
+        content = response.model_dump(mode="json")
+        stage_timings_ms = content["stage_timings_ms"]
+        stage_timings_ms["serialize"] = max(
+            0, int((time.monotonic() - serialize_started) * 1000)
+        )
+        # This is an instrumented application-stage sum, not HTTP end-to-end latency:
+        # Starlette JSON encoding, socket, and network time are intentionally excluded.
+        stage_timings_ms["total"] = sum(
+            value for key, value in stage_timings_ms.items() if key != "total"
+        )
+        logger.info(
+            "analysis_complete",
+            extra={
+                "analysis_id": response.analysis_id,
+                "mode": response.mode,
+                "model": response.model,
+                "number_of_findings": len(response.findings),
+                "stage_timings_ms": stage_timings_ms,
+                "cache_hit": response._cache_hit,
+            },
+        )
+        return JSONResponse(content=content)
     except GeminiUnavailableError as exc:
         return JSONResponse(
             status_code=503,

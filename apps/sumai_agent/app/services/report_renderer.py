@@ -21,6 +21,24 @@ RISK_LABELS = {
 
 
 class ReportRenderer:
+    def render_not_applicable(self, reason_ja: str) -> dict[str, str]:
+        summary = "\n".join(
+            [
+                "## リスク概要",
+                "- 判定: 対象外または判定不能",
+                f"- 理由: {reason_ja}",
+                "- 写真から安全性を判定できません。",
+                "- 安全または低リスクという意味ではないため、写真外の状況を含めて確認が必要です。",
+            ]
+        )
+        undecided = "対象外または判定不能のため、具体的な提案は表示していません。"
+        return {
+            "risk_summary_markdown": summary,
+            "family_actions_markdown": f"## 家族で今日できること\n\n{undecided}",
+            "care_manager_actions_markdown": f"## ケアマネ・福祉用具に相談\n\n{undecided}",
+            "contractor_actions_markdown": f"## 専門施工・現地確認\n\n{undecided}",
+        }
+
     def render(
         self,
         room_type: RoomType,
@@ -69,7 +87,7 @@ class ReportRenderer:
                     f"- 理由の根拠: {finding.evidence_ja}",
                     f"- 参考根拠: {finding.basis_label_ja}",
                     f"- 根拠の要約: {finding.basis_summary_ja}",
-                    f"- 信頼度: {confidence_percent}%",
+                    f"- モデル検出スコア（未校正）: {confidence_percent}%",
                 ]
             )
             if finding.needs_human_confirmation:

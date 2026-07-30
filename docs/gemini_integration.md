@@ -1,149 +1,74 @@
 # Gemini Integration
 
-## Overview
+## Boundary
 
-SumaiGuard Agent uses the Google GenAI SDK (`google-genai`) to analyze home photos for elderly fall/slip/trip risks. Gemini provides risk candidates via structured JSON output; the deterministic rule engine controls all action routing afterward.
+Gemini is a minimal visual-evidence extractor for one possible home photo. It may return environment, room, visible regions, entities, expected-feature observations, and relationships. It must not decide risk severity, labels, action tiers, recommendations, report text, medical/care/insurance meaning, legal compliance, or construction feasibility. Python owns all of those downstream decisions.
 
-## SDK
+The POC remains usable in clearly labelled mock mode. It never persists uploaded images; intake strips EXIF by re-encoding sanitized pixels, and logs exclude image bytes, raw provider payloads, and API keys.
 
-- Package: `google-genai>=0.6.0`
-- Client: `genai.Client(api_key=...)`
-- Model: Configurable via `GEMINI_MODEL` (default: `gemini-2.5-flash`)
+## SDK and lifecycle
+
+- Dependency: `google-genai>=2.10.0,<3.0`.
+- The service creates `genai.Client(api_key=...)` lazily and reuses it while the process is alive.
+- Provider calls are asynchronous: `await client.aio.models.generate_content(...)`.
+- FastAPI lifespan calls `aclose()` on shutdown, which closes `client.aio` when present.
+- The web proxy has its own reusable async `httpx.AsyncClient`; it is not the Gemini client.
+
+No API key example belongs in this document or in logs.
 
 ## Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GEMINI_API_KEY` | (empty) | API key from Google AI Studio |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
-| `MOCK_MODE` | `true` | Skip Gemini when true |
-| `REQUIRE_REAL_GEMINI` | `false` | Sets strict production mode where mock fallback is disabled |
-| `ANALYSIS_TIMEOUT` | `120` | Timeout in seconds |
+| Variable | Default | Meaning |
+|---|---:|---|
+| `GEMINI_API_KEY` | empty | Enables a real provider request when mock mode is off. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Provider model identifier included in computation identity. |
+| `MOCK_MODE` | `true` | Uses deterministic local facts instead of Gemini. |
+| `REQUIRE_REAL_GEMINI` | `false` | Strict mode: real Gemini is required and fallback is disabled. |
+| `ANALYSIS_TIMEOUT` | `120` | Agent-side provider budget in seconds. |
 
-## Prompt Design
+The web proxy budget is separate: it defaults to the 120-second agent budget plus a 30-second margin (150 seconds). See `docs/architecture.md` for its scope and timing definition.
 
-The vision prompt instructs Gemini to:
+## Facts contract
 
-1. Analyze one home photo for elderly fall/slip/trip risks.
-2. Identify only risks **visible** in the image.
-3. Use `room_hint` as weak context (correctable).
-4. Return strict JSON with the `VisionResult` schema.
-5. Never say "違反" — use cautious phrases instead:
-   - リスクがあります
-   - 該当する可能性があります
-   - 専門確認が必要です
-6. Never claim exact measurements.
-7. Never invent objects not visible in the photo.
-8. Never produce final renovation/medical/insurance/construction judgment.
+The current provider contract is `GEMINI_FACTS_JSON_SCHEMA`, passed as the JSON response schema with `response_mime_type="application/json"`. It is ontology-derived and closed: room names, entity keys, expected feature keys, relationship predicates, and visible regions come from `room_checklists.yaml`.
 
-### Structured Output
+`VisionFacts` contains only these typed facts:
 
-The API call uses `response_mime_type="application/json"` to enforce JSON output:
+- `environment`: `home`, `non_home`, or `uncertain`;
+- `room_type`, including `unknown` when the photo does not establish a room;
+- declared `visible_regions`;
+- entities with a unique `ref`, ontology key, visibility, score, and evidence bbox;
+- expected-feature observations with `present`, `absent_with_full_coverage`, or `cannot_determine`; and
+- full relationship triples: `subject`, `predicate`, `object`.
 
-```python
-config=types.GenerateContentConfig(response_mime_type="application/json")
-```
+The prompt requires direct, minimal visual evidence. A feature may be `absent_with_full_coverage` only when the relevant area is fully visible. Cropped, obscured, or ambiguous evidence must be `cannot_determine`; it creates no missing-feature finding. Negative observation of a bathroom chair uses the expected key `has_shower_chair`, not a negated ontology key.
 
-## Bbox Normalization
+Evidence bboxes are normalized floating-point values in the inclusive 0..1 image coordinate domain, with positive width/height and `x + w` / `y + h` in bounds. Evidence bboxes are analysis facts; a presentation-only `display_bbox` is derived later and is not provider evidence. The legacy parser has compatibility tests, but it is not the current provider contract and does not justify a provider-path default box or coordinate clamping.
 
-Gemini sometimes returns bbox coordinates in different ranges. The service handles:
+## Strict parsing and deterministic ownership
 
-### Normal Range (0–1)
-Values already in 0–1 are used as-is.
+The parser rejects malformed JSON, non-object responses, missing required fields, unknown vocabulary, unknown region, unknown predicate, duplicate entity refs, duplicate feature observations, dangling relationships, non-boolean/non-numeric strict values, and invalid or out-of-bounds bboxes. It logs only a safe failure reason and raw length, never raw provider content. It does not silently skip invalid facts.
 
-### 0–1000 Range
-If any bbox value is > 1.0 but all values are ≤ 1000, divide by 1000:
+After parsing, `RelationshipEngine` verifies room-scoped ontology membership and the configured subject/predicate/target triple. It resolves the rule by exact `(room, ontology_key, rule_kind)` identity and carries that identity on the finding. `RuleEngine` then uses the same rule to assign severity, Japanese wording, source IDs, model-score threshold treatment, and actions from `room_checklists.yaml`; duplicate `risk_type` values cannot redirect this path. The compatible `confidence` field is an uncalibrated model signal, not a probability of correctness. Gemini cannot override the deterministic policy or its three action tiers.
 
-```
-{x: 100, y: 200, w: 500, h: 300} → {x: 0.1, y: 0.2, w: 0.5, h: 0.3}
-```
+Non-home, uncertain, unknown-room, or explicitly not-applicable facts yield neutral not-applicable output rather than a low-risk/no-risk conclusion.
 
-### Invalid Values
-- Negative values → clamped to 0.0
-- Values > 1.0 (after normalization) → clamped to 1.0
-- Zero-size boxes → replaced with minimum visible size
-- Missing bbox → safe default with `needs_human_confirmation=true`
+## Failure and fallback behavior
 
-## Fallback Behavior (Only when REQUIRE_REAL_GEMINI=false)
+With `REQUIRE_REAL_GEMINI=true`, missing key, timeout, provider error, malformed response, or parser rejection returns safe HTTP 503 (`gemini_unavailable`). No mock result is presented as real Gemini analysis.
 
-When strict mode is disabled (`REQUIRE_REAL_GEMINI=false`), the service falls back to mock mode (with explicit warnings) when:
+With strict mode off, a real-call timeout, provider error, or parser rejection returns deterministic mock facts with mode `gemini_fallback(reason)`. Such fallback work is explicitly labelled and is not memoized. If no key is configured, the service enters direct `mock` mode; it does not claim a Gemini call occurred. Forced mock and configured mock are likewise explicit modes.
 
-| Condition | Fallback Reason |
-|-----------|----------------|
-| `MOCK_MODE=true` | Configured mock mode |
-| `GEMINI_API_KEY` empty | No API key |
-| JSON decode error | `gemini_json_decode_error` |
-| Unexpected JSON type | `gemini_unexpected_json_type` |
-| Request timeout | `gemini_timeout` |
-| Any API exception | `gemini_error: <type>: <message>` |
+The public response exposes `is_not_applicable` as a strict boolean. Only a true value is neutral not-applicable: it requires empty findings/actions and a non-empty neutral reason, so the web result screen hides its compatibility `overall_risk_level=low`, risk summary, images, and action navigation. A known home room with false plus ordinary empty findings remains the normal low-compatible “no obvious candidate detected” result, not neutral output. Its non-debug `analysis-mode-banner` always displays whether the result was Gemini, mock, local mock, or fallback; mock/fallback are never labelled as Gemini analysis.
 
-Fallback:
-- Returns valid mock findings for the requested room type.
-- Logs the fallback reason.
-- Sets the mode to `gemini_fallback(reason)` in the response.
+The web-only `local_mock` availability path is also neutral: if the backend is unreachable outside strict mode, it returns `is_not_applicable=true`, an auto room, empty findings/actions, and identical unannotated images. It is not the agent's deterministic mock analysis and never creates a synthetic red box or recommendation.
 
-### Strict Mode Behavior (When REQUIRE_REAL_GEMINI=true)
+## Testing and safe operation
 
-If `REQUIRE_REAL_GEMINI=true` is set:
-- Mock mode fallback is completely disabled.
-- If the Gemini API key is missing or any call fails, the backend immediately throws a `GeminiUnavailableError` and returns `503 Service Unavailable` with `{"error": "gemini_unavailable"}`.
-- If a non-home image is uploaded, it returns `is_home_environment=false`, 0 findings, and `overall_risk_level=low` without fallback.
-
-## Pydantic Validation
-
-All findings are validated through `RiskFinding` and `BoundingBox` Pydantic models:
-
-- `BoundingBox`: x, y, w, h all `ge=0.0, le=1.0`
-- `RiskFinding`: severity `ge=1, le=5`, confidence `ge=0.0, le=1.0`
-- Invalid individual findings are skipped (logged as `gemini_finding_parse_error`)
-
-## Rule Engine Boundary
-
-**Critical**: Gemini may identify visible risks, but it **cannot override** the deterministic rule engine:
-
-- Family actions remain no-cost only.
-- Care manager actions remain purchase/rental/welfare-equipment only.
-- Contractor actions remain construction/on-site confirmation only.
-- Action routing is controlled by `demo_rules.yaml` and the `RuleEngine` class.
-
-## Logging
-
-Structured JSON logs include:
-
-| Field | Description |
-|-------|-------------|
-| `analysis_id` | Correlation ID for the request |
-| `mode` | `mock`, `gemini`, or `gemini_fallback` |
-| `model` | Gemini model name |
-| `latency_ms` | Time taken in milliseconds |
-| `finding_count` | Number of findings returned |
-| `fallback_reason` | Why fallback occurred (if applicable) |
-
-Never logged: image bytes, API keys.
-
-## Smoke Test
+Run the backend suite with the project Python environment:
 
 ```bash
-GEMINI_API_KEY=your-key ./scripts/smoke_real_gemini.sh
+python3 -m pytest apps/sumai_agent/tests -v
 ```
 
-This script:
-1. Leverages the python runner `scripts/smoke_real_gemini.py`.
-2. Validates home environment checks using hallway sample image.
-3. Validates non-home environment checks using generated solid color image.
-4. Validates that strict mode works and correctly rejects mock data.
-5. Never prints the API key.
-
-## Testing
-
-```bash
-python -m pytest apps/sumai_agent/tests -v
-```
-
-Tests cover:
-- Strict mode HTTP 503 error responses when Gemini is unavailable.
-- Home environment detection (returns is_home_environment=True).
-- Non-home environment detection (returns is_home_environment=False).
-- Empty findings fallback text rendering on action lists.
-- Confidence thresholding (<0.45 discarded; 0.45-0.60 keeps only known risk + needs human confirm; unknown risk needs >=0.75).
-- Valid JSON parsing and bbox normalizations.
+Tests cover strict 503 behavior, facts parsing, relationship targets, full-coverage absence, deterministic policy, mock analysis, lifecycle closure, and the distinction between evidence and presentation rendering. A real smoke test requires an intentionally supplied environment key and must be treated as a connectivity/status check, not an accuracy evaluation.

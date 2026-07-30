@@ -2,6 +2,8 @@
 
 Review date: 2026-07-13 JST
 
+Repository-state correction: 2026-07-29 JST (source layer and rule-source facts only).
+
 Scope: government-contact readiness for SumaiGuard Agent / 親の家 安全チェックAI.
 
 ## 1. Current Gap Table
@@ -13,10 +15,10 @@ Scope: government-contact readiness for SumaiGuard Agent / 親の家 安全チ�
 | Privacy, consent, and deletion explanation are insufficient for government-facing use. | High | User / Government / Legal | `image_intake.py` strips EXIF and app does not persist images, but no user consent/deletion page exists. | Add consent/privacy text: no storage, EXIF strip, logs, third-party Gemini processing, pilot data handling, deletion/non-retention. | Yes. |
 | Mock/fallback can look like successful analysis outside debug mode. | High | Government / Technical | Backend fallback when `REQUIRE_REAL_GEMINI=false`; frontend local fallback when backend unreachable. | Government demo must set `MOCK_MODE=false` and `REQUIRE_REAL_GEMINI=true`; show `/status` and logs; disable or visibly label frontend local fallback for government mode. | Yes. |
 | Strict mode malformed JSON may still become mock output because `parse_vision_json()` falls back to mock on JSON decode/type errors. | High | Technical / Government | `gemini_vision.py` returns `mock_vision_result()` on malformed JSON; strict path calls `_call_gemini()` and receives a valid-looking result. | Add strict parsing path that raises `GeminiUnavailableError` on malformed/invalid Gemini output; add test. | Yes before real demo. |
-| Risk basis labels are too generic and do not carry URL/publisher/source IDs. | High | Government / Technical | `room_checklists.yaml` uses labels like "厚労省...関連" and "一般原則"; report renderer shows label/summary only. | Add evidence source registry with URL, publisher, source ID, supported risk/action categories; expose in report. | Yes for serious pre-consultation materials; code wiring can follow after contact. |
+| Source provenance exists in code but is not yet an externally reviewed government evidence package. | Medium | Government / Technical | `room_checklists.yaml` contains `source_registry` entries with source IDs, publisher, and URL plus `basis_source_map`; `OntologyRepository` validates the mapping and findings carry source IDs. The ordinary report still shows basis label/summary rather than full citations. | Review source coverage with appropriate experts and expose verified publisher/URL citations in government materials. Engineering provenance is not government endorsement. | Yes before serious pilot or official-evidence claims; not a blocker to a carefully framed first consultation. |
 | No explicit "写真だけでは判断できない項目" section. | High | User / Government / Legal | Report has `要確認` per finding, but no consolidated photo-limit section. | Report should list dimensions, wall backing, floor friction, resident movement, care level, subsidy eligibility, construction feasibility as not judgeable from one photo. | Yes before demo. |
 | Non-home detection is helpful but not robustly validated. | Medium | Technical / Government | Tests include solid-color non-home; prompt lists non-home examples. | Add test fixtures for people-only, outdoor street, public facility, document, product close-up, and furniture showroom. | No for first inquiry, yes before pilot. |
-| Low-confidence/unknown filtering exists but user-facing uncertainty is weak. | Medium | User / Government | Rule engine filters `<0.45`, known `0.45-0.60` as human confirmation, unknown requires `>=0.75`. | Surface "候補/要確認" in UI summary and report. | Yes before live government demo. |
+| Low-score/unknown filtering exists but user-facing uncertainty is still limited. | Medium | User / Government | Rule engine treats the uncalibrated model score as a routing signal: `<0.45` is filtered, known `0.45-0.60` requires human confirmation, and unknown requires `>=0.75`. | Keep the explicit uncalibrated label and surface "候補/要確認" in UI summary and report. | Yes before live government demo. |
 | Visual boxes may be approximate or mapped to heuristic zones. | Medium | User / Government / Technical | `visual_renderer.py` remaps some risk types to fixed zones and caps to three boxes. | Label boxes as "表示位置は目安"; keep original evidence text; avoid using boxes as measurement or construction position. | Yes before demo. |
 | Improvement image may imply final renovation design. | Medium | Legal / Government | UI says "改善イメージ"; watermark says not construction drawing. | Rename to "相談用イメージ" or "改善候補イメージ"; repeat it is not a design, quote, or construction instruction. | Yes before demo. |
 | Family no-cost tier mostly works, but some family actions may imply adding items if not already owned. | Medium | User / Commercial / Legal | Some checklist wording references lights/mats/stands; rule engine blocks explicit purchase words only. | Audit family tier so it says "既存の照明を使う", "今ある物を移動する", no purchase. | Yes. |
@@ -55,7 +57,7 @@ These can follow after receiving municipal feedback:
 
 - More room/risk test fixtures.
 - Expert review workflow for care managers or福祉住環境コーディネーター.
-- Better source-ID wiring in the API response and report renderer.
+- Expose reviewed `source_registry` publisher/URL citations in the report or government exhibit; API source-ID mapping already exists through `basis_source_map`.
 - Anonymized sample report package.
 - Accessibility improvements for elderly users and caregivers.
 - Evaluation dashboard for pilot results, only with approved anonymization.
@@ -74,4 +76,3 @@ Do not add now:
 - Paid prioritization.
 
 Why: in an older-adult safety context, commercial conversion can look like fear-based誘導, conflict of interest, or public-service capture. If ever considered, it must be separated from the公益版 by governance, disclosure, opt-in, and independent expert review. For government contact, the product should be framed as公益 PoC only.
-

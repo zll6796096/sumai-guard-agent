@@ -1,0 +1,15 @@
+version: "1"
+classification: synthetic
+cases:
+  - id: hallway_synthetic
+    image: apps/sumai_web/assets/samples/hallway_sample.png
+    room_hint: hallway
+    expected_risk_types: [hallway_cord]
+  - id: bathroom_synthetic
+    image: apps/sumai_web/assets/samples/bathroom_sample.png
+    room_hint: bathroom
+    expected_risk_types: [bathroom_slip]
+  - id: genkan_synthetic
+    image: apps/sumai_web/assets/samples/genkan_sample.png
+    room_hint: genkan
+    expected_risk_types: [genkan_step]

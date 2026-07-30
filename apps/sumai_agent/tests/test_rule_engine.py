@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from app.models import BoundingBox, RiskFinding
+from app.ontology import OntologyRepository
+from app.services.relationship_engine import RelationshipEngine
 from app.services.rule_engine import RuleEngine
+from app.models import VisionFacts
 
 
 def _finding(
@@ -27,7 +30,7 @@ def _finding(
 def test_rule_engine_keeps_family_actions_no_cost_only() -> None:
     engine = RuleEngine()
 
-    findings, plan = engine.apply([_finding("loose_mat")])
+    findings, plan = engine.apply([_finding("loose_mat")], "hallway")
 
     assert findings[0].basis_label_ja
     assert plan.family_no_cost
@@ -44,7 +47,63 @@ def test_rule_engine_keeps_family_actions_no_cost_only() -> None:
 def test_rule_engine_marks_low_confidence_for_human_confirmation() -> None:
     engine = RuleEngine()
 
-    findings, _ = engine.apply([_finding(confidence=0.52)])
+    findings, _ = engine.apply([_finding(confidence=0.52)], "hallway")
 
     assert len(findings) == 1
     assert findings[0].needs_human_confirmation is True
+
+
+def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
+    ontology = OntologyRepository.load_default()
+    facts = VisionFacts.model_validate(
+        {
+            "environment": "home",
+            "room_type": "genkan",
+            "visible_regions": ["walking_path"],
+            "entities": [
+                {
+                    "ref": "e1",
+                    "ontology_key": "cluttered_path",
+                    "bbox": {"x": 0.7, "y": 0.1, "w": 0.1, "h": 0.1},
+                    "visibility": "clear",
+                    "model_score": 0.9,
+                }
+            ],
+            "feature_observations": [],
+            "relationships": [
+                {"subject": "e1", "predicate": "obstructs", "object": "walking_path"}
+            ],
+            "not_applicable_reason_code": None,
+        }
+    )
+    derived = RelationshipEngine(ontology).derive(facts)
+
+    findings, plan = RuleEngine(ontology=ontology).apply(derived, "genkan")
+
+    assert findings[0].ontology_key == "cluttered_path"
+    assert findings[0].label_ja == "玄関動線の障害物"
+    assert [action.title_ja for action in plan.family_no_cost] == [
+        "動線上の荷物を片付ける"
+    ]
+
+
+def test_exact_rule_identity_overrides_stale_label_basis_and_severity() -> None:
+    finding = _finding("cluttered_path", severity=5).model_copy(
+        update={
+            "label_ja": "誤った表示",
+            "basis_label_ja": "誤った根拠",
+            "basis_summary_ja": "誤った要約",
+            "ontology_key": "cluttered_path",
+            "ontology_rule_kind": "visible_hazard",
+        }
+    )
+
+    findings, plan = RuleEngine().apply([finding], "genkan")
+
+    assert findings[0].label_ja == "玄関動線の障害物"
+    assert findings[0].severity == 3
+    assert findings[0].basis_label_ja == "消費者庁 転倒予防ポイントに基づく一般注意"
+    assert findings[0].basis_summary_ja.startswith("玄関まわりの荷物や傘立て等")
+    assert [action.title_ja for action in plan.family_no_cost] == [
+        "動線上の荷物を片付ける"
+    ]

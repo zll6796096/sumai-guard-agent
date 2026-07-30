@@ -119,7 +119,7 @@ In strict mode:
 - Mock mode fallback is completely disabled.
 - If the Gemini API key is missing or calls fail, the backend returns `503 Service Unavailable` with `{"error": "gemini_unavailable"}`.
 - Image classification detects non-home environments (`is_home_environment=false`), resulting in 0 risks and no actions.
-- Low confidence risks (< 0.45) are discarded; unknown risks require confidence >= 0.75.
+- Low model detection scores (< 0.45) are discarded; unknown risks require a score >= 0.75. The compatible `confidence` API field is uncalibrated and is not a correctness probability.
 
 See [docs/gemini_integration.md](docs/gemini_integration.md) for details.
 
@@ -221,7 +221,7 @@ This enables the developer debug panel on both the Result and Suggestions screen
 - **Mode**: Whether analysis was performed via Gemini, local mock, or fallback.
 - **Analysis ID**: Unique identifier for tracking request logs.
 - **Model**: The exact Gemini model used.
-- **Findings Count**: Total number of findings after confidence thresholding.
+- **Findings Count**: Total number of findings after uncalibrated model-score thresholding.
 - **Is Home Environment**: True/False indicating home interior classification.
 
 ## Mock Mode vs Gemini Mode

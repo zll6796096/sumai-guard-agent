@@ -11,7 +11,7 @@ from PIL import Image
 
 from app.main import app
 from app.config import Settings
-from app.models import BoundingBox, RiskFinding, RoomType, VisionResult
+from app.models import AnalysisResponse, BoundingBox, RiskFinding, RoomType, VisionFacts, VisionResult
 from app.services.gemini_vision import parse_vision_json
 from app.services.rule_engine import RuleEngine
 
@@ -302,13 +302,7 @@ def test_non_strict_parse_failure_returns_labeled_deterministic_fallback(
     assert SENTINEL not in log_details
     assert str(HUGE_INTEGER) not in log_details
     assert data["room_type"] == "bathroom"
-    assert [finding["risk_type"] for finding in data["findings"]] == [
-        "bathroom_missing_handrail",
-        "bathroom_missing_non_slip",
-        "bathroom_missing_transfer_support",
-        "bathroom_slip",
-        "bathtub_stepover",
-    ]
+    assert [finding["risk_type"] for finding in data["findings"]] == ["bathroom_slip"]
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
@@ -370,13 +364,15 @@ def test_non_strict_timeout_uses_stable_code_without_detail_leakage(
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
-def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -> None:
-    # Setup mock call to return is_home_environment=False
-    mock_call_gemini.return_value = VisionResult(
-        room_type="auto",
-        findings=[],
-        is_home_environment=False,
-        not_applicable_reason_ja="住宅内の安全確認対象ではない可能性があります。"
+def test_non_home_environment_returns_neutral_not_applicable_response(mock_call_gemini: AsyncMock) -> None:
+    mock_call_gemini.return_value = VisionFacts(
+        environment="non_home",
+        room_type="unknown",
+        visible_regions=[],
+        entities=[],
+        feature_observations=[],
+        relationships=[],
+        not_applicable_reason_code="non_home",
     )
 
     new_settings = Settings(require_real_gemini=False, gemini_api_key="dummy_key", mock_mode=False)
@@ -396,18 +392,46 @@ def test_non_home_environment_returns_no_findings(mock_call_gemini: AsyncMock) -
         assert response.status_code == 200
         data = response.json()
         assert data["is_home_environment"] is False
+        assert data["is_not_applicable"] is True
+        assert AnalysisResponse.model_validate(data).is_not_applicable is True
         assert data["not_applicable_reason_ja"] == "住宅内の安全確認対象ではない可能性があります。"
         assert len(data["findings"]) == 0
+        assert data["action_plan"] == {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }
         assert data["overall_risk_level"] == "low"
+        assert data["annotated_image_base64"] == data["improvement_image_base64"]
+        visible_output = "\n".join(
+            [
+                data["risk_summary_markdown"],
+                data["family_actions_markdown"],
+                data["care_manager_actions_markdown"],
+                data["contractor_actions_markdown"],
+            ]
+        )
+        assert "判定できません" in visible_output
+        assert "安全または低リスクという意味ではない" in visible_output
+        assert "リスクは検出されませんでした" not in visible_output
+        assert "総合リスク: 低" not in visible_output
 
 
-def test_empty_findings_behavior() -> None:
+def test_unknown_room_returns_neutral_not_applicable_response() -> None:
     client = TestClient(app)
     img_bytes = _create_mock_image()
     
     with patch("app.services.gemini_vision.GeminiVisionService.analyze") as mock_analyze:
         mock_analyze.return_value = (
-            VisionResult(room_type="auto", findings=[], is_home_environment=True),
+            VisionFacts(
+                environment="home",
+                room_type="unknown",
+                visible_regions=[],
+                entities=[],
+                feature_observations=[],
+                relationships=[],
+                not_applicable_reason_code=None,
+            ),
             "mock"
         )
         
@@ -419,11 +443,76 @@ def test_empty_findings_behavior() -> None:
         assert response.status_code == 200
         data = response.json()
         assert data["overall_risk_level"] == "low"
+        assert data["is_not_applicable"] is True
+        assert AnalysisResponse.model_validate(data).is_not_applicable is True
         assert len(data["findings"]) == 0
-        msg = "写真内に明確な転倒リスクは検出されませんでした。必要に応じて別角度で撮影してください。"
-        assert data["family_actions_markdown"] == msg
-        assert data["care_manager_actions_markdown"] == msg
-        assert data["contractor_actions_markdown"] == msg
+        assert data["not_applicable_reason_ja"] == "写真から確認対象の部屋を特定できないため、結果を表示していません。"
+        assert data["action_plan"] == {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }
+        assert data["annotated_image_base64"] == data["improvement_image_base64"]
+        visible_output = "\n".join(
+            [
+                data["risk_summary_markdown"],
+                data["family_actions_markdown"],
+                data["care_manager_actions_markdown"],
+                data["contractor_actions_markdown"],
+            ]
+        )
+        assert "対象外または判定不能" in visible_output
+        assert "リスクは検出されませんでした" not in visible_output
+        assert "総合リスク: 低" not in visible_output
+
+
+def test_not_applicable_reason_code_returns_neutral_response() -> None:
+    client = TestClient(app)
+    img_bytes = _create_mock_image()
+
+    with patch("app.services.gemini_vision.GeminiVisionService.analyze") as mock_analyze:
+        mock_analyze.return_value = (
+            VisionFacts(
+                environment="home",
+                room_type="bathroom",
+                visible_regions=[],
+                entities=[],
+                feature_observations=[],
+                relationships=[],
+                not_applicable_reason_code="insufficient_visibility",
+            ),
+            "mock",
+        )
+
+        response = client.post(
+            "/analyze",
+            files={"image": ("test.png", img_bytes, "image/png")},
+            data={"room_hint": "bathroom", "mock": "true"},
+        )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_not_applicable"] is True
+    assert AnalysisResponse.model_validate(data).is_not_applicable is True
+    assert data["not_applicable_reason_ja"]
+    assert data["findings"] == []
+    assert data["action_plan"] == {
+        "family_no_cost": [],
+        "care_manager_purchase": [],
+        "contractor_construction": [],
+    }
+    assert data["annotated_image_base64"] == data["improvement_image_base64"]
+    visible_output = "\n".join(
+        [
+            data["risk_summary_markdown"],
+            data["family_actions_markdown"],
+            data["care_manager_actions_markdown"],
+            data["contractor_actions_markdown"],
+        ]
+    )
+    assert "対象外または判定不能" in visible_output
+    assert "リスクは検出されませんでした" not in visible_output
+    assert "総合リスク: 低" not in visible_output
 
 
 def test_rule_engine_confidence_filtering() -> None:
@@ -449,27 +538,27 @@ def test_rule_engine_confidence_filtering() -> None:
     findings, _ = engine.apply([
         _make_finding("hallway_cord", 0.44),  # Known but too low confidence
         _make_finding("unknown_risk", 0.44)   # Unknown and too low confidence
-    ])
+    ], "hallway")
     assert len(findings) == 0
 
     # 2. 0.45 <= confidence < 0.60 with known risk: kept, needs_human_confirmation=True
     findings, _ = engine.apply([
         _make_finding("hallway_cord", 0.50)
-    ])
+    ], "hallway")
     assert len(findings) == 1
     assert findings[0].needs_human_confirmation is True
 
     # 3. 0.45 <= confidence < 0.60 with unknown risk: dropped
     findings, _ = engine.apply([
         _make_finding("unknown_risk", 0.50)
-    ])
+    ], "hallway")
     assert len(findings) == 0
 
     # 4. Unknown risk type: kept only if confidence >= 0.75
     findings, _ = engine.apply([
         _make_finding("unknown_risk", 0.74),  # Too low for unknown
         _make_finding("unknown_risk", 0.76)   # High enough
-    ])
+    ], "hallway")
     assert len(findings) == 1
     assert findings[0].risk_type == "unknown_risk"
     assert findings[0].confidence == 0.76

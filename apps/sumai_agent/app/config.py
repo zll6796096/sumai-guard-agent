@@ -25,6 +25,14 @@ class Settings:
     analysis_timeout: int = int(os.getenv("ANALYSIS_TIMEOUT", "120"))
     version: str = "0.2.0"
     require_real_gemini: bool = _env_bool("REQUIRE_REAL_GEMINI", False)
+    result_memo_ttl_seconds: int = int(os.getenv("RESULT_MEMO_TTL_SECONDS", "300"))
+    result_memo_max_items: int = int(os.getenv("RESULT_MEMO_MAX_ITEMS", "128"))
+
+    def __post_init__(self) -> None:
+        if self.result_memo_ttl_seconds <= 0:
+            raise ValueError("result_memo_ttl_seconds must be greater than zero")
+        if self.result_memo_max_items <= 0:
+            raise ValueError("result_memo_max_items must be greater than zero")
 
 
 settings = Settings()

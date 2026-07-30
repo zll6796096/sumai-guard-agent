@@ -86,4 +86,4 @@ On Screen 3, point out:
 - **Disclaimer**: Clear notifications that this POC does not replace medical or professional construction judgment.
 - **Strict Production Mode**: Optional strict mode (`REQUIRE_REAL_GEMINI=true`) ensures that only real Gemini output is returned, preventing silent mock fallbacks during important demos.
 - **Non-home Validation**: Protects the boundary by recognizing and warning the user if the uploaded photo is not a home environment.
-- **Confidence Thresholds**: Filter out low-confidence predictions to ensure high-fidelity recommendations.
+- **Uncalibrated Model-Score Thresholds**: Deterministically filter low-score candidates; this is not a calibrated probability or an accuracy guarantee.

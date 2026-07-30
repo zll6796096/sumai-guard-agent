@@ -99,11 +99,13 @@ DANGER_LABELS = {
 
 
 def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox:
+    # Rendering may map or expand a local presentation box, never the evidence box.
+    display_bbox = finding.display_bbox or finding.bbox
     if room_type and room_type in VISUAL_ZONES:
         mapped = VISUAL_ZONES[room_type].get(finding.risk_type)
         if mapped:
             if isinstance(mapped, dict):
-                center_x = finding.bbox.x + finding.bbox.w / 2
+                center_x = display_bbox.x + display_bbox.w / 2
                 zone_coords = mapped["right"] if center_x > 0.5 else mapped["left"]
             else:
                 zone_coords = mapped
@@ -111,7 +113,7 @@ def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox
             return BoundingBox(x=x, y=y, w=w, h=h)
 
     # Check if original is huge (>65%)
-    orig_area = finding.bbox.w * finding.bbox.h
+    orig_area = display_bbox.w * display_bbox.h
     if orig_area > 0.65:
         anchor = None
         if room_type and room_type in ROOM_ANCHORS:
@@ -121,7 +123,7 @@ def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox
         x, y, w, h = anchor
         return BoundingBox(x=x, y=y, w=w, h=h)
 
-    return finding.bbox
+    return display_bbox
 
 
 def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
@@ -145,9 +147,9 @@ def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
 def _select_visual_findings(
     findings: list[RiskFinding], room_type: str | None, max_items: int = 3
 ) -> list[tuple[RiskFinding, BoundingBox]]:
-    candidates = []
-    for f in findings:
-        candidates.append((f, _get_mapped_bbox(f, room_type)))
+    # Danger annotations are evidence, so selection and overlap suppression use
+    # provider evidence coordinates. Presentation mapping is improvement-only.
+    candidates = [(finding, finding.bbox) for finding in findings]
 
     # Sort by severity desc, then confidence desc
     candidates.sort(key=lambda item: (-item[0].severity, -item[0].confidence))
@@ -174,8 +176,17 @@ class VisualRenderer:
     ) -> tuple[str, str]:
         selected_findings = _select_visual_findings(findings, room_type, max_items=3)
         annotated = self._annotated_image(image, selected_findings)
-        improvement = self._improvement_image(image, selected_findings)
+        improvement_findings = [
+            (finding, _get_mapped_bbox(finding, room_type))
+            for finding, _ in selected_findings
+        ]
+        improvement = self._improvement_image(image, improvement_findings)
         return _to_base64_png(annotated), _to_base64_png(improvement)
+
+    def render_not_applicable(self, image: Image.Image) -> tuple[str, str]:
+        """Return the sanitized image without risk or improvement overlays."""
+        encoded = _to_base64_png(image.convert("RGB"))
+        return encoded, encoded
 
     def _annotated_image(
         self, image: Image.Image, selected_findings: list[tuple[RiskFinding, BoundingBox]]
@@ -342,10 +353,11 @@ class VisualRenderer:
 
 
 def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, int, int, int]:
-    x1 = int(finding.bbox.x * width)
-    y1 = int(finding.bbox.y * height)
-    x2 = int((finding.bbox.x + finding.bbox.w) * width)
-    y2 = int((finding.bbox.y + finding.bbox.h) * height)
+    display_bbox = finding.display_bbox or finding.bbox
+    x1 = int(display_bbox.x * width)
+    y1 = int(display_bbox.y * height)
+    x2 = int((display_bbox.x + display_bbox.w) * width)
+    y2 = int((display_bbox.y + display_bbox.h) * height)
     return (
         max(0, min(width - 1, x1)),
         max(0, min(height - 1, y1)),

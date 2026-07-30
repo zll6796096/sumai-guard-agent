@@ -2,6 +2,8 @@
 
 Review date: 2026-07-13 JST
 
+Repository-state correction: 2026-07-29 JST (source layer and rule-source facts only).
+
 Scope: SumaiGuard Agent / 親の家 安全チェックAI as a preventive elderly home visible-risk PoC before any contact with Funabashi City or similar municipalities.
 
 ## 1. First-Principles Framing
@@ -51,7 +53,7 @@ Families often notice parent-home risks only after a fall, near miss, or care cr
 | Adult children | They may live away, visit rarely, and struggle to start a non-accusatory safety conversation. | Real | The product's one-photo, visual-report mechanism directly targets this conversation gap; current repo implements photo upload, red boxes, and Japanese report rendering. |
 | Older resident | The person may dislike being judged or forced into renovation; risk communication must be cautious and autonomy-preserving. | Real, but only partly addressed | Current disclaimers prevent medical/construction overreach, but UI wording still includes strong phrases such as "危険を...見つけて改善" and "診断結果". |
 | Municipality /地域包括支援 | They need earlier, lower-friction signals of housing risk, but cannot accept liability-shifting AI judgments. | Real, partially addressed | Funabashi has local consultation and housing modification制度; the app has no government pilot protocol, consent flow, or privacy notice yet. |
-| Care manager /住宅改修 /福祉用具 | They need pre-consultation context, but must still inspect, interview, and judge suitability. | Real, partially addressed | Current action tiers route to care-manager/welfare-equipment and professional confirmation, but the evidence basis is still too generic in YAML labels. |
+| Care manager /住宅改修 /福祉用具 | They need pre-consultation context, but must still inspect, interview, and judge suitability. | Real, partially addressed | Current action tiers route to care-manager/welfare-equipment and professional confirmation. A structured source registry and mapping exist, but they have not received external expert review or government endorsement and the report does not show full citations. |
 
 Key external evidence:
 
@@ -91,7 +93,7 @@ The app's actual value mechanism is:
 
 1. Visible environmental risk discovery: steps, cords, clutter, wet/slippery areas, missing handrails in visible areas, lighting problems, toilet/bathroom transfer points.
 2. Hidden-to-visible conversion: red boxes make ambiguous family concern discussable.
-3. Standardized risk language: risk type, severity, confidence, evidence, basis summary.
+3. Standardized risk language: risk type, severity, uncalibrated model score, evidence, basis summary.
 4. Deterministic action-tier routing: Gemini can identify candidates, but rules decide action categories.
 5. Professional pre-consultation preparation: family can take one report to a care manager,福祉用具専門相談員,地域包括支援センター, or construction professional.
 6. Potential aggregated public-health insight: only if consented and anonymized, local governments could learn which visible housing risks appear often in volunteer pilot photos. This is not implemented today.
@@ -103,8 +105,8 @@ The app's actual value mechanism is:
 | "I do not know where to start checking my parent's home." | Solved for a narrow PoC | `apps/sumai_web/app.py`, `README.md` | The app accepts one photo and guides the user to major rooms. |
 | "I need visible, shareable risk candidates." | Partially solved | `visual_renderer.py`, `report_renderer.py` | Red boxes and reports exist, but visual boxes are approximate and can be inaccurate. |
 | "I need advice separated by what family can do, what needs care-manager/welfare-equipment, and what needs construction/on-site confirmation." | Mostly solved | `rule_engine.py`, `docs/risk_policy.md`, `room_checklists.yaml` | Deterministic routing exists and family tier forbids purchase/construction wording, but some UI labels still say "購入・レンタル" too prominently. |
-| "I need confidence and uncertainty." | Partially solved | `rule_engine.py`, `ReportRenderer.risk_summary` | Low confidence is filtered or marked `needs_human_confirmation`, but the UI does not expose a strong "写真だけでは判断できない項目" section. |
-| "I need Japan-specific institutional grounding." | Partially solved | `room_checklists.yaml`, `demo_rules.yaml` | Basis labels exist, but sources are generic and lack URL/publisher/action mappings. |
+| "I need score context and uncertainty." | Partially solved | `rule_engine.py`, `ReportRenderer.risk_summary` | Low uncalibrated model scores are filtered or marked `needs_human_confirmation`, but the UI does not expose a strong "写真だけでは判断できない項目" section. |
+| "I need Japan-specific institutional grounding." | Partially solved | `room_checklists.yaml`, `OntologyRepository` | `source_registry` contains source IDs, publisher, and URL; `basis_source_map` maps rule bases and is validated at load. This is engineering provenance, not government endorsement or an official review, and full citations are not yet exposed in the ordinary report. |
 | "I need privacy confidence." | Not yet solved for government use | `image_intake.py`, `README.md` | EXIF stripping/no persistence are implemented, but consent, deletion, and pilot data handling docs are missing. |
 | "I need government-grade evidence for a pilot." | Not yet solved | Existing docs are mostly hackathon/local POC docs | Need pilot protocol, evaluation metrics, consent flow, mode proof, and responsibility boundaries. |
 
@@ -128,9 +130,10 @@ Current repo support:
 - `README.md`: PoC boundary, strict production mode, mock vs Gemini mode.
 - `apps/sumai_agent/app/services/image_intake.py`: EXIF orientation normalization and PNG re-encoding.
 - `apps/sumai_agent/app/services/gemini_vision.py`: structured JSON prompt, home/non-home guard, Gemini/mock/fallback modes.
+- `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` plus `apps/sumai_agent/app/ontology.py`: the `source_registry`, `basis_source_map`, publisher/URL metadata, and typed `OntologyRepository` rule source.
 - `apps/sumai_agent/app/services/checklist_engine.py`: maps observations and missing visible features to risk findings.
-- `apps/sumai_agent/app/services/rule_engine.py`: confidence filtering and deterministic action tiers.
-- `apps/sumai_agent/app/services/report_renderer.py`: Japanese markdown reports with confidence and basis fields.
+- `apps/sumai_agent/app/services/rule_engine.py`: uncalibrated model-score filtering and deterministic action tiers.
+- `apps/sumai_agent/app/services/report_renderer.py`: Japanese markdown reports with an explicitly uncalibrated score label and basis fields.
 - `apps/sumai_agent/tests/`: tests for health, mock analysis, strict production, Gemini parsing, rules, visual rendering.
 
 ## 7. Minimum Conditions For A Government-Ready PoC
@@ -142,7 +145,7 @@ Before presenting this as anything beyond "事前相談":
 3. Add consent/privacy/deletion page or modal: no storage, EXIF stripping, no use for medical/care/construction judgment, how logs are handled, what happens in pilot.
 4. Require `REQUIRE_REAL_GEMINI=true` and `MOCK_MODE=false` for any real-photo government demo; if Gemini fails, return 503.
 5. Fix strict malformed-JSON behavior so invalid Gemini output cannot become mock output under strict mode.
-6. Add source IDs or URLs to risk basis mapping, not only generic labels.
+6. Review `source_registry` and `basis_source_map` coverage with appropriate experts, and expose verified publisher/URL citations in the government exhibit or report. Existing mappings do not imply government endorsement.
 7. Prepare a one-page pilot protocol: target users, image handling, consent, exclusion criteria, evaluation metrics, incident handling, and what the city is not being asked to approve.
 8. Show tests and logs proving mode, model, latency, fallback reason, and no image persistence.
 
@@ -171,4 +174,3 @@ Do not promise:
 - Subsidy eligibility prediction.
 - Product/contractor matching.
 - Image storage or aggregate analytics unless a separate consent and governance plan is approved.
-

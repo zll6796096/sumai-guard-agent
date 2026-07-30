@@ -1,550 +1,615 @@
-toilet:
-  expected_features:
-    - key: has_handrail
-      label_ja: 手すり
-      missing_risk_type: toilet_missing_handrail
-      missing_label_ja: トイレ立ち座り時の支え不足
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 便器周辺の手すりは、立ち座り・座位保持・移乗動作を支える福祉用具または住宅改修の検討対象になります。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - 立ち座り時に不安がある場所として家族で共有する
-      care_manager_actions:
-        - 置き型手すりや補助具を相談する
-      contractor_actions:
-        - 固定式手すりの設置可否を現地確認する
+ontology_version: "1.0.0"
+schema_version: "2.0.0"
+inference_config_version: "1.0.0"
+relationships:
+  - located_in
+  - intersects
+  - obstructs
+  - expected_in
+  - supports_transfer_at
+  - requires_confirmation
+relationship_targets:
+  hallway_cord: [walking_path]
+  cluttered_path: [walking_path]
+  cluttered_floor: [walking_path]
+  has_floor_clutter: [walking_path]
+  loose_mat: [floor]
+  has_loose_mat: [floor]
+  looks_slippery_floor: [floor]
+  wet_floor: [floor]
+  kitchen_slip: [floor]
+  poor_lighting: [room]
+  lighting_poor: [room]
+  genkan_step: [floor]
+  bathtub_stepover: [transfer_zone]
+  space_looks_narrow: [walking_path]
+  loose_shoes: [walking_path]
+  reachable_storage_issue: [storage]
+source_registry:
+  MHLW_WELFARE_HOUSING:
+    title_ja: 福祉用具・住宅改修
+    publisher_ja: 厚生労働省
+    url: https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/0000212398.html
+  MHLW_NOTICE_OLD34:
+    title_ja: 介護保険の給付対象となる福祉用具及び住宅改修の取扱いについて
+    publisher_ja: 厚生労働省
+    url: https://www.mhlw.go.jp/web/t_doc?dataId=00ta4381&dataType=1&pageNo=1
+  CAA_FALL_PREVENTION:
+    title_ja: 高齢者の転倒事故に注意しましょう
+    publisher_ja: 消費者庁
+    url: https://www.caa.go.jp/policies/policy/consumer_safety/caution/caution_040
+basis_source_map:
+  厚労省 福祉用具・住宅改修の考え方に関連:
+    - MHLW_WELFARE_HOUSING
+    - MHLW_NOTICE_OLD34
+  消費者庁 転倒予防ポイントに基づく一般注意:
+    - CAA_FALL_PREVENTION
+  自治体の緊急通報装置装置事業例に関連: []
+  自治体の緊急通報装置事業例に関連: []
+  高齢者住宅安全チェックの一般原則: []
+action_policy:
+  family:
+    forbidden_words:
+      - 購入
+      - レンタル
+      - 工事
+      - 施工
+      - 設置を依頼
+      - 専門
+    disclaimer_ja: 家族でできる範囲の一般的な予防行動です。無理な作業は避けてください。
+  care_manager:
+    disclaimer_ja: 購入・レンタル・福祉用具の相談候補です。適用制度や必要性は専門職に確認してください。
+  contractor:
+    disclaimer_ja: 写真だけでは寸法や施工可否を判断しません。必要に応じて現地確認を行ってください。
+rooms:
+  toilet:
+    expected_features:
+      - key: has_handrail
+        label_ja: 手すり
+        missing_risk_type: toilet_missing_handrail
+        missing_label_ja: トイレ立ち座り時の支え不足
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 便器周辺の手すりは、立ち座り・座位保持・移乗動作を支える福祉用具または住宅改修の検討対象になります。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - 立ち座り時に不安がある場所として家族で共有する
+        care_manager_actions:
+          - 置き型手すりや補助具を相談する
+        contractor_actions:
+          - 固定式手すりの設置可否を現地確認する
 
-    - key: has_emergency_call_button
-      label_ja: 緊急呼出ボタン
-      missing_risk_type: toilet_missing_emergency_call
-      missing_label_ja: 緊急時の連絡手段が写真内で確認できない
-      severity: 2
-      basis_label_ja: 自治体の緊急通報装置装置事業例に関連
-      basis_summary_ja: 在宅高齢者向けに、緊急時に通報できる装置を設置・貸与する自治体事業があります。必須ではなく相談候補です。
-      measure_label_ja: 緊急呼出相談
-      family_actions:
-        - 緊急時の連絡方法を家族で確認する
-      care_manager_actions:
-        - 緊急通報装置・呼出ボタンを相談する
-      contractor_actions: []
+      - key: has_emergency_call_button
+        label_ja: 緊急呼出ボタン
+        missing_risk_type: toilet_missing_emergency_call
+        missing_label_ja: 緊急時の連絡手段が写真内で確認できない
+        severity: 2
+        basis_label_ja: 自治体の緊急通報装置装置事業例に関連
+        basis_summary_ja: 在宅高齢者向けに、緊急時に通報できる装置を設置・貸与する自治体事業があります。必須ではなく相談候補です。
+        measure_label_ja: 緊急呼出相談
+        family_actions:
+          - 緊急時の連絡方法を家族で確認する
+        care_manager_actions:
+          - 緊急通報装置・呼出ボタンを相談する
+        contractor_actions: []
 
-  visible_hazards:
-    - key: has_floor_clutter
-      risk_type: cluttered_path
-      label_ja: 床の物・動線阻害
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 床や動線上の物は、足元確認を妨げ、つまずきや回避動作によるバランス崩れにつながります。
-      measure_label_ja: 片付け
-      family_actions:
-        - 床を片付ける
-        - 夜間の通路を空ける
-      care_manager_actions: []
-      contractor_actions: []
+    visible_hazards:
+      - key: has_floor_clutter
+        risk_type: cluttered_path
+        label_ja: 床の物・動線阻害
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 床や動線上の物は、足元確認を妨げ、つまずきや回避動作によるバランス崩れにつながります。
+        measure_label_ja: 片付け
+        family_actions:
+          - 床を片付ける
+          - 夜間の通路を空ける
+        care_manager_actions: []
+        contractor_actions: []
 
-    - key: has_loose_mat
-      risk_type: loose_mat
-      label_ja: マット・敷物のつまずき
-      severity: 3
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: マットや敷物の端部、めくれ、滑りは、足先が引っかかる典型的なつまずき要因です。
-      measure_label_ja: マット固定
-      family_actions:
-        - めくれやすい敷物を一時的に外す
-      care_manager_actions:
-        - 滑り止めマットを相談する
-      contractor_actions: []
+      - key: has_loose_mat
+        risk_type: loose_mat
+        label_ja: マット・敷物のつまずき
+        severity: 3
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: マットや敷物の端部、めくれ、滑りは、足先が引っかかる典型的なつまずき要因です。
+        measure_label_ja: マット固定
+        family_actions:
+          - めくれやすい敷物を一時的に外す
+        care_manager_actions:
+          - 滑り止めマットを相談する
+        contractor_actions: []
 
-    - key: looks_slippery_floor
-      risk_type: toilet_slip
-      label_ja: 床の滑りやすさ
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: トイレの床面が濡れていたり滑りやすい素材の場合、立ち座りや方向転換時に転倒のリスクが高まります。
-      measure_label_ja: 滑り止め
-      family_actions:
-        - 濡れた床を拭く
-      care_manager_actions:
-        - 滑り止めマットやスリッパを検討する
-      contractor_actions: []
+      - key: looks_slippery_floor
+        risk_type: toilet_slip
+        label_ja: 床の滑りやすさ
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: トイレの床面が濡れていたり滑りやすい素材の場合、立ち座りや方向転換時に転倒のリスクが高まります。
+        measure_label_ja: 滑り止め
+        family_actions:
+          - 濡れた床を拭く
+        care_manager_actions:
+          - 滑り止めマットやスリッパを検討する
+        contractor_actions: []
 
-    - key: lighting_poor
-      risk_type: poor_lighting
-      label_ja: 照明不足
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 暗い場所では足元の凹凸や障害物を見落としやすく、つまずきの直接的な原因になります。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 通路やスイッチ付近の視認性を確保する
-      care_manager_actions:
-        - センサーライトなどの福祉用具を相談する
-      contractor_actions: []
+      - key: lighting_poor
+        risk_type: poor_lighting
+        label_ja: 照明不足
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 暗い場所では足元の凹凸や障害物を見落としやすく、つまずきの直接的な原因になります。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 通路やスイッチ付近の視認性を確保する
+        care_manager_actions:
+          - センサーライトなどの福祉用具を相談する
+        contractor_actions: []
 
-    - key: space_looks_narrow
-      risk_type: toilet_transfer_support
-      label_ja: 移乗動作のスペース不足
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: トイレ内の動作スペースや出入口が狭いと、方向転換や介助時の転倒リスクが高まります。
-      measure_label_ja: 動線確保
-      family_actions:
-        - 出入口周辺の物を移動し、動線を空ける
-      care_manager_actions:
-        - 移動を補助する福祉用具を相談する
-      contractor_actions:
-        - 引き戸への交換など改修可能性を確認する
+      - key: space_looks_narrow
+        risk_type: toilet_transfer_support
+        label_ja: 移乗動作のスペース不足
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: トイレ内の動作スペースや出入口が狭いと、方向転換や介助時の転倒リスクが高まります。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 出入口周辺の物を移動し、動線を空ける
+        care_manager_actions:
+          - 移動を補助する福祉用具を相談する
+        contractor_actions:
+          - 引き戸への交換など改修可能性を確認する
 
-bathroom:
-  expected_features:
-    - key: has_handrail
-      label_ja: 浴室手すり
-      missing_risk_type: bathroom_missing_handrail
-      missing_label_ja: 浴室内の手すり不足
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 浴室は滑りやすく、姿勢変化が大きいため、手すりは立ち座りやまたぎ動作を安全に行うために極めて重要です。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - 浴室での移動や立ち上がりの動線を家族で共有する
-      care_manager_actions:
-        - 置き型手すりや補助具を相談する
-      contractor_actions:
-        - 固定式手すりの設置可否を現地確認する
+  bathroom:
+    expected_features:
+      - key: has_handrail
+        label_ja: 浴室手すり
+        missing_risk_type: bathroom_missing_handrail
+        missing_label_ja: 浴室内の手すり不足
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 浴室は滑りやすく、姿勢変化が大きいため、手すりは立ち座りやまたぎ動作を安全に行うために極めて重要です。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - 浴室での移動や立ち上がりの動線を家族で共有する
+        care_manager_actions:
+          - 置き型手すりや補助具を相談する
+        contractor_actions:
+          - 固定式手すりの設置可否を現地確認する
 
-    - key: has_non_slip_floor_or_mat
-      label_ja: 滑り止め床・マット
-      missing_risk_type: bathroom_missing_non_slip
-      missing_label_ja: 浴室床の滑りやすさ
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 濡れた床面は滑りやすく、特に足腰の弱い高齢者にとって転倒時の骨折等のリスクが高い場所です。
-      measure_label_ja: 滑り止め
-      family_actions:
-        - 浴室内の泡や水分をこまめに流す
-      care_manager_actions:
-        - 滑り止めマットを相談する
-      contractor_actions:
-        - 滑りにくい床材への変更施工を現地確認する
+      - key: has_non_slip_floor_or_mat
+        label_ja: 滑り止め床・マット
+        missing_risk_type: bathroom_missing_non_slip
+        missing_label_ja: 浴室床の滑りやすさ
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 濡れた床面は滑りやすく、特に足腰の弱い高齢者にとって転倒時の骨折等のリスクが高い場所です。
+        measure_label_ja: 滑り止め
+        family_actions:
+          - 浴室内の泡や水分をこまめに流す
+        care_manager_actions:
+          - 滑り止めマットを相談する
+        contractor_actions:
+          - 滑りにくい床材への変更施工を現地確認する
 
-    - key: has_bath_transfer_support
-      label_ja: 浴槽移乗台・サポート
-      missing_risk_type: bathroom_missing_transfer_support
-      missing_label_ja: 浴槽またぎ動作の支え不足
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 浴槽への出入りは片脚立ちが必要になり、濡れた足元で滑りやすい不安定な姿勢になります。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - またぎ動作をする前に、支えとなる部分の安全を確認する
-      care_manager_actions:
-        - 浴槽台やバスボードなどの福祉用具を相談する
-      contractor_actions:
-        - またぎ位置への手すり追加施工を相談する
+      - key: has_bath_transfer_support
+        label_ja: 浴槽移乗台・サポート
+        missing_risk_type: bathroom_missing_transfer_support
+        missing_label_ja: 浴槽またぎ動作の支え不足
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 浴槽への出入りは片脚立ちが必要になり、濡れた足元で滑りやすい不安定な姿勢になります。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - またぎ動作をする前に、支えとなる部分の安全を確認する
+        care_manager_actions:
+          - 浴槽台やバスボードなどの福祉用具を相談する
+        contractor_actions:
+          - またぎ位置への手すり追加施工を相談する
 
-    - key: has_emergency_call_button
-      label_ja: 浴室緊急呼出
-      missing_risk_type: bathroom_missing_emergency_call
-      missing_label_ja: 浴室内の緊急連絡手段不足
-      severity: 2
-      basis_label_ja: 自治体の緊急通報装置事業例に関連
-      basis_summary_ja: 浴室内でのヒートショックや転倒時、外部へ速やかに異常を知らせる手段が必要です。
-      measure_label_ja: 緊急呼出相談
-      family_actions:
-        - 入浴前後に声を掛け合う習慣をもつ
-      care_manager_actions:
-        - 緊急通報装置やワイヤレス呼出機の導入を相談する
-      contractor_actions: []
+      - key: has_emergency_call_button
+        label_ja: 浴室緊急呼出
+        missing_risk_type: bathroom_missing_emergency_call
+        missing_label_ja: 浴室内の緊急連絡手段不足
+        severity: 2
+        basis_label_ja: 自治体の緊急通報装置事業例に関連
+        basis_summary_ja: 浴室内でのヒートショックや転倒時、外部へ速やかに異常を知らせる手段が必要です。
+        measure_label_ja: 緊急呼出相談
+        family_actions:
+          - 入浴前後に声を掛け合う習慣をもつ
+        care_manager_actions:
+          - 緊急通報装置やワイヤレス呼出機の導入を相談する
+        contractor_actions: []
 
-  visible_hazards:
-    - key: wet_floor
-      risk_type: bathroom_slip
-      label_ja: 濡れた床の滑り
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 浴室の床が濡れていると摩擦係数が低下し、転倒のリスクが著しく上昇します。
-      measure_label_ja: 滑り止め
-      family_actions:
-        - 石けんや水滴を残さない
-        - 濡れた床を拭く
-      care_manager_actions:
-        - 滑り止めマットを相談する
-      contractor_actions: []
+      - key: has_shower_chair
+        label_ja: シャワーチェア
+        missing_risk_type: bathroom_no_shower_chair
+        missing_label_ja: 浴室内の立ち座り負荷
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: シャワーチェアがないと、床からの立ち座り動作の負担が大きく、ふらつきを招きます。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 洗面器やボトルの床置きを避ける
+        care_manager_actions:
+          - シャワーチェアなどの入浴補助用具を相談する
+        contractor_actions: []
 
-    - key: bathtub_stepover
-      risk_type: bathtub_stepover
-      label_ja: 浴槽またぎ高
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 浴槽の縁が高すぎるとまたぎ動作でバランスを崩しやすく、転倒のリスクが高まります。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - 跨ぐ前に動作方向と手すり位置を確認する
-      care_manager_actions:
-        - 浴槽台や入浴補助用具の相談を行う
-      contractor_actions:
-        - 固定手すりの設置や浴槽埋め込み改修を相談する
+    visible_hazards:
+      - key: wet_floor
+        risk_type: bathroom_slip
+        label_ja: 濡れた床の滑り
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 浴室の床が濡れていると摩擦係数が低下し、転倒のリスクが著しく上昇します。
+        measure_label_ja: 滑り止め
+        family_actions:
+          - 石けんや水滴を残さない
+          - 濡れた床を拭く
+        care_manager_actions:
+          - 滑り止めマットを相談する
+        contractor_actions: []
 
-    - key: no_shower_chair
-      risk_type: bathroom_no_shower_chair
-      label_ja: 浴室内の立ち座り負荷
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: シャワーチェアがないと、床からの立ち座り動作の負担が大きく、ふらつきを招きます。
-      measure_label_ja: 動線確保
-      family_actions:
-        - 洗面器やボトルの床置きを避ける
-      care_manager_actions:
-        - シャワーチェアなどの入浴補助用具を相談する
-      contractor_actions: []
+      - key: bathtub_stepover
+        risk_type: bathtub_stepover
+        label_ja: 浴槽またぎ高
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 浴槽の縁が高すぎるとまたぎ動作でバランスを崩しやすく、転倒のリスクが高まります。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - 跨ぐ前に動作方向と手すり位置を確認する
+        care_manager_actions:
+          - 浴槽台や入浴補助用具の相談を行う
+        contractor_actions:
+          - 固定手すりの設置や浴槽埋め込み改修を相談する
 
-    - key: cluttered_floor
-      risk_type: cluttered_path
-      label_ja: 浴室床の障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 浴室床のボトル類や小物類は、動線を阻害し、避ける動作で転倒のリスクを高めます。
-      measure_label_ja: 片付け
-      family_actions:
-        - 床を片付ける
-        - 濡れた床の障害物を整理する
-      care_manager_actions: []
-      contractor_actions: []
+      - key: cluttered_floor
+        risk_type: cluttered_path
+        label_ja: 浴室床の障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 浴室床のボトル類や小物類は、動線を阻害し、避ける動作で転倒のリスクを高めます。
+        measure_label_ja: 片付け
+        family_actions:
+          - 床を片付ける
+          - 濡れた床の障害物を整理する
+        care_manager_actions: []
+        contractor_actions: []
 
-genkan:
-  expected_features:
-    - key: has_handrail_or_support
-      label_ja: 玄関手すり・支え
-      missing_risk_type: genkan_missing_support
-      missing_label_ja: 玄関の立ち座り・昇降時の支え不足
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 玄関の上がり框での昇降時や靴の着脱時はバランスを崩しやすく、手すりなどの支持物が必要です。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - 昇降時に壁や靴箱を支えとして使うよう意識する
-      care_manager_actions:
-        - 置き型手すりや上がり框手すりのレンタルを相談する
-      contractor_actions:
-        - 壁面に固定する手すりの設置工事を相談する
+  genkan:
+    expected_features:
+      - key: has_handrail_or_support
+        label_ja: 玄関手すり・支え
+        missing_risk_type: genkan_missing_support
+        missing_label_ja: 玄関の立ち座り・昇降時の支え不足
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 玄関の上がり框での昇降時や靴の着脱時はバランスを崩しやすく、手すりなどの支持物が必要です。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - 昇降時に壁や靴箱を支えとして使うよう意識する
+        care_manager_actions:
+          - 置き型手すりや上がり框手すりのレンタルを相談する
+        contractor_actions:
+          - 壁面に固定する手すりの設置工事を相談する
 
-    - key: step_visible_marking
-      label_ja: 段差の視認性
-      missing_risk_type: genkan_invisible_step
-      missing_label_ja: 上がり框の段差の見えにくさ
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 床面と框の色調が似ていると高低差を誤認しやすく、踏み外しによる転倒の原因になります。
-      measure_label_ja: 段差対策
-      family_actions:
-        - 段差部分に目印となるマットやテープを配置する
-      care_manager_actions:
-        - 視認性を高めるすべり止めや簡易台を相談する
-      contractor_actions: []
+      - key: step_visible_marking
+        label_ja: 段差の視認性
+        missing_risk_type: genkan_invisible_step
+        missing_label_ja: 上がり框の段差の見えにくさ
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 床面と框の色調が似ていると高低差を誤認しやすく、踏み外しによる転倒の原因になります。
+        measure_label_ja: 段差対策
+        family_actions:
+          - 段差部分に目印となるマットやテープを配置する
+        care_manager_actions:
+          - 視認性を高めるすべり止めや簡易台を相談する
+        contractor_actions: []
 
-  visible_hazards:
-    - key: genkan_step
-      risk_type: genkan_step
-      label_ja: 玄関上がり框・段差
-      severity: 4
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 上がり框の段差は高低差が大きく、高齢者の昇降動作に大きな筋力とバランスを要求します。
-      measure_label_ja: 段差対策
-      family_actions:
-        - 段差まわりを片づける
-        - 声かけで使い方をそろえる
-      care_manager_actions:
-        - 玄関用踏み台や福祉用具の相談をする
-      contractor_actions:
-        - 固定式手すりの設置可否を現地確認する
+    visible_hazards:
+      - key: genkan_step
+        risk_type: genkan_step
+        label_ja: 玄関上がり框・段差
+        severity: 4
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 上がり框の段差は高低差が大きく、高齢者の昇降動作に大きな筋力とバランスを要求します。
+        measure_label_ja: 段差対策
+        family_actions:
+          - 段差まわりを片づける
+          - 声かけで使い方をそろえる
+        care_manager_actions:
+          - 玄関用踏み台や福祉用具の相談をする
+        contractor_actions:
+          - 固定式手すりの設置可否を現地確認する
 
-    - key: loose_shoes
-      risk_type: cluttered_path
-      label_ja: 散乱した靴・障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 玄関に靴が散乱していると足を置くスペースが狭くなり、つまずきのリスクを高めます。
-      measure_label_ja: 片付け
-      family_actions:
-        - 履かない靴は靴箱に収納する
-        - 床面を片付ける
-      care_manager_actions: []
-      contractor_actions: []
+      - key: loose_shoes
+        risk_type: cluttered_path
+        label_ja: 散乱した靴・障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 玄関に靴が散乱していると足を置くスペースが狭くなり、つまずきのリスクを高めます。
+        measure_label_ja: 片付け
+        family_actions:
+          - 履かない靴は靴箱に収納する
+          - 床面を片付ける
+        care_manager_actions: []
+        contractor_actions: []
 
-    - key: poor_lighting
-      risk_type: poor_lighting
-      label_ja: 玄関の明るさ不足
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 玄関が暗いと段差や靴などの障害物を見落としやすく、夜間や帰宅時の転倒につながります。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 常夜灯や廊下の明かりをつけておく
-      care_manager_actions:
-        - センサーライトなどの福祉用具を相談する
-      contractor_actions: []
+      - key: poor_lighting
+        risk_type: poor_lighting
+        label_ja: 玄関の明るさ不足
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 玄関が暗いと段差や靴などの障害物を見落としやすく、夜間や帰宅時の転倒につながります。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 常夜灯や廊下の明かりをつけておく
+        care_manager_actions:
+          - センサーライトなどの福祉用具を相談する
+        contractor_actions: []
 
-    - key: cluttered_path
-      risk_type: cluttered_path
-      label_ja: 玄関動線の障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 玄関まわりの荷物や傘立て等は、スムーズな移動を妨げつまずきの原因になります。
-      measure_label_ja: 片付け
-      family_actions:
-        - 動線上の荷物を片付ける
-      care_manager_actions: []
-      contractor_actions: []
+      - key: cluttered_path
+        risk_type: cluttered_path
+        label_ja: 玄関動線の障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 玄関まわりの荷物や傘立て等は、スムーズな移動を妨げつまずきの原因になります。
+        measure_label_ja: 片付け
+        family_actions:
+          - 動線上の荷物を片付ける
+        care_manager_actions: []
+        contractor_actions: []
 
-hallway:
-  expected_features:
-    - key: clear_path
-      label_ja: 廊下・通路の広さ
-      missing_risk_type: hallway_narrow_path
-      missing_label_ja: 通路の動線阻害
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 廊下は日常的に頻繁に通るため、十分な有効幅が確保されていないと歩行や旋回時にバランスを崩します。
-      measure_label_ja: 動線確保
-      family_actions:
-        - 通路に置かれている不要な物を移動する
-      care_manager_actions:
-        - 歩行器や杖の利用動線に合わせ片付けを検討する
-      contractor_actions: []
+  hallway:
+    expected_features:
+      - key: clear_path
+        label_ja: 廊下・通路の広さ
+        missing_risk_type: hallway_narrow_path
+        missing_label_ja: 通路の動線阻害
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 廊下は日常的に頻繁に通るため、十分な有効幅が確保されていないと歩行や旋回時にバランスを崩します。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 通路に置かれている不要な物を移動する
+        care_manager_actions:
+          - 歩行器や杖の利用動線に合わせ片付けを検討する
+        contractor_actions: []
 
-    - key: sufficient_lighting
-      label_ja: 通路の照明
-      missing_risk_type: poor_lighting
-      missing_label_ja: 通路の明るさ不足
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 夜間のトイレ移動など、廊下が暗いと歩行が極めて不安定になります。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 夜間は足元灯を常時点灯させる
-      care_manager_actions:
-        - コンセント差込型の足元センサーライトを相談する
-      contractor_actions: []
+      - key: sufficient_lighting
+        label_ja: 通路の照明
+        missing_risk_type: poor_lighting
+        missing_label_ja: 通路の明るさ不足
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 夜間のトイレ移動など、廊下が暗いと歩行が極めて不安定になります。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 夜間は足元灯を常時点灯させる
+        care_manager_actions:
+          - コンセント差込型の足元センサーライトを相談する
+        contractor_actions: []
 
-  visible_hazards:
-    - key: hallway_cord
-      risk_type: hallway_cord
-      label_ja: 廊下の電源コード
-      severity: 3
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 通路を横切るコードは足に引っかかりやすく、夜間や急いだ移動時につまずき要因になります。
-      measure_label_ja: コード整理
-      family_actions:
-        - コードを壁沿いに寄せる
-        - 使わないコードを抜いてしまう
-      care_manager_actions:
-        - 配線カバーの相談を行う
-      contractor_actions: []
+    visible_hazards:
+      - key: hallway_cord
+        risk_type: hallway_cord
+        label_ja: 廊下の電源コード
+        severity: 3
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 通路を横切るコードは足に引っかかりやすく、夜間や急いだ移動時につまずき要因になります。
+        measure_label_ja: コード整理
+        family_actions:
+          - コードを壁沿いに寄せる
+          - 使わないコードを抜いてしまう
+        care_manager_actions:
+          - 配線カバーの相談を行う
+        contractor_actions: []
 
-    - key: cluttered_path
-      risk_type: cluttered_path
-      label_ja: 廊下の床置き障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 廊下の床に置かれた物は高齢者のつまずきや転倒の直接的な要因となります。
-      measure_label_ja: 片付け
-      family_actions:
-        - 床の物を片付ける
-        - 動線を確保する
-      care_manager_actions: []
-      contractor_actions: []
+      - key: cluttered_path
+        risk_type: cluttered_path
+        label_ja: 廊下の床置き障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 廊下の床に置かれた物は高齢者のつまずきや転倒の直接的な要因となります。
+        measure_label_ja: 片付け
+        family_actions:
+          - 床の物を片付ける
+          - 動線を確保する
+        care_manager_actions: []
+        contractor_actions: []
 
-    - key: loose_mat
-      risk_type: loose_mat
-      label_ja: 廊下のマット・敷物
-      severity: 3
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 滑り止めのない廊下の敷物やキッチンマットは、めくれたり滑ったりして転倒の原因になります。
-      measure_label_ja: マット固定
-      family_actions:
-        - めくれやすい敷物を一時的に外す
-      care_manager_actions:
-        - 滑り止めシートや薄型マットを相談する
-      contractor_actions: []
+      - key: loose_mat
+        risk_type: loose_mat
+        label_ja: 廊下のマット・敷物
+        severity: 3
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 滑り止めのない廊下の敷物やキッチンマットは、めくれたり滑ったりして転倒の原因になります。
+        measure_label_ja: マット固定
+        family_actions:
+          - めくれやすい敷物を一時的に外す
+        care_manager_actions:
+          - 滑り止めシートや薄型マットを相談する
+        contractor_actions: []
 
-    - key: poor_lighting
-      risk_type: poor_lighting
-      label_ja: 廊下の照明不足
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 暗い廊下は段差や小物の見落としにつながり危険です。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 足元を明るく保つ
-      care_manager_actions:
-        - センサーライトなどの導入を相談する
-      contractor_actions: []
+      - key: poor_lighting
+        risk_type: poor_lighting
+        label_ja: 廊下の照明不足
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 暗い廊下は段差や小物の見落としにつながり危険です。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 足元を明るく保つ
+        care_manager_actions:
+          - センサーライトなどの導入を相談する
+        contractor_actions: []
 
-bedroom:
-  expected_features:
-    - key: clear_path_from_bed
-      label_ja: ベッド周辺の動線
-      missing_risk_type: bedroom_blocked_path
-      missing_label_ja: 起床時の歩行スペース不足
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 起床時は血圧の変動や身体のこわばりがあり、ベッド周辺に物が散らかっていると立ち上がり直後の転倒につながります。
-      measure_label_ja: 動線確保
-      family_actions:
-        - 起床時に足をおろすスペースに物を置かない
-      care_manager_actions:
-        - ベッド位置の調整や手すりの設置方向を相談する
-      contractor_actions: []
+  bedroom:
+    expected_features:
+      - key: clear_path_from_bed
+        label_ja: ベッド周辺の動線
+        missing_risk_type: bedroom_blocked_path
+        missing_label_ja: 起床時の歩行スペース不足
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 起床時は血圧の変動や身体のこわばりがあり、ベッド周辺に物が散らかっていると立ち上がり直後の転倒につながります。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 起床時に足をおろすスペースに物を置かない
+        care_manager_actions:
+          - ベッド位置の調整や手すりの設置方向を相談する
+        contractor_actions: []
 
-    - key: bedside_light
-      label_ja: 枕元の照明
-      missing_risk_type: poor_lighting
-      missing_label_ja: 枕元の明かり不足
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 夜間起きてトイレへ行く際、暗闇での手探り動作は転倒リスクを高めます。手元で点灯できる明かりが必要です。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 枕元にすぐ点灯できるスタンドライト等を配置する
-      care_manager_actions:
-        - 簡易的なセンサーライトを相談する
-      contractor_actions: []
+      - key: bedside_light
+        label_ja: 枕元の照明
+        missing_risk_type: poor_lighting
+        missing_label_ja: 枕元の明かり不足
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 夜間起きてトイレへ行く際、暗闇での手探り動作は転倒リスクを高めます。手元で点灯できる明かりが必要です。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 枕元にすぐ点灯できるスタンドライト等を配置する
+        care_manager_actions:
+          - 簡易的なセンサーライトを相談する
+        contractor_actions: []
 
-    - key: stable_bedside_support
-      label_ja: ベッド横の支持物
-      missing_risk_type: bedroom_missing_support
-      missing_label_ja: 起床・立ち上がり時の支え不足
-      severity: 4
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: ベッドからの立ち上がり動作や座位保持を助けるため、安定した手すりや支持物があることが望ましいです。
-      measure_label_ja: 手すり候補
-      family_actions:
-        - 立ち上がる際に近くの安定した家具などを支えとする
-      care_manager_actions:
-        - 介助バーやベッドサイド用置き型手すりの導入を相談する
-      contractor_actions:
-        - 壁下地を確認し、固定型手すり設置を相談する
+      - key: stable_bedside_support
+        label_ja: ベッド横の支持物
+        missing_risk_type: bedroom_missing_support
+        missing_label_ja: 起床・立ち上がり時の支え不足
+        severity: 4
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: ベッドからの立ち上がり動作や座位保持を助けるため、安定した手すりや支持物があることが望ましいです。
+        measure_label_ja: 手すり候補
+        family_actions:
+          - 立ち上がる際に近くの安定した家具などを支えとする
+        care_manager_actions:
+          - 介助バーやベッドサイド用置き型手すりの導入を相談する
+        contractor_actions:
+          - 壁下地を確認し、固定型手すり設置を相談する
 
-  visible_hazards:
-    - key: cluttered_path
-      risk_type: cluttered_path
-      label_ja: 寝室の床の障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 寝室内の衣類やゴミ箱、電気コードは歩行を妨げるつまずき要因です。
-      measure_label_ja: 片付け
-      family_actions:
-        - 床の物を片付ける
-        - 動線を空ける
-      care_manager_actions: []
-      contractor_actions: []
+    visible_hazards:
+      - key: cluttered_path
+        risk_type: cluttered_path
+        label_ja: 寝室の床の障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 寝室内の衣類やゴミ箱、電気コードは歩行を妨げるつまずき要因です。
+        measure_label_ja: 片付け
+        family_actions:
+          - 床の物を片付ける
+          - 動線を空ける
+        care_manager_actions: []
+        contractor_actions: []
 
-    - key: loose_mat
-      risk_type: loose_mat
-      label_ja: ベッド横のマット
-      severity: 3
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: ベッド周辺の敷物はめくれやすく、立ち上がった際の足の引っかかりを生じさせます。
-      measure_label_ja: マット固定
-      family_actions:
-        - めくれやすい敷物を一時的に外す
-      care_manager_actions:
-        - 滑り止めシートを相談する
-      contractor_actions: []
+      - key: loose_mat
+        risk_type: loose_mat
+        label_ja: ベッド横のマット
+        severity: 3
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: ベッド周辺の敷物はめくれやすく、立ち上がった際の足の引っかかりを生じさせます。
+        measure_label_ja: マット固定
+        family_actions:
+          - めくれやすい敷物を一時的に外す
+        care_manager_actions:
+          - 滑り止めシートを相談する
+        contractor_actions: []
 
-    - key: poor_lighting
-      risk_type: poor_lighting
-      label_ja: 寝室の暗さ
-      severity: 2
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 夜間暗い寝室での移動は、視覚による姿勢保持が難しくなりふらつきを招きます。
-      measure_label_ja: 照明追加
-      family_actions:
-        - 足元灯を常時点灯させる
-      care_manager_actions:
-        - 足元センサーライトを相談する
-      contractor_actions: []
+      - key: poor_lighting
+        risk_type: poor_lighting
+        label_ja: 寝室の暗さ
+        severity: 2
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 夜間暗い寝室での移動は、視覚による姿勢保持が難しくなりふらつきを招きます。
+        measure_label_ja: 照明追加
+        family_actions:
+          - 足元灯を常時点灯させる
+        care_manager_actions:
+          - 足元センサーライトを相談する
+        contractor_actions: []
 
-kitchen:
-  expected_features:
-    - key: clear_floor
-      label_ja: 調理スペースの床面
-      missing_risk_type: kitchen_cluttered_floor
-      missing_label_ja: 調理スペースの障害物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 台所仕事は両手がふさがる動作が多く、床に荷物やゴミ箱があると避ける動作でふらつきやすくなります。
-      measure_label_ja: 片付け
-      family_actions:
-        - 調理スペースの床に置かれた物を片付ける
-      care_manager_actions:
-        - 収納スペースの配置や高さをケアマネに相談する
-      contractor_actions: []
+  kitchen:
+    expected_features:
+      - key: clear_floor
+        label_ja: 調理スペースの床面
+        missing_risk_type: kitchen_cluttered_floor
+        missing_label_ja: 調理スペースの障害物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 台所仕事は両手がふさがる動作が多く、床に荷物やゴミ箱があると避ける動作でふらつきやすくなります。
+        measure_label_ja: 片付け
+        family_actions:
+          - 調理スペースの床に置かれた物を片付ける
+        care_manager_actions:
+          - 収納スペースの配置や高さをケアマネに相談する
+        contractor_actions: []
 
-    - key: stable_working_path
-      label_ja: 調理動線
-      missing_risk_type: kitchen_narrow_path
-      missing_label_ja: 調理動線の狭さ
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: 冷蔵庫、シンク、コンロ間の移動（調理動線）が十分に空いていないと、方向転換時につまずきやすくなります。
-      measure_label_ja: 動線確保
-      family_actions:
-        - 配膳車やワゴンを一時的に端へ移動する
-      care_manager_actions:
-        - 台所周辺の動線確保のための片付け・福祉用具を相談する
-      contractor_actions: []
+      - key: stable_working_path
+        label_ja: 調理動線
+        missing_risk_type: kitchen_narrow_path
+        missing_label_ja: 調理動線の狭さ
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: 冷蔵庫、シンク、コンロ間の移動（調理動線）が十分に空いていないと、方向転換時につまずきやすくなります。
+        measure_label_ja: 動線確保
+        family_actions:
+          - 配膳車やワゴンを一時的に端へ移動する
+        care_manager_actions:
+          - 台所周辺の動線確保のための片付け・福祉用具を相談する
+        contractor_actions: []
 
-  visible_hazards:
-    - key: kitchen_slip
-      risk_type: kitchen_slip
-      label_ja: キッチン床の滑りやすさ
-      severity: 3
-      basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-      basis_summary_ja: キッチンの床は油汚れや水滴が飛び散りやすく、滑ってバランスを崩す危険性が高い場所です。
-      measure_label_ja: 滑り止め
-      family_actions:
-        - 油や水をこまめに拭き取る
-      care_manager_actions:
-        - 吸着性の高い薄型キッチンマットなどを相談する
-      contractor_actions: []
+    visible_hazards:
+      - key: kitchen_slip
+        risk_type: kitchen_slip
+        label_ja: キッチン床の滑りやすさ
+        severity: 3
+        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
+        basis_summary_ja: キッチンの床は油汚れや水滴が飛び散りやすく、滑ってバランスを崩す危険性が高い場所です。
+        measure_label_ja: 滑り止め
+        family_actions:
+          - 油や水をこまめに拭き取る
+        care_manager_actions:
+          - 吸着性の高い薄型キッチンマットなどを相談する
+        contractor_actions: []
 
-    - key: loose_mat
-      risk_type: loose_mat
-      label_ja: キッチンマットのつまずき
-      severity: 3
-      basis_label_ja: 高齢者住宅安全チェックの一般原則
-      basis_summary_ja: 滑り止めが劣化してずれるマットや厚手のマットは、端部がつまずきを引き起こします。
-      measure_label_ja: マット固定
-      family_actions:
-        - つまずきやすいマットを一時的に外す
-      care_manager_actions:
-        - 滑り止めシートを相談する
-      contractor_actions: []
+      - key: loose_mat
+        risk_type: loose_mat
+        label_ja: キッチンマットのつまずき
+        severity: 3
+        basis_label_ja: 高齢者住宅安全チェックの一般原則
+        basis_summary_ja: 滑り止めが劣化してずれるマットや厚手のマットは、端部がつまずきを引き起こします。
+        measure_label_ja: マット固定
+        family_actions:
+          - つまずきやすいマットを一時的に外す
+        care_manager_actions:
+          - 滑り止めシートを相談する
+        contractor_actions: []
 
-    - key: cluttered_path
-      risk_type: cluttered_path
-      label_ja: キッチン床の物
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 調理場付近の床置き食材やゴミ箱はつまずきを引き起こします。
-      measure_label_ja: 片付け
-      family_actions:
-        - 床置きの物を片付ける
-      care_manager_actions: []
-      contractor_actions: []
+      - key: cluttered_path
+        risk_type: cluttered_path
+        label_ja: キッチン床の物
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 調理場付近の床置き食材やゴミ箱はつまずきを引き起こします。
+        measure_label_ja: 片付け
+        family_actions:
+          - 床置きの物を片付ける
+        care_manager_actions: []
+        contractor_actions: []
 
-    - key: reachable_storage_issue
-      risk_type: kitchen_unreachable_storage
-      label_ja: 高所収納の取り出し負荷
-      severity: 3
-      basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-      basis_summary_ja: 高すぎる収納から物を取る行為は、背伸びによるふらつきや踏み台からの転落を招くため極めて危険です。
-      measure_label_ja: 片付け
-      family_actions:
-        - よく使う食器や調味料を手の届く高さに移動する
-      care_manager_actions:
-        - 手の届く範囲で使える収納用具などを相談する
-      contractor_actions:
-        - 昇降式吊戸棚への交換工事を相談する
+      - key: reachable_storage_issue
+        risk_type: kitchen_unreachable_storage
+        label_ja: 高所収納の取り出し負荷
+        severity: 3
+        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
+        basis_summary_ja: 高すぎる収納から物を取る行為は、背伸びによるふらつきや踏み台からの転落を招くため極めて危険です。
+        measure_label_ja: 片付け
+        family_actions:
+          - よく使う食器や調味料を手の届く高さに移動する
+        care_manager_actions:
+          - 手の届く範囲で使える収納用具などを相談する
+        contractor_actions:
+          - 昇降式吊戸棚への交換工事を相談する

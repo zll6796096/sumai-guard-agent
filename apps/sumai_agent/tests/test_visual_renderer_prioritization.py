@@ -90,8 +90,8 @@ def test_no_r_indices() -> None:
         assert not any(f"R{i}" in imp_lbl for i in range(1, 10))
 
 
-def test_huge_bbox_normalization() -> None:
-    # 5. Huge bbox covering >65% image is normalized into a smaller visual zone.
+def test_huge_bbox_is_normalized_for_improvement_callout_only() -> None:
+    # Improvement presentation may map a huge box into a smaller callout zone.
     # Area = 0.8 * 0.9 = 0.72 (> 0.65)
     finding = _make_finding("F1", "toilet_slip", 4, 0.8, 0.1, 0.05, 0.8, 0.9)
     mapped = _get_mapped_bbox(finding, "toilet")
@@ -111,8 +111,8 @@ def test_overlapping_deduplication() -> None:
     assert selected[0][0].id == "F1"
 
 
-def test_toilet_missing_handrail_mapped() -> None:
-    # 7. toilet_missing_handrail creates a handrail candidate zone, not full-photo box.
+def test_toilet_missing_handrail_maps_to_improvement_candidate_zone() -> None:
+    # Improvement presentation creates a handrail candidate zone.
     finding = _make_finding("F1", "toilet_missing_handrail", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
     mapped = _get_mapped_bbox(finding, "toilet")
     # Area must not cover the full photo
@@ -122,8 +122,8 @@ def test_toilet_missing_handrail_mapped() -> None:
     assert mapped.y == 0.42
 
 
-def test_toilet_missing_emergency_call_mapped() -> None:
-    # 8. toilet_missing_emergency_call creates 緊急呼出相談 label if selected.
+def test_toilet_missing_emergency_call_has_improvement_label() -> None:
+    # The improvement callout uses the consultation label.
     finding = _make_finding("F1", "toilet_missing_emergency_call", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
     
     # Check improvement label matches
