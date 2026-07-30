@@ -184,6 +184,7 @@ def test_waiting_lifecycle_cleans_local_timers_and_active_request() -> None:
     assert "window.addEventListener('pagehide', cancelActiveAnalysis);" in html
     assert "document.addEventListener('visibilitychange'" in html
     assert "if (document.hidden)" in html
+    assert "if (activeAnalysisSession !== session) return;" in html
     assert "function resetApp()" in html
 
 

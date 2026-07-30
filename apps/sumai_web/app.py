@@ -2081,6 +2081,7 @@ INDEX_HTML = """<!DOCTYPE html>
             } catch (err) {
                 await session.cancel();
                 if (err && err.name === 'AbortError') return;
+                if (activeAnalysisSession !== session) return;
                 console.error('analysis_request_failed');
                 clearPreview();
                 showScreen('screen-home');
