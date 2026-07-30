@@ -1,6 +1,6 @@
 # Real Gemini smoke fixture
 
-`residential_bathroom.jpg` is the fixed positive-home fixture used by
+`residential_bathroom.jpg` is the fixed residential-home fixture used by
 `scripts/smoke_real_gemini.py`.
 
 - Description: Residential bathroom in the United States
@@ -15,5 +15,6 @@
   `77411a4952caab8851f8b0c786fb59a48b3b2db5b14d8e11e907f61723082649`
 
 This fixture proves only that the strict Cloud Run candidate reaches the real
-Gemini provider and accepts a reviewed residential positive case. It is not a
-recognition-accuracy benchmark, training input, or evidence of safety.
+Gemini provider and accepts a reviewed residential case. It is not a
+recognition-accuracy benchmark, training input, evidence of safety, or a
+requirement to report a visible risk.

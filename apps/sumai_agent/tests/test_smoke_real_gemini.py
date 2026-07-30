@@ -127,12 +127,26 @@ def test_validate_analysis_payload_accepts_home_payload() -> None:
     assert analysis_id == "sumai_home"
 
 
-def test_validate_analysis_payload_rejects_empty_findings_for_reviewed_home_fixture() -> None:
+def test_validate_analysis_payload_accepts_home_without_visible_findings() -> None:
     payload = _valid_payload(is_home=True)
     payload["findings"] = []
     payload["overall_risk_level"] = "low"
 
-    with pytest.raises(AssertionError, match="at least one finding"):
+    analysis_id = smoke_real_gemini.validate_analysis_payload(
+        payload,
+        EXPECTED_MODEL,
+        expected_home=True,
+    )
+
+    assert analysis_id == "sumai_abc123"
+
+
+def test_validate_analysis_payload_requires_low_risk_when_home_findings_are_empty() -> None:
+    payload = _valid_payload(is_home=True)
+    payload["findings"] = []
+    payload["overall_risk_level"] = "medium"
+
+    with pytest.raises(AssertionError, match="must be 'low' when no visible findings"):
         smoke_real_gemini.validate_analysis_payload(
             payload,
             EXPECTED_MODEL,
