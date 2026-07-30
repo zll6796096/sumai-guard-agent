@@ -461,7 +461,7 @@ INDEX_HTML = """<!DOCTYPE html>
         /* Screen: Result & Analyzing */
         .large-preview-wrapper {
             width: 100%;
-            max-height: 52svh;
+            max-height: 46svh;
             border-radius: var(--card-radius);
             overflow: hidden;
             border: 1px solid var(--border-color);
@@ -470,62 +470,191 @@ INDEX_HTML = """<!DOCTYPE html>
             justify-content: center;
             align-items: center;
             margin-bottom: 16px;
+            position: relative;
         }
 
         .large-preview-wrapper img {
             width: 100%;
             height: auto;
-            max-height: 52svh;
+            max-height: 46svh;
             object-fit: contain;
             display: block;
             border-radius: 12px;
         }
 
+        .analysis-scan-overlay {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            border-radius: inherit;
+        }
+
+        .analysis-scan-line {
+            position: absolute;
+            top: 8%;
+            left: 8%;
+            width: 84%;
+            height: 2px;
+            border-radius: 999px;
+            background-color: rgba(0, 122, 255, 0.72);
+            animation: analysis-scan 2.8s ease-in-out infinite;
+        }
+
+        @keyframes analysis-scan {
+            0%, 100% {
+                top: 8%;
+                opacity: 0.34;
+            }
+            50% {
+                top: 92%;
+                opacity: 0.78;
+            }
+        }
+
+        .analysis-activity {
+            position: relative;
+            width: 100%;
+            height: 4px;
+            margin: -2px 0 16px;
+            overflow: hidden;
+            border-radius: 999px;
+            background-color: rgba(0, 122, 255, 0.14);
+        }
+
+        .analysis-activity::after {
+            content: "";
+            position: absolute;
+            left: -34%;
+            width: 34%;
+            height: 100%;
+            border-radius: inherit;
+            background-color: var(--primary-color);
+            animation: analysis-activity 1.55s ease-in-out infinite;
+        }
+
+        @keyframes analysis-activity {
+            0% {
+                transform: translateX(0);
+            }
+            100% {
+                transform: translateX(394%);
+            }
+        }
+
         .analyzing-status-box {
-            text-align: center;
-            margin-top: 12px;
+            text-align: left;
         }
 
         .analyzing-subtitle {
             font-size: 0.95rem;
             font-weight: 700;
             color: var(--text-color);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
 
-        .steps-container-compact {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 6px;
+        .analysis-stages {
+            list-style: none;
             background-color: var(--surface);
             border: 1px solid var(--border-color);
-            border-radius: 20px;
-            padding: 8px 16px;
-            display: inline-flex;
-            margin: 0 auto;
+            border-radius: 16px;
+            padding: 8px 14px;
+            margin-bottom: 12px;
         }
 
-        .step-compact {
-            font-size: 0.72rem;
-            font-weight: 500;
+        .analysis-stage {
+            position: relative;
+            min-height: 38px;
+            padding: 9px 0 9px 32px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.84rem;
+            font-weight: 600;
             color: var(--text-muted);
-            transition: all 0.3s ease;
+            transition: color 0.2s ease;
         }
 
-        .step-compact.active {
+        .analysis-stage:last-child {
+            border-bottom: 0;
+        }
+
+        .analysis-stage::before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 4px;
+            width: 13px;
+            height: 13px;
+            border: 2px solid var(--separator);
+            border-radius: 50%;
+            transform: translateY(-50%);
+            background-color: var(--surface);
+        }
+
+        .analysis-stage.active {
             color: var(--primary-color);
             font-weight: 700;
         }
 
-        .step-compact.completed {
+        .analysis-stage.active::before {
+            border-color: var(--primary-color);
+            animation: analysis-stage-pulse 1.8s ease-in-out infinite;
+        }
+
+        .analysis-stage.completed {
             color: var(--success-color);
             font-weight: 700;
         }
 
-        .step-arrow-compact {
-            font-size: 0.7rem;
-            color: var(--separator);
+        .analysis-stage.completed::before {
+            content: "✓";
+            display: grid;
+            place-items: center;
+            width: 17px;
+            height: 17px;
+            border: 0;
+            color: #FFFFFF;
+            background-color: var(--success-color);
+            font-size: 0.67rem;
+            line-height: 1;
+        }
+
+        @keyframes analysis-stage-pulse {
+            0%, 100% {
+                opacity: 0.45;
+            }
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .analysis-tip-card {
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background-color: var(--surface);
+            padding: 13px 14px;
+        }
+
+        .analysis-tip-label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+
+        .analysis-tip-text {
+            min-height: 2.8em;
+            font-size: 0.84rem;
+            line-height: 1.55;
+            color: var(--text-color);
+        }
+
+        .analysis-long-wait {
+            margin-top: 10px;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            line-height: 1.5;
+            text-align: center;
         }
 
         /* Screen: Result & Suggestions */
@@ -901,6 +1030,23 @@ INDEX_HTML = """<!DOCTYPE html>
                 animation-duration: 0.01ms !important;
                 animation-iteration-count: 1 !important;
             }
+
+            .analysis-scan-line,
+            .analysis-activity::after,
+            .analysis-stage.active::before {
+                animation: none !important;
+                transform: none !important;
+            }
+
+            .analysis-scan-line {
+                top: 50%;
+                opacity: 0.42;
+            }
+
+            .analysis-activity::after {
+                left: 33%;
+                opacity: 0.58;
+            }
         }
     </style>
 </head>
@@ -1019,17 +1165,51 @@ INDEX_HTML = """<!DOCTYPE html>
             <!-- 1. Analyzing State Container -->
             <div id="result-analyzing-container">
                 <div class="large-preview-wrapper">
-                    <img id="result-large-preview" src="" alt="Selected Photo">
-                </div>
-                <div class="analyzing-status-box" role="status" aria-live="polite">
-                    <p class="analyzing-subtitle">AIが写真を確認しています…</p>
-                    <div class="steps-container-compact">
-                        <div class="step-compact active" id="step-c1">写真確認</div>
-                        <div class="step-arrow-compact">→</div>
-                        <div class="step-compact" id="step-c2">リスク判定</div>
-                        <div class="step-arrow-compact">→</div>
-                        <div class="step-compact" id="step-c3">改善案作成</div>
+                    <img id="result-large-preview" src="" alt="安全確認のために選択した写真">
+                    <div class="analysis-scan-overlay" aria-hidden="true">
+                        <span class="analysis-scan-line"></span>
                     </div>
+                </div>
+                <div
+                    class="analysis-activity"
+                    role="progressbar"
+                    aria-label="写真の安全確認を進めています"
+                ></div>
+                <div class="analyzing-status-box">
+                    <p
+                        id="analysis-stage-message"
+                        class="analyzing-subtitle"
+                        role="status"
+                        aria-live="polite"
+                    >写真を安全に処理しています</p>
+                    <ol class="analysis-stages" aria-label="解析の進行段階">
+                        <li
+                            class="analysis-stage active"
+                            id="analysis-stage-intake"
+                            aria-current="step"
+                        >写真を安全に処理</li>
+                        <li
+                            class="analysis-stage"
+                            id="analysis-stage-vision"
+                        >見える範囲を解析</li>
+                        <li
+                            class="analysis-stage"
+                            id="analysis-stage-organize"
+                        >結果を整理</li>
+                    </ol>
+                    <aside class="analysis-tip-card" aria-label="待ち時間の安全確認ヒント">
+                        <span class="analysis-tip-label">待ち時間にできること</span>
+                        <p id="analysis-tip" class="analysis-tip-text">
+                            床が濡れていたら、早めに拭きましょう。
+                        </p>
+                    </aside>
+                    <p
+                        id="analysis-long-wait"
+                        class="analysis-long-wait"
+                        role="status"
+                        aria-live="polite"
+                        hidden
+                    >通常より時間がかかっていますが、解析は続いています。</p>
                 </div>
             </div>
 
@@ -1247,6 +1427,19 @@ INDEX_HTML = """<!DOCTYPE html>
         const btnBackHomes = document.querySelectorAll('.btn-back-home');
 
         let selectedFile = null;
+        const analysisTips = [
+            '床が濡れていたら、早めに拭きましょう。',
+            '通り道に物がないか、無理のない範囲で確認しましょう。',
+            '夜間に足元が見える明るさか、家族と確認しましょう。'
+        ];
+        const analysisStageMessages = {
+            intake: '写真を安全に処理しています',
+            vision: '写真に見える範囲を解析しています',
+            organize: '結果を整理しています'
+        };
+        let analysisTipTimer = null;
+        let longWaitTimer = null;
+        let activeAnalysisController = null;
 
         // Nav functions
         function showScreen(screenId) {
@@ -1307,9 +1500,6 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById('result-analyzing-container').style.display = 'block';
             document.getElementById('result-completed-container').style.display = 'none';
 
-            // Start step animations
-            startStepAnimation();
-
             // Run analysis immediately
             uploadAndAnalyze(selectedFile);
         }
@@ -1323,63 +1513,173 @@ INDEX_HTML = """<!DOCTYPE html>
             errorDiv.style.display = 'none';
         }
 
-        // Simulated Step animations
-        let step1, step2;
-        function startStepAnimation() {
-            const steps = [
-                document.getElementById('step-c1'),
-                document.getElementById('step-c2'),
-                document.getElementById('step-c3')
-            ];
-            steps.forEach((step, idx) => {
-                step.className = 'step-compact';
-                if (idx === 0) step.classList.add('active');
-            });
-
-            clearStepAnimation();
-
-            step1 = setTimeout(() => {
-                steps[0].classList.add('completed');
-                steps[0].classList.remove('active');
-                steps[1].classList.add('active');
-            }, 1200);
-
-            step2 = setTimeout(() => {
-                steps[1].classList.add('completed');
-                steps[1].classList.remove('active');
-                steps[2].classList.add('active');
-            }, 2600);
+        function renderAnalysisTip(tip) {
+            document.getElementById('analysis-tip').textContent = tip;
         }
 
-        function clearStepAnimation() {
-            clearTimeout(step1);
-            clearTimeout(step2);
+        function setAnalysisStage(stage) {
+            const order = ['intake', 'vision', 'organize'];
+            const activeIndex = order.indexOf(stage);
+            if (activeIndex < 0) return;
+
+            order.forEach((name, index) => {
+                const step = document.getElementById(`analysis-stage-${name}`);
+                step.className = 'analysis-stage';
+                step.removeAttribute('aria-current');
+                if (index < activeIndex) {
+                    step.classList.add('completed');
+                } else if (index === activeIndex) {
+                    step.classList.add('active');
+                    step.setAttribute('aria-current', 'step');
+                }
+            });
+            document.getElementById('analysis-stage-message').textContent = (
+                analysisStageMessages[stage]
+            );
+        }
+
+        function completeAnalysisStages() {
+            ['intake', 'vision', 'organize'].forEach(name => {
+                const step = document.getElementById(`analysis-stage-${name}`);
+                step.className = 'analysis-stage completed';
+                step.removeAttribute('aria-current');
+            });
+            document.getElementById('analysis-stage-message').textContent = (
+                '結果の準備ができました'
+            );
+        }
+
+        function startWaitingExperience() {
+            stopWaitingExperience();
+            setAnalysisStage('intake');
+            let tipIndex = 0;
+            renderAnalysisTip(analysisTips[tipIndex]);
+            analysisTipTimer = window.setInterval(() => {
+                tipIndex = (tipIndex + 1) % analysisTips.length;
+                renderAnalysisTip(analysisTips[tipIndex]);
+            }, 5000);
+            longWaitTimer = window.setTimeout(() => {
+                document.getElementById('analysis-long-wait').hidden = false;
+            }, 20000);
+        }
+
+        function stopWaitingExperience() {
+            window.clearInterval(analysisTipTimer);
+            window.clearTimeout(longWaitTimer);
+            analysisTipTimer = null;
+            longWaitTimer = null;
+            document.getElementById('analysis-long-wait').hidden = true;
+        }
+
+        function cancelActiveAnalysis() {
+            if (activeAnalysisController) {
+                activeAnalysisController.abort();
+                activeAnalysisController = null;
+            }
+            stopWaitingExperience();
+        }
+
+        function analysisErrorMessage(errorCode) {
+            if (errorCode === 'gemini_unavailable') {
+                return '解析サービスは現在利用できません。時間をおいてもう一度お試しください。';
+            }
+            if (errorCode === 'invalid_upload') {
+                return '画像または入力内容を確認して、もう一度お試しください。';
+            }
+            return '分析を完了できませんでした。もう一度お試しください。';
+        }
+
+        function handleAnalysisEvent(event) {
+            if (!event || typeof event !== 'object') {
+                throw new Error('分析結果を正しく受信できませんでした。');
+            }
+            if (event.type === 'progress') {
+                if (event.stage === 'intake_complete') {
+                    setAnalysisStage('vision');
+                } else if (event.stage === 'vision_complete') {
+                    setAnalysisStage('organize');
+                }
+                return false;
+            }
+            if (event.type === 'result') {
+                completeAnalysisStages();
+                stopWaitingExperience();
+                renderResults(event.payload);
+                return true;
+            }
+            if (event.type === 'error') {
+                stopWaitingExperience();
+                throw new Error(analysisErrorMessage(event.error));
+            }
+            return false;
         }
 
         async function uploadAndAnalyze(file) {
+            cancelActiveAnalysis();
+            activeAnalysisController = new AbortController();
+            const controller = activeAnalysisController;
+            startWaitingExperience();
             const formData = new FormData();
             formData.append('image', file);
             formData.append('room_hint', 'auto');
 
             try {
-                const response = await fetch('/analyze', {
+                const response = await fetch('/analyze/stream', {
                     method: 'POST',
-                    body: formData
+                    body: formData,
+                    headers: { 'Accept': 'application/x-ndjson' },
+                    signal: controller.signal
                 });
 
                 if (!response.ok) {
                     throw new Error('分析サービスとの通信に失敗しました。');
                 }
+                const contentType = response.headers.get('content-type') || '';
+                if (!contentType.includes('application/x-ndjson') || !response.body) {
+                    throw new Error('分析結果を正しく受信できませんでした。');
+                }
 
-                const data = await response.json();
-                renderResults(data);
-
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                while (true) {
+                    const { value, done } = await reader.read();
+                    buffer += decoder.decode(
+                        value || new Uint8Array(),
+                        { stream: !done }
+                    );
+                    const lines = buffer.split('\\n');
+                    buffer = lines.pop() || '';
+                    if (done && buffer.trim()) {
+                        lines.push(buffer);
+                        buffer = '';
+                    }
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        const event = JSON.parse(line);
+                        if (handleAnalysisEvent(event)) {
+                            await reader.cancel();
+                            return;
+                        }
+                    }
+                    if (done) break;
+                }
+                throw new Error('分析結果を受信できませんでした。');
             } catch (err) {
-                console.error(err);
-                clearStepAnimation();
+                if (err && err.name === 'AbortError') return;
+                console.error('analysis_request_failed');
                 showScreen('screen-home');
-                errorDiv.textContent = err.message || '分析エラーが発生しました。';
+                errorDiv.textContent = (
+                    err && err.message
+                        ? err.message
+                        : '分析エラーが発生しました。'
+                );
                 errorDiv.style.display = 'block';
+            } finally {
+                if (activeAnalysisController === controller) {
+                    activeAnalysisController = null;
+                    stopWaitingExperience();
+                }
             }
         }
 
@@ -1501,7 +1801,7 @@ INDEX_HTML = """<!DOCTYPE html>
             // Update Debug Panel
             updateDebugPanel(payload);
 
-            clearStepAnimation();
+            stopWaitingExperience();
             
             // Switch title and transition to completed layout inside Screen 2
             document.getElementById('screen2-title').textContent = "安全チェック結果";
@@ -1591,6 +1891,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Reset flow
         function resetApp() {
+            cancelActiveAnalysis();
             clearPreview();
             updateDebugPanel(null);
             showScreen('screen-home');
@@ -1599,6 +1900,7 @@ INDEX_HTML = """<!DOCTYPE html>
         btnBackHomes.forEach(btn => {
             btn.addEventListener('click', resetApp);
         });
+        window.addEventListener('pagehide', cancelActiveAnalysis);
     </script>
 </body>
 </html>

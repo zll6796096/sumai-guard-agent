@@ -122,3 +122,79 @@ def test_applicable_zero_risk_keeps_current_image_but_hides_improvement_and_navi
     assert "currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64" in html
     assert "improvementCard.hidden = !hasVisibleFindings" in html
     assert "btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none'" in html
+
+
+def test_waiting_ui_uses_real_stages_without_fake_progress() -> None:
+    html = _index_html()
+
+    assert "写真を安全に処理" in html
+    assert "見える範囲を解析" in html
+    assert "結果を整理" in html
+    assert "application/x-ndjson" in html
+    assert "response.body.getReader()" in html
+    assert "intake_complete" in html
+    assert "vision_complete" in html
+    assert "step1 = setTimeout" not in html
+    assert "step2 = setTimeout" not in html
+    assert "}, 1200)" not in html
+    assert "}, 2600)" not in html
+    assert 'id="analysis-progress-percent"' not in html
+    assert 'aria-valuenow="' not in html
+    assert "fetch('/analyze/stream'" in html
+    assert "fetch('/analyze'" not in html
+    assert html.count("fetch('/analyze/stream'") == 1
+
+
+def test_waiting_tips_are_local_and_motion_is_accessible() -> None:
+    html = _index_html()
+
+    assert "床が濡れていたら、早めに拭きましょう。" in html
+    assert (
+        "通り道に物がないか、無理のない範囲で確認しましょう。"
+        in html
+    )
+    assert (
+        "夜間に足元が見える明るさか、家族と確認しましょう。"
+        in html
+    )
+    assert "prefers-reduced-motion: reduce" in html
+    assert ".analysis-scan-line," in html
+    assert ".analysis-activity::after," in html
+    assert "animation: none !important;" in html
+    assert "通常より時間がかかっていますが、解析は続いています" in html
+    assert 'aria-live="polite"' in html
+    assert "}, 5000);" in html
+    assert "}, 20000);" in html
+
+
+def test_waiting_lifecycle_cleans_local_timers_and_active_request() -> None:
+    html = _index_html()
+
+    assert "let analysisTipTimer = null;" in html
+    assert "let longWaitTimer = null;" in html
+    assert "let activeAnalysisController = null;" in html
+    assert "window.clearInterval(analysisTipTimer);" in html
+    assert "window.clearTimeout(longWaitTimer);" in html
+    assert "activeAnalysisController.abort();" in html
+    assert "signal: controller.signal" in html
+    assert "event.type === 'result'" in html
+    assert "event.type === 'error'" in html
+    assert "stopWaitingExperience();" in html
+    assert "cancelActiveAnalysis();" in html
+    assert "window.addEventListener('pagehide', cancelActiveAnalysis);" in html
+    assert "function resetApp()" in html
+
+
+def test_waiting_stream_contract_is_indeterminate_local_and_safe() -> None:
+    html = _index_html()
+
+    assert 'class="analysis-activity"' in html
+    assert 'role="progressbar"' in html
+    assert "setInterval" in html
+    assert "setInterval(fetch" not in html
+    assert "setTimeout(fetch" not in html
+    assert "analysisErrorMessage(event.error)" in html
+    assert "event.message" not in html
+    assert "activeAnalysisController = new AbortController();" in html
+    assert "const reader = response.body.getReader();" in html
+    assert "new TextDecoder()" in html
