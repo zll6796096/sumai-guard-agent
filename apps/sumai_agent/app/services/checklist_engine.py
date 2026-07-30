@@ -30,12 +30,23 @@ class ChecklistEngine:
 
     def process(self, vision_result: VisionResult) -> list[RiskFinding]:
         room = vision_result.room_type
-        if (
-            not vision_result.is_home_environment
-            or room == "auto"
-            or self.ontology.room(room) is None
-        ):
-            logger.warning("No checklist found for room: %s", room)
+        if not vision_result.is_home_environment:
+            logger.warning(
+                "checklist_skipped_non_home",
+                extra={"room_type": room},
+            )
+            return []
+        if room == "auto":
+            logger.warning(
+                "checklist_skipped_auto_room",
+                extra={"room_type": room},
+            )
+            return []
+        if self.ontology.room(room) is None:
+            logger.warning(
+                "checklist_skipped_unknown_room",
+                extra={"room_type": room},
+            )
             return []
 
         # This compatibility adapter has no neutral confirmation return channel.

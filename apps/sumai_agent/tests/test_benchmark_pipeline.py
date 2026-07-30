@@ -361,6 +361,37 @@ def test_action_schema_rejects_extra_fields() -> None:
     assert benchmark.validate_response_schema(payload) is False
 
 
+def test_benchmark_loads_family_forbidden_words_from_ontology() -> None:
+    benchmark = _load_module()
+
+    assert set(benchmark.FAMILY_FORBIDDEN_WORDS) == {
+        "購入",
+        "レンタル",
+        "工事",
+        "施工",
+        "設置を依頼",
+        "専門",
+    }
+
+
+@pytest.mark.parametrize("field", ["title_ja", "description_ja", "why_ja"])
+@pytest.mark.parametrize(
+    "forbidden_word",
+    ["購入", "レンタル", "工事", "施工", "設置を依頼", "専門"],
+)
+def test_benchmark_rejects_family_forbidden_words_in_all_action_text(
+    field: str,
+    forbidden_word: str,
+) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    payload["action_plan"]["family_no_cost"][0][field] = (  # type: ignore[index]
+        f"{forbidden_word}する"
+    )
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
 @pytest.mark.parametrize(
     ("severity", "overall_risk_level"),
     [

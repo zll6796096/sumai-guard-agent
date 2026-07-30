@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 
 import pytest
 from PIL import Image
@@ -263,3 +264,36 @@ def test_unknown_room_or_non_home_input_fails_closed(
     )
 
     assert ChecklistEngine().process(vision_result) == []
+
+
+@pytest.mark.parametrize(
+    ("room_type", "is_home_environment", "expected_event"),
+    [
+        ("genkan", False, "checklist_skipped_non_home"),
+        ("auto", True, "checklist_skipped_auto_room"),
+        ("unknown", True, "checklist_skipped_unknown_room"),
+    ],
+)
+def test_fail_closed_checklist_logs_the_actual_skip_reason(
+    caplog: pytest.LogCaptureFixture,
+    room_type: str,
+    is_home_environment: bool,
+    expected_event: str,
+) -> None:
+    result = VisionResult(
+        room_type="auto" if room_type == "unknown" else room_type,
+        is_home_environment=is_home_environment,
+    )
+    if room_type == "unknown":
+        result = result.model_copy(update={"room_type": "unknown"})
+
+    with caplog.at_level(logging.WARNING, logger="sumai.checklist_engine"):
+        assert ChecklistEngine().process(result) == []
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "sumai.checklist_engine"
+    ]
+    assert [record.getMessage() for record in records] == [expected_event]
+    assert records[0].room_type == room_type

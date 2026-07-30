@@ -86,6 +86,7 @@ def _load_ontology_contract(
     str,
     frozenset[tuple[str, str, str]],
     frozenset[tuple[str, str]],
+    tuple[str, ...],
 ]:
     """Load public versions and room-scoped visible identities or fail closed."""
     try:
@@ -93,6 +94,28 @@ def _load_ontology_contract(
     except (OSError, UnicodeError, yaml.YAMLError):
         raise BenchmarkError("invalid_ontology_contract") from None
     if not isinstance(document, dict):
+        raise BenchmarkError("invalid_ontology_contract")
+
+    action_policy = document.get("action_policy")
+    family_policy = (
+        action_policy.get("family")
+        if isinstance(action_policy, dict)
+        else None
+    )
+    forbidden_words = (
+        family_policy.get("forbidden_words")
+        if isinstance(family_policy, dict)
+        else None
+    )
+    if (
+        not isinstance(forbidden_words, list)
+        or not forbidden_words
+        or not all(
+            isinstance(word, str) and word.strip()
+            for word in forbidden_words
+        )
+        or len(set(forbidden_words)) != len(forbidden_words)
+    ):
         raise BenchmarkError("invalid_ontology_contract")
 
     versions: list[str] = []
@@ -160,6 +183,7 @@ def _load_ontology_contract(
         versions[2],
         frozenset(identities),
         frozenset(confirmation_identities),
+        tuple(forbidden_words),
     )
 
 
@@ -169,6 +193,7 @@ def _load_ontology_contract(
     EXPECTED_INFERENCE_CONFIG_VERSION,
     VISIBLE_FINDING_IDENTITIES,
     EXPECTED_CONFIRMATION_IDENTITIES,
+    FAMILY_FORBIDDEN_WORDS,
 ) = _load_ontology_contract(ONTOLOGY_CONTRACT_PATH)
 
 
@@ -517,6 +542,13 @@ def _valid_action_plan(value: object, finding_ids: set[str]) -> bool:
                 return False
             if action["tier"] != tier or action["requires_professional"] is not requires_professional or action["cost_level"] != cost_level:
                 return False
+            if list_name == "family_no_cost":
+                text = " ".join(
+                    str(action[field])
+                    for field in ("title_ja", "description_ja", "why_ja")
+                )
+                if any(word in text for word in FAMILY_FORBIDDEN_WORDS):
+                    return False
             action_ids.add(action["id"])
     return True
 

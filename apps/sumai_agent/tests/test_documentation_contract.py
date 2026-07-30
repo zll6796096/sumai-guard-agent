@@ -175,3 +175,13 @@ def test_current_state_docs_never_promote_expected_non_detections_to_risks() -> 
         "Must be in report renderer and rule engine as a first-class section.",
     ):
         assert retired_route not in evidence_map
+
+    assert (
+        "Support-feature non-detection is confirmation-only; it never justifies "
+        "high-risk classification or professional action."
+    ) in evidence_map
+    for retired_semantic_claim in (
+        "absence of visible handrail",
+        "no visible support",
+    ):
+        assert retired_semantic_claim not in evidence_map

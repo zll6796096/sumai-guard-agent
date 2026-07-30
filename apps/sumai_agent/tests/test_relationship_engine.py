@@ -62,7 +62,7 @@ def _finding_payload(
     risk_type: str = "hallway_cord",
 ) -> dict[str, object]:
     return {
-        "id": "risk-1",
+        "id": "R1",
         "risk_type": risk_type,
         "label_ja": "廊下のコード",
         "description_ja": "写真で確認されました。",
@@ -81,7 +81,7 @@ def _finding_payload(
 def _action_payload(
     *,
     action_id: str = "A1",
-    risk_id: str = "risk-1",
+    risk_id: str = "R1",
     tier: str = "FAMILY_NO_COST",
     cost_level: str = "ZERO",
     requires_professional: bool = False,
@@ -97,6 +97,24 @@ def _action_payload(
         "cost_level": cost_level,
         "requires_professional": requires_professional,
         "disclaimer_ja": "無理のない範囲で行ってください。",
+    }
+
+
+def _confirmation_payload(
+    *,
+    confirmation_id: str = "C1",
+    feature_key: str = "clear_path",
+) -> dict[str, object]:
+    return {
+        "id": confirmation_id,
+        "feature_key": feature_key,
+        "label_ja": "確認項目",
+        "description_ja": "写真外も含めて現地で確認してください。",
+        "confidence": 0.8,
+        "evidence_source_ids": [],
+        "basis_label_ja": "写真で確認できる範囲",
+        "basis_summary_ja": "写真だけでは実際の有無を判断できません。",
+        "needs_human_confirmation": True,
     }
 
 
@@ -200,6 +218,40 @@ def test_applicable_response_accepts_finding_with_complete_visible_identity() ->
     )
 
     assert len(response.findings) == 1
+
+
+@pytest.mark.parametrize(
+    "finding_ids",
+    [
+        ["risk-1"],
+        ["R2", "R1"],
+        ["R1", "R1"],
+    ],
+)
+def test_analysis_response_requires_canonical_unique_finding_ids(
+    finding_ids: list[str],
+) -> None:
+    findings = [
+        {
+            **_finding_payload(
+                ontology_key="hallway_cord",
+                ontology_rule_kind="visible_hazard",
+            ),
+            "id": finding_id,
+        }
+        for finding_id in finding_ids
+    ]
+
+    with pytest.raises(
+        ValidationError,
+        match="finding_ids_must_be_canonical",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                overall_risk_level="medium",
+                findings=findings,
+            )
+        )
 
 
 @pytest.mark.parametrize("overall_risk_level", ["medium", "high"])
@@ -464,20 +516,80 @@ def test_applicable_response_rejects_confirmation_outside_room_expected_ontology
             _analysis_response_payload(
                 room_type="hallway",
                 confirmation_items=[
-                    {
-                        "id": "C1",
-                        "feature_key": feature_key,
-                        "label_ja": "確認項目",
-                        "description_ja": "写真外も含めて現地で確認してください。",
-                        "confidence": 0.8,
-                        "evidence_source_ids": [],
-                        "basis_label_ja": "写真で確認できる範囲",
-                        "basis_summary_ja": "写真だけでは実際の有無を判断できません。",
-                        "needs_human_confirmation": True,
-                    }
+                    _confirmation_payload(feature_key=feature_key)
                 ],
             )
         )
+
+
+@pytest.mark.parametrize(
+    "confirmation_items",
+    [
+        [_confirmation_payload(confirmation_id="pending")],
+        [
+            _confirmation_payload(
+                confirmation_id="C2",
+                feature_key="clear_path",
+            ),
+            _confirmation_payload(
+                confirmation_id="C1",
+                feature_key="sufficient_lighting",
+            ),
+        ],
+    ],
+)
+def test_analysis_response_requires_canonical_confirmation_ids(
+    confirmation_items: list[dict[str, object]],
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="confirmation_ids_must_be_canonical",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                confirmation_items=confirmation_items,
+            )
+        )
+
+
+def test_analysis_response_requires_unique_confirmation_feature_keys() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="confirmation_feature_keys_must_be_unique",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                confirmation_items=[
+                    _confirmation_payload(
+                        confirmation_id="C1",
+                        feature_key="clear_path",
+                    ),
+                    _confirmation_payload(
+                        confirmation_id="C2",
+                        feature_key="clear_path",
+                    ),
+                ],
+            )
+        )
+
+
+def test_analysis_response_accepts_canonical_unique_confirmation_items() -> None:
+    response = AnalysisResponse.model_validate(
+        _analysis_response_payload(
+            confirmation_items=[
+                _confirmation_payload(
+                    confirmation_id="C1",
+                    feature_key="clear_path",
+                ),
+                _confirmation_payload(
+                    confirmation_id="C2",
+                    feature_key="sufficient_lighting",
+                ),
+            ],
+        )
+    )
+
+    assert [item.id for item in response.confirmation_items] == ["C1", "C2"]
 
 
 def test_analysis_response_requires_non_empty_confirmation_markdown() -> None:

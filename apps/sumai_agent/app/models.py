@@ -333,6 +333,23 @@ class AnalysisResponse(BaseModel):
                 "applicable_confirmation_items_must_match_expected_ontology"
             )
 
+        finding_ids = [finding.id for finding in self.findings]
+        if finding_ids != [
+            f"R{index}" for index in range(1, len(finding_ids) + 1)
+        ]:
+            raise ValueError("finding_ids_must_be_canonical")
+        confirmation_ids = [item.id for item in self.confirmation_items]
+        if confirmation_ids != [
+            f"C{index}" for index in range(1, len(confirmation_ids) + 1)
+        ]:
+            raise ValueError("confirmation_ids_must_be_canonical")
+        confirmation_feature_keys = [
+            item.feature_key for item in self.confirmation_items
+        ]
+        if len(set(confirmation_feature_keys)) != len(
+            confirmation_feature_keys
+        ):
+            raise ValueError("confirmation_feature_keys_must_be_unique")
         if self.overall_risk_level != _risk_level_for_findings(self.findings):
             raise ValueError("overall_risk_level_must_match_findings")
         actions = (
@@ -344,7 +361,7 @@ class AnalysisResponse(BaseModel):
             raise ValueError("zero_findings_require_empty_actions")
         _validate_action_plan(
             self.action_plan,
-            {finding.id for finding in self.findings},
+            set(finding_ids),
         )
         return self
 
