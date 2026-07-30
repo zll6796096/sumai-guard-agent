@@ -41,25 +41,40 @@ INDEX_HTML = """<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>親の家 安全チェックAI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
-            --bg-gradient: linear-gradient(180deg, #0F1020 0%, #14172A 100%);
-            --card-bg: #1B2033;
-            --text-color: #F7F8FA;
-            --text-muted: #A8AFBF;
-            --primary-color: #6C5CE7;
-            --secondary-color: #4C7DFF;
-            --border-color: rgba(255,255,255,0.12);
-            --danger-color: #EF4444;
-            --success-color: #10B981;
-            --warning-color: #F59E0B;
-            --accent-green: #10B981;
-            --accent-blue: #3B82F6;
-            --accent-red: #EF4444;
+            color-scheme: light;
+            --system-bg: #F5F5F7;
+            --surface: #FFFFFF;
+            --surface-muted: #F2F2F7;
+            --text-primary: #1D1D1F;
+            --text-secondary: #6E6E73;
+            --separator: rgba(60, 60, 67, 0.16);
+            --system-blue: #007AFF;
+            --system-blue-pressed: #0062CC;
+            --system-green: #248A3D;
+            --system-orange: #C93400;
+            --system-red: #D70015;
+            --control-min-height: 44px;
+            --card-radius: 20px;
+            --control-radius: 14px;
+            --page-shadow: 0 24px 64px rgba(0, 0, 0, 0.12);
+            --bg-gradient: linear-gradient(180deg, #FFFFFF 0%, #F5F5F7 100%);
+            --card-bg: var(--surface);
+            --text-color: var(--text-primary);
+            --text-muted: var(--text-secondary);
+            --primary-color: var(--system-blue);
+            --secondary-color: var(--system-blue);
+            --border-color: var(--separator);
+            --danger-color: var(--system-red);
+            --success-color: var(--system-green);
+            --warning-color: var(--system-orange);
+            --accent-green: var(--system-green);
+            --accent-blue: var(--system-blue);
+            --accent-red: var(--system-red);
         }
 
         * {
@@ -70,24 +85,29 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         body {
-            background-color: #0F1020;
-            font-family: 'Noto Sans JP', sans-serif;
+            background:
+                radial-gradient(circle at 50% 0%, rgba(0, 122, 255, 0.10), transparent 34rem),
+                var(--system-bg);
+            font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans",
+                "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
             color: var(--text-color);
             min-height: 100vh;
+            min-height: 100dvh;
             display: flex;
             justify-content: center;
             align-items: center;
+            -webkit-font-smoothing: antialiased;
+            text-rendering: optimizeLegibility;
         }
 
         #app-container {
             width: 100%;
             max-width: 480px;
             height: 100vh;
-            max-height: 844px;
+            height: 100dvh;
             background: var(--bg-gradient);
             display: flex;
             flex-direction: column;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
             position: relative;
             overflow: hidden;
             border-radius: 0;
@@ -95,8 +115,10 @@ INDEX_HTML = """<!DOCTYPE html>
 
         @media (min-width: 481px) {
             #app-container {
-                border-radius: 20px;
+                height: min(900px, calc(100dvh - 40px));
+                border-radius: 30px;
                 border: 1px solid var(--border-color);
+                box-shadow: var(--page-shadow);
             }
         }
 
@@ -105,7 +127,8 @@ INDEX_HTML = """<!DOCTYPE html>
             height: 100%;
             display: none;
             flex-direction: column;
-            padding: 20px;
+            padding: max(20px, env(safe-area-inset-top)) 20px
+                max(20px, env(safe-area-inset-bottom));
             position: absolute;
             top: 0;
             left: 0;
@@ -117,6 +140,19 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
         }
 
+        [hidden] {
+            display: none !important;
+        }
+
+        :focus-visible {
+            outline: 3px solid rgba(0, 122, 255, 0.45);
+            outline-offset: 3px;
+        }
+
+        [data-screen-title]:focus {
+            outline: none;
+        }
+
         /* Screen 1: Home */
         #screen-home {
             overflow-y: auto;
@@ -124,45 +160,53 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .home-header {
-            text-align: center;
-            margin-top: 16px;
-            margin-bottom: 8px;
+            text-align: left;
+            margin-top: 4px;
+            margin-bottom: 20px;
         }
 
         .app-tag {
             display: inline-block;
-            font-size: 0.7rem;
+            font-size: 0.78rem;
             font-weight: 700;
             color: var(--primary-color);
-            background-color: rgba(108, 92, 231, 0.12);
-            padding: 3px 8px;
-            border-radius: 6px;
-            margin-bottom: 8px;
-            letter-spacing: 0.5px;
+            background-color: rgba(0, 122, 255, 0.10);
+            padding: 5px 10px;
+            border-radius: 999px;
+            margin-bottom: 12px;
+            letter-spacing: 0.02em;
         }
 
-        .home-slogan {
-            font-size: 1.15rem;
-            font-weight: 900;
-            line-height: 1.5;
+        .home-title {
+            font-size: clamp(1.75rem, 8vw, 2.15rem);
+            font-weight: 750;
+            letter-spacing: -0.035em;
+            line-height: 1.2;
             color: var(--text-color);
-            margin-bottom: 4px;
+            margin-bottom: 10px;
+        }
+
+        .home-lead {
+            max-width: 24rem;
+            font-size: 0.98rem;
+            line-height: 1.65;
+            color: var(--text-muted);
         }
 
         /* Place Grid */
         .place-section-title {
-            font-size: 0.8rem;
+            font-size: 0.82rem;
             font-weight: 700;
             color: var(--text-muted);
             margin-bottom: 10px;
-            text-align: center;
+            text-align: left;
         }
 
         .place-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(3, 1fr);
             gap: 8px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
         }
 
         .place-block {
@@ -170,31 +214,33 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(255, 255, 255, 0.04);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 10px;
+            background-color: var(--surface);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            min-height: 76px;
             padding: 10px 4px;
-            gap: 4px;
+            gap: 6px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
         }
 
         .place-block svg {
-            width: 22px;
-            height: 22px;
+            width: 24px;
+            height: 24px;
             color: var(--secondary-color);
-            opacity: 0.85;
         }
 
         .place-block span {
-            font-size: 0.72rem;
+            font-size: 0.76rem;
             font-weight: 600;
-            color: var(--text-muted);
+            color: var(--text-color);
         }
 
         .shooting-hint {
-            font-size: 0.72rem;
+            font-size: 0.82rem;
+            line-height: 1.5;
             color: var(--text-muted);
-            text-align: center;
-            margin-bottom: 12px;
+            text-align: left;
+            margin-bottom: 14px;
         }
 
         .home-controls {
@@ -232,7 +278,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .room-dropdown option {
-            background-color: #14172A;
+            background-color: var(--surface);
             color: var(--text-color);
             direction: ltr;
         }
@@ -242,16 +288,16 @@ INDEX_HTML = """<!DOCTYPE html>
             color: var(--text-muted);
             text-align: center;
             line-height: 1.4;
-            background-color: rgba(255,255,255,0.02);
+            background-color: var(--surface-muted);
             border-radius: 8px;
             padding: 8px;
-            border: 1px dashed rgba(255,255,255,0.05);
+            border: 1px dashed var(--border-color);
         }
 
         .error-message {
             background-color: rgba(239, 68, 68, 0.12);
             border: 1px solid var(--danger-color);
-            color: #FFA4A4;
+            color: var(--danger-color);
             border-radius: 8px;
             padding: 8px 12px;
             font-size: 0.75rem;
@@ -261,7 +307,49 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .home-footer {
+            margin-top: auto;
+            padding-top: 4px;
+            margin-bottom: 4px;
+        }
+
+        .trust-card {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
             margin-bottom: 16px;
+            padding: 14px;
+            background: var(--surface);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+        }
+
+        .trust-item {
+            min-width: 0;
+        }
+
+        .trust-label {
+            display: block;
+            margin-bottom: 3px;
+            color: var(--text-muted);
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+
+        .trust-value {
+            display: block;
+            color: var(--text-color);
+            font-size: 0.82rem;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .trust-note {
+            grid-column: 1 / -1;
+            padding-top: 10px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 0.76rem;
+            line-height: 1.5;
         }
 
         /* Enlarge Image Preview State */
@@ -307,13 +395,15 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: center;
             justify-content: center;
             width: 100%;
-            height: 48px;
-            border-radius: 12px;
-            font-size: 0.95rem;
+            min-height: var(--control-min-height);
+            height: 52px;
+            border-radius: var(--control-radius);
+            font-size: 1rem;
             font-weight: 700;
             border: none;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: transform 0.16s ease, background-color 0.16s ease,
+                box-shadow 0.16s ease;
             box-sizing: border-box;
             margin-bottom: 10px;
             text-decoration: none;
@@ -326,21 +416,22 @@ INDEX_HTML = """<!DOCTYPE html>
         .btn-primary {
             background-color: var(--primary-color);
             color: white;
-            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.25);
+            box-shadow: 0 8px 20px rgba(0, 122, 255, 0.22);
         }
 
         .btn-primary:active {
-            background-color: #5b4bc4;
+            background-color: var(--system-blue-pressed);
         }
 
         .btn-secondary {
-            background-color: var(--secondary-color);
-            color: white;
-            box-shadow: 0 4px 12px rgba(76, 125, 255, 0.2);
+            background-color: var(--surface);
+            color: var(--primary-color);
+            border: 1px solid var(--border-color);
+            box-shadow: none;
         }
 
         .btn-secondary:active {
-            background-color: #3b6adc;
+            background-color: var(--surface-muted);
         }
 
         .btn-outline {
@@ -350,7 +441,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .btn-outline:active {
-            background-color: rgba(255, 255, 255, 0.05);
+            background-color: var(--surface-muted);
         }
 
         .btn-icon {
@@ -360,17 +451,17 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .disclaimer-text {
-            font-size: 0.7rem;
+            font-size: 0.78rem;
             color: var(--text-muted);
             text-align: center;
-            line-height: 1.3;
+            line-height: 1.5;
         }
 
         /* Screen: Result & Analyzing */
         .large-preview-wrapper {
             width: 100%;
             max-height: 52svh;
-            border-radius: 12px;
+            border-radius: var(--card-radius);
             overflow: hidden;
             border: 1px solid var(--border-color);
             background-color: var(--card-bg);
@@ -406,8 +497,8 @@ INDEX_HTML = """<!DOCTYPE html>
             justify-content: center;
             align-items: center;
             gap: 6px;
-            background-color: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            background-color: var(--surface);
+            border: 1px solid var(--border-color);
             border-radius: 20px;
             padding: 8px 16px;
             display: inline-flex;
@@ -433,7 +524,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .step-arrow-compact {
             font-size: 0.7rem;
-            color: rgba(255, 255, 255, 0.15);
+            color: var(--separator);
         }
 
         /* Screen: Result & Suggestions */
@@ -441,20 +532,30 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 16px;
+            min-height: var(--control-min-height);
+            margin-bottom: 18px;
             flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: rgba(245, 245, 247, 0.90);
+            -webkit-backdrop-filter: blur(18px) saturate(160%);
+            backdrop-filter: blur(18px) saturate(160%);
         }
 
         .nav-back {
             background: transparent;
             border: none;
             color: var(--secondary-color);
-            font-size: 0.9rem;
-            font-weight: 700;
+            min-width: 64px;
+            min-height: var(--control-min-height);
+            padding: 8px 0;
+            font-size: 0.96rem;
+            font-weight: 600;
             display: flex;
             align-items: center;
             cursor: pointer;
-            outline: none;
+            border-radius: 10px;
         }
 
         .nav-back svg {
@@ -464,19 +565,21 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .nav-title {
-            font-size: 1rem;
-            font-weight: 900;
+            font-size: 1.02rem;
+            font-weight: 700;
+            letter-spacing: -0.015em;
         }
 
         .result-summary {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 12px;
+            border-radius: var(--card-radius);
+            padding: 16px;
             display: flex;
             justify-content: space-around;
             margin-bottom: 16px;
             flex-shrink: 0;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
         }
 
         .analysis-mode-banner {
@@ -491,14 +594,14 @@ INDEX_HTML = """<!DOCTYPE html>
         .analysis-mode-banner.mode-gemini {
             background-color: rgba(16, 185, 129, 0.12);
             border: 1px solid var(--success-color);
-            color: #8BF0C7;
+            color: var(--success-color);
         }
 
         .analysis-mode-banner.mode-mock,
         .analysis-mode-banner.mode-warning {
             background-color: rgba(245, 158, 11, 0.1);
             border: 1px solid var(--warning-color);
-            color: #FFD580;
+            color: var(--warning-color);
         }
 
         .summary-item {
@@ -508,21 +611,22 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .summary-label {
-            font-size: 0.7rem;
+            font-size: 0.78rem;
             color: var(--text-muted);
             margin-bottom: 4px;
         }
 
         .summary-value {
-            font-size: 1.05rem;
-            font-weight: 900;
+            font-size: 1.45rem;
+            font-weight: 750;
+            letter-spacing: -0.03em;
         }
 
         .badge {
-            padding: 2px 10px;
-            border-radius: 10px;
-            font-weight: 900;
-            font-size: 0.8rem;
+            padding: 4px 11px;
+            border-radius: 999px;
+            font-weight: 750;
+            font-size: 0.9rem;
         }
 
         .badge-low {
@@ -553,25 +657,26 @@ INDEX_HTML = """<!DOCTYPE html>
         .result-image-card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 14px;
+            border-radius: var(--card-radius);
             overflow: hidden;
-            padding: 12px;
+            padding: 14px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
         }
 
         .image-card-title {
-            font-size: 0.85rem;
+            font-size: 0.92rem;
             font-weight: 700;
-            color: var(--text-muted);
-            margin-bottom: 8px;
+            color: var(--text-color);
+            margin-bottom: 10px;
             display: block;
         }
 
         .image-wrapper {
             width: 100%;
-            border-radius: 8px;
+            border-radius: 14px;
             overflow: hidden;
-            border: 1px solid rgba(255,255,255,0.05);
-            background-color: #0F1020;
+            border: 1px solid var(--border-color);
+            background-color: var(--surface-muted);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -586,21 +691,36 @@ INDEX_HTML = """<!DOCTYPE html>
 
         .result-actions, .suggestions-actions {
             margin-top: auto;
-            padding-top: 12px;
+            padding: 14px 0 max(2px, env(safe-area-inset-bottom));
             flex-shrink: 0;
+        }
+
+        .result-actions {
+            position: sticky;
+            bottom: -20px;
+            z-index: 4;
+            background: linear-gradient(
+                to bottom,
+                rgba(245, 245, 247, 0),
+                rgba(245, 245, 247, 0.98) 24px
+            );
+            padding-top: 28px;
         }
 
         /* Screen 3: Action Suggestions */
         .section-title {
-            font-size: 1.2rem;
-            font-weight: 900;
-            margin-bottom: 4px;
+            font-size: 1.75rem;
+            line-height: 1.25;
+            font-weight: 750;
+            letter-spacing: -0.035em;
+            margin-bottom: 8px;
         }
 
         .section-subtitle {
-            font-size: 0.8rem;
+            font-size: 0.92rem;
+            line-height: 1.55;
             color: var(--text-muted);
-            margin-bottom: 16px;
+            margin-bottom: 20px;
         }
 
         .action-cards-container {
@@ -614,18 +734,26 @@ INDEX_HTML = """<!DOCTYPE html>
         .accordion-card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
+            border-radius: 18px;
             overflow: hidden;
-            transition: all 0.3s ease;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.035);
         }
 
         .accordion-card-header {
-            padding: 12px 16px;
+            width: 100%;
+            min-height: var(--control-min-height);
+            padding: 14px 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
             user-select: none;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: left;
         }
 
         .accordion-card-title-group {
@@ -634,7 +762,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .accordion-card-title {
-            font-size: 0.9rem;
+            font-size: 0.96rem;
             font-weight: 700;
             color: var(--text-color);
         }
@@ -647,14 +775,14 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .accordion-card-label {
-            font-size: 0.65rem;
+            font-size: 0.72rem;
             font-weight: 700;
-            padding: 1px 6px;
-            border-radius: 4px;
+            padding: 3px 8px;
+            border-radius: 999px;
         }
 
         .accordion-card-count {
-            font-size: 0.7rem;
+            font-size: 0.78rem;
             color: var(--text-muted);
             font-weight: 500;
         }
@@ -671,14 +799,10 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .accordion-card-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.25s ease-out;
             padding: 0 16px;
         }
 
         .accordion-card.open .accordion-card-content {
-            max-height: 1200px;
             padding: 12px 16px 16px 16px;
             border-top: 1px solid var(--border-color);
         }
@@ -709,16 +833,16 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .card-body {
-            font-size: 0.85rem;
-            line-height: 1.5;
+            font-size: 0.94rem;
+            line-height: 1.65;
             color: var(--text-color);
         }
 
         /* Markdown styles */
         .markdown-body h2, .markdown-body h3 {
-            font-size: 0.85rem;
-            margin-top: 10px;
-            margin-bottom: 4px;
+            font-size: 0.96rem;
+            margin-top: 12px;
+            margin-bottom: 6px;
             font-weight: bold;
             color: var(--text-color);
         }
@@ -733,7 +857,27 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .markdown-body li {
-            margin-bottom: 3px;
+            margin-bottom: 5px;
+        }
+
+        .action-report > h2,
+        .action-report > ul > li:nth-child(-n + 2) {
+            display: none;
+        }
+
+        .action-report > h3 {
+            margin-top: 14px;
+            font-size: 1rem;
+            letter-spacing: -0.01em;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                scroll-behavior: auto !important;
+                transition-duration: 0.01ms !important;
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+            }
         }
     </style>
 </head>
@@ -744,13 +888,23 @@ INDEX_HTML = """<!DOCTYPE html>
         <input type="file" id="library-input" accept="image/*" style="display: none;">
 
         <!-- SCREEN 1: Home / Photo Input -->
-        <div id="screen-home" class="screen active">
+        <div id="screen-home" class="screen active" aria-hidden="false">
             <div class="home-header">
-                <div class="app-tag">親の家 安全チェックAI</div>
-                <p class="home-slogan">親や家族の住まいの危険を、<br>写真1枚で見つけて改善。</p>
+                <div class="app-tag">親の家 安全チェック</div>
+                <h1
+                    class="home-title"
+                    data-screen-title
+                    tabindex="-1"
+                    aria-label="写真1枚で、親の家を安全チェック"
+                >
+                    写真1枚で、<br>親の家を安全チェック
+                </h1>
+                <p class="home-lead">
+                    写真に写っている転倒・すべり・つまずきの注意箇所を確認します。
+                </p>
             </div>
 
-            <p class="place-section-title">まずは1か所を撮影してください</p>
+            <p class="place-section-title">撮影する場所の例</p>
             <div class="place-grid">
                 <div class="place-block">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4"/></svg>
@@ -777,35 +931,55 @@ INDEX_HTML = """<!DOCTYPE html>
                     <span>キッチン</span>
                 </div>
             </div>
-            <p class="shooting-hint">床・段差・手すり・通路が入るように撮影してください。</p>
+            <p class="shooting-hint">
+                床・段差・手すり・通路が一緒に写るように、まずは1か所を撮影してください。
+            </p>
 
             <div class="home-controls">
-                <div id="error-message" class="error-message" style="display: none;"></div>
+                <div
+                    id="error-message"
+                    class="error-message"
+                    role="alert"
+                    aria-live="assertive"
+                    style="display: none;"
+                ></div>
             </div>
 
             <div class="home-footer">
+                <div class="trust-card" aria-label="このチェックについて">
+                    <div class="trust-item">
+                        <span class="trust-label">写真の取り扱い</span>
+                        <strong class="trust-value">写真は保存しません</strong>
+                    </div>
+                    <div class="trust-item">
+                        <span class="trust-label">確認できること</span>
+                        <strong class="trust-value">見える範囲のみ確認します</strong>
+                    </div>
+                    <p class="trust-note">
+                        POC版です。医療・介護・保険・施工の専門判断を代替しません。
+                    </p>
+                </div>
+
                 <!-- Select buttons state -->
                 <div id="selection-buttons-container">
                     <button id="btn-camera" class="btn btn-primary">
                         <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M4 4h3l2-2h6l2 2h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm8 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6z"/>
                         </svg>
-                        カメラで撮影
+                        カメラで撮る
                     </button>
                     <button id="btn-library" class="btn btn-secondary">
                         <svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-9 14l-4-4 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
                         </svg>
-                        ライブラリから選択
+                        ライブラリから選ぶ
                     </button>
                 </div>
-
-                <p class="disclaimer-text">POC版です。専門判断を代替しません。</p>
             </div>
         </div>
 
-        <!-- SCREEN 2: Visual Diagnosis Result / Analyzing -->
-        <div id="screen-result" class="screen">
+        <!-- SCREEN 2: Safety Check Result / Analyzing -->
+        <div id="screen-result" class="screen" aria-hidden="true">
             <div class="screen-nav">
                 <button class="nav-back btn-back-home">
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -813,7 +987,9 @@ INDEX_HTML = """<!DOCTYPE html>
                     </svg>
                     ホーム
                 </button>
-                <span class="nav-title" id="screen2-title">写真確認中</span>
+                <span class="nav-title" id="screen2-title" data-screen-title tabindex="-1">
+                    写真確認中
+                </span>
                 <div style="width: 60px;"></div>
             </div>
 
@@ -822,7 +998,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div class="large-preview-wrapper">
                     <img id="result-large-preview" src="" alt="Selected Photo">
                 </div>
-                <div class="analyzing-status-box">
+                <div class="analyzing-status-box" role="status" aria-live="polite">
                     <p class="analyzing-subtitle">AIが写真を確認しています…</p>
                     <div class="steps-container-compact">
                         <div class="step-compact active" id="step-c1">写真確認</div>
@@ -839,38 +1015,38 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">総合リスク</span>
-                        <span id="risk-badge" class="badge">--</span>
+                        <span class="summary-label">注意が必要な箇所</span>
+                        <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
-                        <span class="summary-label">赤枠リスク</span>
-                        <span id="risk-count" class="summary-value">--件</span>
+                        <span class="summary-label">総合リスク</span>
+                        <span id="risk-badge" class="badge">--</span>
                     </div>
                 </div>
 
                 <!-- Not Applicable Warning Box -->
-                <div id="not-applicable-container" style="display: none; background-color: rgba(245, 158, 11, 0.1); border: 1px solid var(--warning-color); border-radius: 12px; padding: 16px; margin-bottom: 20px; text-align: center;">
-                    <p id="not-applicable-message" style="color: #FFD580; font-weight: bold; font-size: 0.95rem;"></p>
+                <div id="not-applicable-container" style="display: none; background-color: rgba(201, 52, 0, 0.08); border: 1px solid var(--warning-color); border-radius: 16px; padding: 16px; margin-bottom: 20px; text-align: center;">
+                    <p id="not-applicable-message" style="color: var(--warning-color); font-weight: bold; font-size: 0.95rem;"></p>
                 </div>
 
                 <!-- Stacked Images: Annotated first, Improvement second -->
                 <div class="result-images-list">
                     <div class="result-image-card">
-                        <span class="image-card-title">危険提示</span>
+                        <span class="image-card-title">現在の注意箇所</span>
                         <div class="image-wrapper">
-                            <img id="result-annotated-img" src="" alt="現状写真">
+                            <img id="result-annotated-img" src="" alt="赤枠で注意箇所を示した現在の写真">
                         </div>
                     </div>
                     <div class="result-image-card">
-                        <span class="image-card-title">改善イメージ</span>
+                        <span class="image-card-title">対策イメージ（施工図ではありません）</span>
                         <div class="image-wrapper">
-                            <img id="result-improvement-img" src="" alt="改善イメージ">
+                            <img id="result-improvement-img" src="" alt="注意箇所への一般的な対策イメージ">
                         </div>
                     </div>
                 </div>
 
                 <!-- Hidden Debug Panel -->
-                <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left;">
+                <div class="debug-panel" style="display: none; background-color: var(--surface); border: 1px dashed var(--border-color); border-radius: 12px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left;">
                     <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
                     <div>Mode: <span class="debug-mode">--</span></div>
                     <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
@@ -880,14 +1056,14 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
 
                 <div class="result-actions">
-                    <button id="btn-show-suggestions" class="btn btn-primary">点検・修繕提案を見る</button>
+                    <button id="btn-show-suggestions" class="btn btn-primary">次にできることを見る</button>
                     <button class="btn btn-outline btn-back-home">ホームに戻る</button>
                 </div>
             </div>
         </div>
 
         <!-- SCREEN 3: Action Suggestions -->
-        <div id="screen-suggestions" class="screen">
+        <div id="screen-suggestions" class="screen" aria-hidden="true">
             <div class="screen-nav">
                 <button id="btn-back-to-result" class="nav-back">
                     <svg viewBox="0 0 24 24" fill="currentColor">
@@ -895,83 +1071,105 @@ INDEX_HTML = """<!DOCTYPE html>
                     </svg>
                     戻る
                 </button>
-                <span class="nav-title">点検・修繕提案</span>
+                <span class="nav-title">次にできること</span>
                 <div style="width: 60px;"></div>
             </div>
 
-            <h2 class="section-title">点検・修繕提案</h2>
-            <p class="section-subtitle">できることから順に確認してください。</p>
+            <h1 class="section-title" data-screen-title tabindex="-1">次にできること</h1>
+            <p class="section-subtitle">
+                安全のため、家族で今日できることから順に確認してください。
+            </p>
 
             <!-- Collapsed Accordion Cards -->
             <div class="action-cards-container">
                 <!-- Family Card -->
-                <div class="accordion-card family-card">
-                    <div class="accordion-card-header">
-                        <div class="accordion-card-title-group">
+                <div class="accordion-card family-card open">
+                    <button
+                        type="button"
+                        class="accordion-card-header"
+                        aria-expanded="true"
+                        aria-controls="accordion-family"
+                    >
+                        <span class="accordion-card-title-group">
                             <span class="accordion-card-title">家族で今日できること</span>
-                            <div class="accordion-card-sub">
-                                <span class="accordion-card-label">0円・すぐできる</span>
+                            <span class="accordion-card-sub">
+                                <span class="accordion-card-label">今日・費用なし</span>
                                 <span id="family-count" class="accordion-card-count"></span>
-                            </div>
-                        </div>
+                            </span>
+                        </span>
                         <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
                         </svg>
-                    </div>
-                    <div class="accordion-card-content">
-                        <div id="action-family-content" class="card-body markdown-body"></div>
+                    </button>
+                    <div id="accordion-family" class="accordion-card-content">
+                        <div id="action-family-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
                 <!-- Care Manager Card -->
                 <div class="accordion-card care-card">
-                    <div class="accordion-card-header">
-                        <div class="accordion-card-title-group">
+                    <button
+                        type="button"
+                        class="accordion-card-header"
+                        aria-expanded="false"
+                        aria-controls="accordion-care"
+                    >
+                        <span class="accordion-card-title-group">
                             <span class="accordion-card-title">ケアマネ・福祉用具に相談</span>
-                            <div class="accordion-card-sub">
-                                <span class="accordion-card-label">購入・レンタル</span>
+                            <span class="accordion-card-sub">
+                                <span class="accordion-card-label">購入・レンタルの相談</span>
                                 <span id="care-count" class="accordion-card-count"></span>
-                            </div>
-                        </div>
+                            </span>
+                        </span>
                         <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
                         </svg>
-                    </div>
-                    <div class="accordion-card-content">
-                        <div id="action-care-content" class="card-body markdown-body"></div>
+                    </button>
+                    <div id="accordion-care" class="accordion-card-content" hidden>
+                        <div id="action-care-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
                 <!-- Contractor Card -->
                 <div class="accordion-card contractor-card">
-                    <div class="accordion-card-header">
-                        <div class="accordion-card-title-group">
+                    <button
+                        type="button"
+                        class="accordion-card-header"
+                        aria-expanded="false"
+                        aria-controls="accordion-contractor"
+                    >
+                        <span class="accordion-card-title-group">
                             <span class="accordion-card-title">専門施工・現地確認</span>
-                            <div class="accordion-card-sub">
-                                <span class="accordion-card-label">工事・専門確認</span>
+                            <span class="accordion-card-sub">
+                                <span class="accordion-card-label">工事・現地確認</span>
                                 <span id="contractor-count" class="accordion-card-count"></span>
-                            </div>
-                        </div>
+                            </span>
+                        </span>
                         <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
                         </svg>
-                    </div>
-                    <div class="accordion-card-content">
-                        <div id="action-contractor-content" class="card-body markdown-body"></div>
+                    </button>
+                    <div id="accordion-contractor" class="accordion-card-content" hidden>
+                        <div id="action-contractor-content" class="card-body markdown-body action-report"></div>
                     </div>
                 </div>
 
                 <!-- Risk Basis Card -->
                 <div class="accordion-card basis-card">
-                    <div class="accordion-card-header">
-                        <div class="accordion-card-title-group">
+                    <button
+                        type="button"
+                        class="accordion-card-header"
+                        aria-expanded="false"
+                        aria-controls="accordion-basis"
+                    >
+                        <span class="accordion-card-title-group">
                             <span class="accordion-card-title">詳しいリスク根拠を見る</span>
-                        </div>
+                        </span>
                         <svg class="accordion-card-icon" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
                         </svg>
-                    </div>
-                    <div class="accordion-card-content">
+                    </button>
+                    <div id="accordion-basis" class="accordion-card-content" hidden>
                         <div id="risk-details-content" class="markdown-body"></div>
                     </div>
                 </div>
@@ -979,11 +1177,11 @@ INDEX_HTML = """<!DOCTYPE html>
 
             <p class="disclaimer-text" style="color: var(--text-muted); text-align: left; margin: 16px 0;">
                 ※POC版です。医療・介護・施工判断を代替しません。<br>
-                ※改善イメージはコミュニケーション用であり施工図ではありません。
+                ※対策イメージはコミュニケーション用であり施工図ではありません。
             </p>
 
             <!-- Hidden Debug Panel -->
-            <div class="debug-panel" style="display: none; background-color: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.15); border-radius: 8px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left; margin-bottom: 16px;">
+            <div class="debug-panel" style="display: none; background-color: var(--surface); border: 1px dashed var(--border-color); border-radius: 12px; padding: 12px; font-size: 0.75rem; font-family: monospace; margin-top: 16px; text-align: left; margin-bottom: 16px;">
                 <div style="font-weight: bold; margin-bottom: 4px; color: var(--warning-color);">[DEBUG INFO]</div>
                 <div>Mode: <span class="debug-mode">--</span></div>
                 <div>Analysis ID: <span class="debug-analysis-id">--</span></div>
@@ -1016,8 +1214,19 @@ INDEX_HTML = """<!DOCTYPE html>
             const screens = document.querySelectorAll('.screen');
             screens.forEach(screen => {
                 screen.classList.remove('active');
+                screen.setAttribute('aria-hidden', 'true');
             });
-            document.getElementById(screenId).classList.add('active');
+            const nextScreen = document.getElementById(screenId);
+            nextScreen.classList.add('active');
+            nextScreen.setAttribute('aria-hidden', 'false');
+            nextScreen.scrollTop = 0;
+
+            requestAnimationFrame(() => {
+                const screenTitle = nextScreen.querySelector('[data-screen-title]');
+                if (screenTitle) {
+                    screenTitle.focus({ preventScroll: true });
+                }
+            });
         }
 
         btnCamera.addEventListener('click', () => {
@@ -1193,9 +1402,14 @@ INDEX_HTML = """<!DOCTYPE html>
             const conCount = countItems(payload.contractor_actions_markdown);
             document.getElementById('contractor-count').textContent = conCount ? `(${conCount}件)` : '';
 
-            // Collapse all accordion cards by default
+            // Keep the safest immediate actions open and the other tiers collapsed.
             document.querySelectorAll('.accordion-card').forEach(card => {
-                card.classList.remove('open');
+                const header = card.querySelector('.accordion-card-header');
+                const content = document.getElementById(header.getAttribute('aria-controls'));
+                const shouldOpen = card.classList.contains('family-card');
+                card.classList.toggle('open', shouldOpen);
+                header.setAttribute('aria-expanded', String(shouldOpen));
+                content.hidden = !shouldOpen;
             });
 
             // Update Debug Panel
@@ -1204,7 +1418,7 @@ INDEX_HTML = """<!DOCTYPE html>
             clearStepAnimation();
             
             // Switch title and transition to completed layout inside Screen 2
-            document.getElementById('screen2-title').textContent = "確認結果";
+            document.getElementById('screen2-title').textContent = "安全チェック結果";
             document.getElementById('result-analyzing-container').style.display = 'none';
             document.getElementById('result-completed-container').style.display = 'block';
         }
@@ -1267,8 +1481,13 @@ INDEX_HTML = """<!DOCTYPE html>
         // Accordion Card Toggle Handler
         document.querySelectorAll('.accordion-card-header').forEach(header => {
             header.addEventListener('click', () => {
-                const card = header.parentElement;
-                card.classList.toggle('open');
+                const card = header.closest('.accordion-card');
+                const contentId = header.getAttribute('aria-controls');
+                const content = document.getElementById(contentId);
+                const willOpen = header.getAttribute('aria-expanded') !== 'true';
+                card.classList.toggle('open', willOpen);
+                header.setAttribute('aria-expanded', String(willOpen));
+                content.hidden = !willOpen;
             });
         });
 

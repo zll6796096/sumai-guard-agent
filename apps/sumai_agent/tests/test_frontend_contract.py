@@ -38,4 +38,4 @@ def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> No
     assert "btnShowSuggestions.style.display = 'none'" in html
     assert "resultSummary.style.display = 'flex'" in html
     assert "btnShowSuggestions.style.display = ''" in html
-    assert "document.getElementById('screen2-title').textContent = \"確認結果\"" in html
+    assert "document.getElementById('screen2-title').textContent = \"安全チェック結果\"" in html
