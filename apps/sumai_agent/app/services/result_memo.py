@@ -4,11 +4,18 @@ import asyncio
 import time
 from collections import OrderedDict
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Awaitable, Callable, Generic, TypeVar
 
 
 T = TypeVar("T")
 Factory = Callable[[], Awaitable[tuple[T, bool]]]
+
+
+@dataclass
+class _InFlightEntry(Generic[T]):
+    worker: asyncio.Task[tuple[T, bool]]
+    waiters: int = 0
 
 
 class AsyncResultMemo(Generic[T]):
@@ -29,7 +36,7 @@ class AsyncResultMemo(Generic[T]):
         self._ttl_seconds = ttl_seconds
         self._clock = clock
         self._values: OrderedDict[str, tuple[float, T]] = OrderedDict()
-        self._in_flight: dict[str, asyncio.Task[tuple[T | None, BaseException | None]]] = {}
+        self._in_flight: dict[str, _InFlightEntry[T]] = {}
         self._lock = asyncio.Lock()
 
     async def get_or_compute(self, key: str, factory: Factory[T]) -> tuple[T, bool]:
@@ -39,18 +46,23 @@ class AsyncResultMemo(Generic[T]):
             if cached is not None:
                 self._values.move_to_end(key)
                 return deepcopy(cached[1]), True
-            task = self._in_flight.get(key)
-            if task is None:
-                worker = asyncio.create_task(self._compute(key, factory))
+            entry = self._in_flight.get(key)
+            if entry is None:
+                worker = asyncio.create_task(
+                    self._run_worker(key, factory)
+                )
                 worker.add_done_callback(self._observe_task_failure)
-                task = asyncio.create_task(self._capture_worker(key, worker))
-                self._in_flight[key] = task
+                entry = _InFlightEntry(worker=worker)
+                self._in_flight[key] = entry
+            entry.waiters += 1
 
-        # A cancelled request must not cancel the shared provider computation.
-        value, error = await asyncio.shield(task)
-        if error is not None:
-            raise error
-        return deepcopy(value), False
+        try:
+            # One disconnected request must not cancel work still shared by
+            # another waiter.
+            value, _cacheable = await asyncio.shield(entry.worker)
+            return deepcopy(value), False
+        finally:
+            await self._release_waiter(key, entry)
 
     def _purge_expired(self) -> None:
         now = self._clock()
@@ -64,21 +76,39 @@ class AsyncResultMemo(Generic[T]):
         if not task.cancelled():
             task.exception()
 
-    async def _capture_worker(
-        self, key: str, worker: asyncio.Task[tuple[T, bool]]
-    ) -> tuple[T | None, BaseException | None]:
-        """Convert worker failure into a successful shield target for detached waiters."""
+    async def _run_worker(
+        self,
+        key: str,
+        factory: Factory[T],
+    ) -> tuple[T, bool]:
         try:
-            value, _cacheable = await worker
-            return value, None
-        except asyncio.CancelledError as error:
-            return None, error
-        except Exception as error:
-            return None, error
+            return await self._compute(key, factory)
         finally:
             async with self._lock:
-                if self._in_flight.get(key) is asyncio.current_task():
+                entry = self._in_flight.get(key)
+                if (
+                    entry is not None
+                    and entry.worker is asyncio.current_task()
+                ):
                     del self._in_flight[key]
+
+    async def _release_waiter(
+        self,
+        key: str,
+        entry: _InFlightEntry[T],
+    ) -> None:
+        cancel_worker = False
+        async with self._lock:
+            if entry.waiters <= 0:
+                raise RuntimeError("result_memo_waiter_underflow")
+            entry.waiters -= 1
+            if entry.waiters == 0 and not entry.worker.done():
+                if self._in_flight.get(key) is entry:
+                    del self._in_flight[key]
+                entry.worker.cancel()
+                cancel_worker = True
+        if cancel_worker:
+            await asyncio.gather(entry.worker, return_exceptions=True)
 
     async def _compute(self, key: str, factory: Factory[T]) -> tuple[T, bool]:
         value, cacheable = await factory()
