@@ -57,12 +57,19 @@ class RuleEngine:
         contractor: list[ActionItem] = []
         seen_actions: set[tuple[str, str, str]] = set()
 
-        filtered_findings = []
+        filtered_findings: list[tuple[RiskFinding, OntologyRiskRule | None]] = []
         for finding in findings:
+            if finding.ontology_rule_kind not in {None, "visible_hazard"}:
+                continue
             if finding.confidence < 0.45:
                 continue
 
-            is_known = self._find_checklist_item(room_type, finding) is not None
+            chk_item = self._find_checklist_item(room_type, finding)
+            if finding.ontology_rule_kind is None and (
+                chk_item is None or chk_item.rule_kind != "visible_hazard"
+            ):
+                continue
+            is_known = chk_item is not None
 
             if 0.45 <= finding.confidence < 0.60:
                 if not is_known:
@@ -73,11 +80,9 @@ class RuleEngine:
                 if finding.confidence < 0.75:
                     continue
 
-            filtered_findings.append(finding)
+            filtered_findings.append((finding, chk_item))
 
-        for index, finding in enumerate(filtered_findings, start=1):
-            chk_item = self._find_checklist_item(room_type, finding)
-            
+        for index, (finding, chk_item) in enumerate(filtered_findings, start=1):
             basis_label = finding.basis_label_ja
             basis_summary = finding.basis_summary_ja
             exact_rule_identity = bool(
@@ -97,15 +102,9 @@ class RuleEngine:
             if not basis_summary:
                 basis_summary = "写真で見える範囲の一般的な転倒・つまずき予防の観点です。"
 
-            resolved_rule_kind = (
-                chk_item.rule_kind
-                if chk_item is not None
-                else finding.ontology_rule_kind
-            )
             needs_confirm = (
                 finding.needs_human_confirmation
                 or finding.confidence < 0.60
-                or resolved_rule_kind == "expected_feature"
             )
             normalized = finding.model_copy(
                 update={
@@ -141,84 +140,39 @@ class RuleEngine:
 
             # Build action lists from checklist definition
             if chk_item:
-                if normalized.ontology_rule_kind == "expected_feature":
-                    # A photo-scoped non-detection is a confirmation topic, not
-                    # a localized danger or proof that equipment is absent.
-                    family_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                "写真だけで設備の有無や必要性を断定せず、"
-                                f"{act}。"
-                            ),
-                            "why_ja": (
-                                "写真内で確認できなかった設備について、"
-                                "実際の状況を人の目で確認するためです。"
-                            ),
-                        }
-                        for act in chk_item.family_actions
-                    ]
-                    care_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                f"写真だけで導入を決めず、専門職と{act}。"
-                            ),
-                            "why_ja": (
-                                "写真内で確認できなかった設備について、"
-                                "必要性と選択肢を専門職に相談するためです。"
-                            ),
-                        }
-                        for act in chk_item.care_manager_actions
-                    ]
-                    contractor_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                "写真から位置・寸法・下地を決めず、"
-                                f"専門業者と{act}。"
-                            ),
-                            "why_ja": (
-                                "写真内で確認できなかった設備について、"
-                                "施工可否や位置を現地で確認するためです。"
-                            ),
-                        }
-                        for act in chk_item.contractor_actions
-                    ]
-                else:
-                    desc_reason = normalized.description_ja.rstrip("。")
-                    family_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                f"{normalized.label_ja}への対策として、{act}を行います。"
-                            ),
-                            "why_ja": f"{desc_reason}を防ぐためです。",
-                        }
-                        for act in chk_item.family_actions
-                    ]
-                    care_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                f"専門職と連携し、{act}について相談・検討します。"
-                            ),
-                            "why_ja": f"{desc_reason}のリスクを軽減するためです。",
-                        }
-                        for act in chk_item.care_manager_actions
-                    ]
-                    contractor_raw = [
-                        {
-                            "title_ja": act,
-                            "description_ja": (
-                                f"施工会社などの専門業者に依頼し、{act}の可否を確認します。"
-                            ),
-                            "why_ja": (
-                                "住宅改修により高齢者の自立支援と安全を確保するためです。"
-                            ),
-                        }
-                        for act in chk_item.contractor_actions
-                    ]
+                desc_reason = normalized.description_ja.rstrip("。")
+                family_raw = [
+                    {
+                        "title_ja": act,
+                        "description_ja": (
+                            f"{normalized.label_ja}への対策として、{act}を行います。"
+                        ),
+                        "why_ja": f"{desc_reason}を防ぐためです。",
+                    }
+                    for act in chk_item.family_actions
+                ]
+                care_raw = [
+                    {
+                        "title_ja": act,
+                        "description_ja": (
+                            f"専門職と連携し、{act}について相談・検討します。"
+                        ),
+                        "why_ja": f"{desc_reason}のリスクを軽減するためです。",
+                    }
+                    for act in chk_item.care_manager_actions
+                ]
+                contractor_raw = [
+                    {
+                        "title_ja": act,
+                        "description_ja": (
+                            f"施工会社などの専門業者に依頼し、{act}の可否を確認します。"
+                        ),
+                        "why_ja": (
+                            "住宅改修により高齢者の自立支援と安全を確保するためです。"
+                        ),
+                    }
+                    for act in chk_item.contractor_actions
+                ]
             else:
                 # Fallback action
                 family_raw = [{

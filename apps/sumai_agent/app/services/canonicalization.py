@@ -6,7 +6,7 @@ from typing import Any
 
 from PIL import Image
 
-from app.models import BoundingBox, RiskFinding
+from app.models import BoundingBox, ConfirmationItem, RiskFinding
 
 SAME_CLASS_DEDUP_IOU_THRESHOLD = 0.5
 
@@ -48,6 +48,47 @@ def result_key(
         canonical_inputs, ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def canonicalize_confirmation_items(
+    items: list[ConfirmationItem],
+) -> list[ConfirmationItem]:
+    """Return copied confirmation topics with stable order, identity, and IDs."""
+    copied = [
+        item.model_copy(deep=True).model_copy(
+            update={"confidence": 0.0 if item.confidence == 0.0 else item.confidence}
+        )
+        for item in items
+    ]
+
+    def sort_key(item: ConfirmationItem) -> tuple[Any, ...]:
+        full_dump = normalize_signed_zero(
+            item.model_dump(mode="json", exclude={"id"})
+        )
+        return (
+            item.feature_key,
+            -item.confidence,
+            item.label_ja,
+            json.dumps(
+                full_dump,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ),
+        )
+
+    deduplicated: list[ConfirmationItem] = []
+    seen_feature_keys: set[str] = set()
+    for item in sorted(copied, key=sort_key):
+        if item.feature_key in seen_feature_keys:
+            continue
+        seen_feature_keys.add(item.feature_key)
+        deduplicated.append(item)
+
+    return [
+        item.model_copy(update={"id": f"C{index}"})
+        for index, item in enumerate(deduplicated, start=1)
+    ]
 
 
 def canonicalize_findings(findings: list[RiskFinding]) -> list[RiskFinding]:

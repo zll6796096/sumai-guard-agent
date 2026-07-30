@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from app.models import BoundingBox, RiskFinding
+import pytest
+
+from app.models import ActionPlan, BoundingBox, RiskFinding
 from app.ontology import OntologyRepository
 from app.services.relationship_engine import RelationshipEngine
 from app.services.rule_engine import RuleEngine
@@ -60,24 +62,39 @@ def test_legacy_known_visible_risk_gets_rule_kind_for_visual_rendering() -> None
     assert findings[0].ontology_rule_kind == "visible_hazard"
 
 
-def test_legacy_expected_feature_always_requires_human_confirmation() -> None:
+def test_legacy_expected_feature_is_not_a_finding_or_action() -> None:
     finding = _finding("toilet_missing_handrail", confidence=0.9).model_copy(
         update={"needs_human_confirmation": False}
     )
 
     findings, plan = RuleEngine().apply([finding], "toilet")
 
-    assert findings[0].ontology_key == "has_handrail"
-    assert findings[0].ontology_rule_kind == "expected_feature"
-    assert findings[0].needs_human_confirmation is True
-    assert all(
-        "写真内で確認できなかった設備" in action.why_ja
-        for action in (
-            *plan.family_no_cost,
-            *plan.care_manager_purchase,
-            *plan.contractor_construction,
-        )
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+@pytest.mark.parametrize("rule_kind", ["expected_feature", "future_non_visible_kind"])
+def test_explicit_non_visible_kind_is_rejected_before_ontology_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    rule_kind: str,
+) -> None:
+    engine = RuleEngine()
+    finding = _finding("toilet_missing_handrail", confidence=0.9).model_copy(
+        update={
+            "ontology_key": "has_handrail",
+            "ontology_rule_kind": rule_kind,
+        }
     )
+
+    def fail_on_lookup(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("non-visible findings must not reach ontology lookup")
+
+    monkeypatch.setattr(engine, "_find_checklist_item", fail_on_lookup)
+
+    findings, plan = engine.apply([finding], "toilet")
+
+    assert findings == []
+    assert plan == ActionPlan()
 
 
 def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
@@ -103,7 +120,7 @@ def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
             "not_applicable_reason_code": None,
         }
     )
-    derived = RelationshipEngine(ontology).derive(facts)
+    derived = RelationshipEngine(ontology).derive(facts).visible_findings
 
     findings, plan = RuleEngine(ontology=ontology).apply(derived, "genkan")
 
