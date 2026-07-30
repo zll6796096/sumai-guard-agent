@@ -30,7 +30,6 @@ from app.services.canonicalization import (
     semantic_hash,
 )
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
-from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
 from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
@@ -86,7 +85,6 @@ class AnalysisOrchestrator:
     ) -> None:
         self.vision = vision or GeminiVisionService()
         self.ontology = OntologyRepository.load_default()
-        self.checklist_engine = ChecklistEngine(ontology=self.ontology)
         self.relationship_engine = RelationshipEngine(self.ontology)
         self.rule_engine = RuleEngine(ontology=self.ontology)
         self.visual_renderer = VisualRenderer()
