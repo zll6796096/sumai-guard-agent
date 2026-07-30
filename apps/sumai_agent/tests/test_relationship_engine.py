@@ -45,6 +45,7 @@ def _analysis_response_payload(**overrides: object) -> dict[str, object]:
         "annotated_image_base64": "",
         "improvement_image_base64": "",
         "risk_summary_markdown": "",
+        "confirmation_items_markdown": "確認項目",
         "family_actions_markdown": "",
         "care_manager_actions_markdown": "",
         "contractor_actions_markdown": "",
@@ -176,6 +177,25 @@ def test_applicable_response_accepts_finding_with_complete_visible_identity() ->
     )
 
     assert len(response.findings) == 1
+
+
+def test_analysis_response_requires_non_empty_confirmation_markdown() -> None:
+    missing = _analysis_response_payload()
+    missing.pop("confirmation_items_markdown")
+
+    with pytest.raises(ValidationError):
+        AnalysisResponse.model_validate(missing)
+    with pytest.raises(ValidationError):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(confirmation_items_markdown="")
+        )
+
+    response = AnalysisResponse.model_validate(
+        _analysis_response_payload(
+            confirmation_items_markdown="写真だけでは確認できない項目"
+        )
+    )
+    assert response.confirmation_items_markdown == "写真だけでは確認できない項目"
 
 
 def test_hallway_cord_requires_intersects_relationship() -> None:

@@ -57,7 +57,7 @@ def _visible_action() -> ActionItem:
     )
 
 
-def test_confirmation_only_report_keeps_neutral_observations_out_of_risks_and_actions() -> None:
+def test_confirmation_only_report_uses_plain_copy_outside_risks_and_actions() -> None:
     reports = ReportRenderer().render(
         room_type="toilet",
         overall_risk_level="low",
@@ -70,11 +70,13 @@ def test_confirmation_only_report_keeps_neutral_observations_out_of_risks_and_ac
     confirmations = reports["confirmation_items_markdown"]
     assert "現時点で大きな赤枠リスクは検出されませんでした。" in summary
     assert "手すり" not in summary
-    assert "## 写真での中性確認" in confirmations
+    assert "## 写真だけでは確認できない項目" in confirmations
     assert "手すり" in confirmations
-    assert "設備が存在しないこと" in confirmations
+    assert "住宅内に存在しないことを意味しません" in confirmations
     assert "増設が必要かどうか" in confirmations
     assert "設置位置" in confirmations
+    assert "中性確認" not in confirmations
+    assert "中性の観察" not in confirmations
 
     for key in (
         "family_actions_markdown",
@@ -107,7 +109,7 @@ def test_mixed_report_routes_only_visible_findings_into_risks_and_actions() -> N
     assert "手すり" not in actions
 
 
-def test_report_shape_always_includes_neutral_confirmation_markdown() -> None:
+def test_report_shape_always_includes_confirmation_markdown() -> None:
     reports = ReportRenderer().render(
         room_type="hallway",
         overall_risk_level="low",
@@ -126,5 +128,40 @@ def test_report_shape_always_includes_neutral_confirmation_markdown() -> None:
         "care_manager_actions_markdown",
         "contractor_actions_markdown",
     }
-    assert "中性確認項目はありません" in reports["confirmation_items_markdown"]
+    assert "追加で表示する項目はありません" in reports["confirmation_items_markdown"]
     assert "表示していません" in not_applicable["confirmation_items_markdown"]
+    assert "写真だけでは確認できない項目" in (
+        not_applicable["confirmation_items_markdown"]
+    )
+
+
+def test_report_escapes_model_controlled_html_before_client_sanitization() -> None:
+    malicious = '<img src=x onerror="globalThis.pwned=1"><script>alert(1)</script>'
+    finding = _visible_finding().model_copy(
+        update={"label_ja": malicious, "description_ja": malicious}
+    )
+    confirmation = _confirmation().model_copy(
+        update={"label_ja": malicious, "description_ja": malicious}
+    )
+    action = _visible_action().model_copy(
+        update={"title_ja": malicious, "description_ja": malicious}
+    )
+
+    reports = ReportRenderer().render(
+        room_type="hallway",
+        overall_risk_level="medium",
+        findings=[finding],
+        confirmation_items=[confirmation],
+        action_plan=ActionPlan(family_no_cost=[action]),
+    )
+
+    for key in (
+        "risk_summary_markdown",
+        "confirmation_items_markdown",
+        "family_actions_markdown",
+    ):
+        markdown = reports[key]
+        assert "<img" not in markdown
+        assert "<script" not in markdown
+        assert "&lt;img" in markdown
+        assert "&lt;script&gt;" in markdown

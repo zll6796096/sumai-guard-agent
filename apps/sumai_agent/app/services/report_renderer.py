@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from app.models import (
     ActionItem,
     ActionPlan,
@@ -27,13 +29,18 @@ RISK_LABELS = {
 }
 
 
+def _markdown_text(value: str) -> str:
+    """Keep model-controlled text inline and prevent raw HTML in Markdown."""
+    return html.escape(" ".join(value.splitlines()), quote=True)
+
+
 class ReportRenderer:
     def render_not_applicable(self, reason_ja: str) -> dict[str, str]:
         summary = "\n".join(
             [
                 "## リスク概要",
                 "- 判定: 対象外または判定不能",
-                f"- 理由: {reason_ja}",
+                f"- 理由: {_markdown_text(reason_ja)}",
                 "- 写真から安全性を判定できません。",
                 "- 安全または低リスクという意味ではないため、写真外の状況を含めて確認が必要です。",
             ]
@@ -42,8 +49,8 @@ class ReportRenderer:
         return {
             "risk_summary_markdown": summary,
             "confirmation_items_markdown": (
-                "## 写真での中性確認\n\n"
-                "対象外または判定不能のため、中性確認項目は表示していません。"
+                "## 写真だけでは確認できない項目\n\n"
+                "対象外または判定不能のため、項目は表示していません。"
             ),
             "family_actions_markdown": f"## 家族で今日できること\n\n{undecided}",
             "care_manager_actions_markdown": f"## ケアマネ・福祉用具に相談\n\n{undecided}",
@@ -98,11 +105,11 @@ class ReportRenderer:
             confidence_percent = round(finding.confidence * 100)
             lines.extend(
                 [
-                    f"### 注意箇所: {finding.label_ja}",
-                    f"- 危険な理由: {finding.description_ja}",
-                    f"- 理由の根拠: {finding.evidence_ja}",
-                    f"- 参考根拠: {finding.basis_label_ja}",
-                    f"- 根拠の要約: {finding.basis_summary_ja}",
+                    f"### 注意箇所: {_markdown_text(finding.label_ja)}",
+                    f"- 危険な理由: {_markdown_text(finding.description_ja)}",
+                    f"- 理由の根拠: {_markdown_text(finding.evidence_ja)}",
+                    f"- 参考根拠: {_markdown_text(finding.basis_label_ja)}",
+                    f"- 根拠の要約: {_markdown_text(finding.basis_summary_ja)}",
                     f"- モデル検出スコア（未校正）: {confidence_percent}%",
                 ]
             )
@@ -116,22 +123,23 @@ class ReportRenderer:
         confirmation_items: list[ConfirmationItem],
     ) -> str:
         lines = [
-            "## 写真での中性確認",
+            "## 写真だけでは確認できない項目",
             "",
-            "ここに示す内容は中性の観察であり、可視リスクや行動提案の根拠ではありません。",
-            "写真だけでは、設備が存在しないこと、増設が必要かどうか、設置位置を判断できません。",
+            "ここには、写真の中で確認できなかった項目だけを表示しています。",
+            "写真で確認できなかったことは、住宅内に存在しないことを意味しません。",
+            "増設が必要かどうかや、設置位置も、この写真だけでは判断できません。",
             "誤解を避けるため、画像上に赤枠や設置候補を表示していません。",
             "",
         ]
         if not confirmation_items:
-            lines.append("この写真から追加の中性確認項目はありません。")
+            lines.append("この写真には、追加で表示する項目はありません。")
             return "\n".join(lines)
 
         for item in confirmation_items:
             lines.extend(
                 [
-                    f"### 確認項目: {item.label_ja}",
-                    f"- 写真上の観察: {item.description_ja}",
+                    f"### 確認項目: {_markdown_text(item.label_ja)}",
+                    f"- 写真での確認: {_markdown_text(item.description_ja)}",
                     "- 人による確認: 必要に応じて、実際の設備と周囲の状況を確認してください。",
                     "",
                 ]
@@ -143,7 +151,7 @@ class ReportRenderer:
         title: str,
         actions: list[ActionItem],
     ) -> str:
-        lines = [f"## {title}", ""]
+        lines = [f"## {_markdown_text(title)}", ""]
         if not actions:
             lines.append("現時点で可視リスクに対応する行動候補はありません。")
             return "\n".join(lines)
@@ -151,11 +159,11 @@ class ReportRenderer:
         for action in actions:
             lines.extend(
                 [
-                    f"### {action.title_ja}",
+                    f"### {_markdown_text(action.title_ja)}",
                     "- 対象: 今回検出された危険箇所",
-                    f"- 内容: {action.description_ja}",
-                    f"- 理由: {action.why_ja}",
-                    f"- 注意: {action.disclaimer_ja}",
+                    f"- 内容: {_markdown_text(action.description_ja)}",
+                    f"- 理由: {_markdown_text(action.why_ja)}",
+                    f"- 注意: {_markdown_text(action.disclaimer_ja)}",
                     "",
                 ]
             )

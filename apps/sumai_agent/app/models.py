@@ -178,7 +178,7 @@ class AnalysisResponse(BaseModel):
     annotated_image_base64: str
     improvement_image_base64: str
     risk_summary_markdown: str
-    confirmation_items_markdown: str = ""
+    confirmation_items_markdown: str = Field(min_length=1)
     family_actions_markdown: str
     care_manager_actions_markdown: str
     contractor_actions_markdown: str

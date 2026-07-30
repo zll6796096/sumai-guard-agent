@@ -104,6 +104,8 @@ def test_mock_analyze_returns_valid_schema_and_japanese_reports() -> None:
     assert "専門施工・現地確認" in payload["contractor_actions_markdown"]
     assert isinstance(payload["confirmation_items_markdown"], str)
     assert payload["confirmation_items_markdown"].strip()
+    assert "写真だけでは確認できない項目" in payload["confirmation_items_markdown"]
+    assert "中性確認" not in payload["confirmation_items_markdown"]
     assert "モデル検出スコア（未校正）:" in payload["risk_summary_markdown"]
     assert "信頼度:" not in payload["risk_summary_markdown"]
     assert "医療・介護・施工判断を代替しません" in payload["disclaimer_ja"]
@@ -175,7 +177,9 @@ def test_confirmation_only_analysis_is_neutral_canonical_and_cached(
     ]
     assert first_payload["annotated_image_base64"]
     assert first_payload["improvement_image_base64"]
-    assert "## 写真での中性確認" in first_payload["confirmation_items_markdown"]
+    assert "## 写真だけでは確認できない項目" in (
+        first_payload["confirmation_items_markdown"]
+    )
     assert "手すり" in first_payload["confirmation_items_markdown"]
     assert "手すり" not in first_payload["risk_summary_markdown"]
     assert rendered_findings == [[], []]
@@ -205,6 +209,7 @@ def test_not_applicable_analysis_has_no_confirmation_items(
     assert payload["confirmation_items"] == []
     assert isinstance(payload["confirmation_items_markdown"], str)
     assert payload["confirmation_items_markdown"].strip()
+    assert "写真だけでは確認できない項目" in payload["confirmation_items_markdown"]
 
 
 def test_analysis_response_enforces_the_public_applicability_invariant() -> None:
@@ -323,5 +328,7 @@ def test_web_local_abstention_uses_current_schema_identity_and_empty_confirmatio
     assert payload["confirmation_items"] == []
     assert isinstance(payload["confirmation_items_markdown"], str)
     assert payload["confirmation_items_markdown"].strip()
+    assert "写真だけでは確認できない項目" in payload["confirmation_items_markdown"]
+    assert "中性確認" not in payload["confirmation_items_markdown"]
     assert payload["schema_version"] == "2.1.0"
     assert payload["inference_config_version"] == "1.0.5"

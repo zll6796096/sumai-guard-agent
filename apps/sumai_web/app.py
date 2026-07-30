@@ -1057,10 +1057,11 @@ INDEX_HTML = """<!DOCTYPE html>
                     role="note"
                     hidden
                 >
-                    <strong id="confirmation-items-title">写真での中性確認</strong>
+                    <strong id="confirmation-items-title">写真だけでは確認できない項目</strong>
                     <div id="confirmation-items-body">
                         <p>
-                            写真内で設備を確認できなかった項目は、不存在や設置位置を示せません。
+                            写真で確認できなかったことは、住宅内に存在しないことを意味しません。
+                            増設が必要かどうかや、設置位置もこの写真だけでは判断できません。
                             誤解を避けるため、画像上に赤枠や設置候補を表示していません。
                         </p>
                     </div>
@@ -1387,6 +1388,31 @@ INDEX_HTML = """<!DOCTYPE html>
             return matches ? matches.length : 0;
         }
 
+        const SAFE_MARKDOWN_TAGS = new Set([
+            'H2', 'H3', 'P', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'BR', 'CODE'
+        ]);
+
+        function renderSafeMarkdown(element, markdown) {
+            const template = document.createElement('template');
+            const parsedMarkdown = marked.parse(
+                typeof markdown === 'string' ? markdown : ''
+            );
+            template.innerHTML = parsedMarkdown;
+
+            const elements = [...template.content.querySelectorAll('*')];
+            for (const node of elements) {
+                if (!SAFE_MARKDOWN_TAGS.has(node.tagName)) {
+                    node.replaceWith(document.createTextNode(node.textContent || ''));
+                    continue;
+                }
+                for (const attribute of [...node.attributes]) {
+                    node.removeAttribute(attribute.name);
+                }
+            }
+
+            element.replaceChildren(template.content.cloneNode(true));
+        }
+
         function renderResults(payload) {
             const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
             const resultSummary = document.querySelector('.result-summary');
@@ -1395,7 +1421,6 @@ INDEX_HTML = """<!DOCTYPE html>
             const imagesList = document.querySelector('.result-images-list');
             const confirmationNote = document.getElementById('confirmation-items-note');
             const confirmationTitle = document.getElementById('confirmation-items-title');
-            const confirmationBody = document.getElementById('confirmation-items-body');
             const currentImageTitle = document.getElementById('result-current-image-title');
             const currentImage = document.getElementById('result-annotated-img');
             const improvementCard = document.getElementById('result-improvement-image-card');
@@ -1430,9 +1455,9 @@ INDEX_HTML = """<!DOCTYPE html>
 
                 confirmationNote.hidden = confirmationItems.length === 0;
                 confirmationTitle.textContent = (
-                    `写真での中性確認：${confirmationItems.length}件`
+                    `写真だけでは確認できない項目：${confirmationItems.length}件`
                 );
-                confirmationBody.innerHTML = marked.parse(payload.confirmation_items_markdown || '');
+                renderSafeMarkdown(document.getElementById('confirmation-items-body'), payload.confirmation_items_markdown);
                 currentImageTitle.textContent = hasVisibleFindings
                     ? '写真で確認できた注意箇所'
                     : '確認した写真（位置を特定できる注意箇所はありません）';
@@ -1446,11 +1471,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
             }
 
-            // Render Markdown using marked.js
-            document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
-            document.getElementById('action-care-content').innerHTML = marked.parse(payload.care_manager_actions_markdown || '');
-            document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
-            document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
+            // Parse Markdown in an inert template, then append only allowlisted nodes.
+            renderSafeMarkdown(document.getElementById('action-family-content'), payload.family_actions_markdown);
+            renderSafeMarkdown(document.getElementById('action-care-content'), payload.care_manager_actions_markdown);
+            renderSafeMarkdown(document.getElementById('action-contractor-content'), payload.contractor_actions_markdown);
+            renderSafeMarkdown(document.getElementById('risk-details-content'), payload.risk_summary_markdown);
 
             // Set dynamic counts in headers
             const famCount = countItems(payload.family_actions_markdown);
@@ -1833,8 +1858,8 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "improvement_image_base64": image_base64,
         "risk_summary_markdown": neutral_report,
         "confirmation_items_markdown": (
-            "## 写真での中性確認\n\n"
-            "判定保留中のため、中性確認項目は表示していません。"
+            "## 写真だけでは確認できない項目\n\n"
+            "判定保留中のため、項目は表示していません。"
         ),
         "family_actions_markdown": empty_actions,
         "care_manager_actions_markdown": empty_actions,
