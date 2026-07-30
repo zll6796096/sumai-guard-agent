@@ -758,7 +758,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
                     "visible_regions": ["floor", "walking_path"],
                     "entities": [
                         {
-                            "ref": "cord-1",
+                            "ref": "entity_1",
                             "ontology_key": "hallway_cord",
                             "bbox": {"x": 0.1, "y": 0.6, "w": 0.5, "h": 0.1},
                             "visibility": "clear",
@@ -767,7 +767,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
                     ],
                     "feature_observations": [],
                     "relationships": [
-                        {"subject": "cord-1", "predicate": "intersects", "object": "walking_path"}
+                        {"subject": "entity_1", "predicate": "intersects", "object": "walking_path"}
                     ],
                     "not_applicable_reason_code": None,
                 }
@@ -803,6 +803,7 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     config = captured["config"]
     assert config.response_mime_type == "application/json"
     assert config.response_json_schema is GEMINI_FACTS_JSON_SCHEMA
+    assert config.temperature == 0
 
     schema = config.response_json_schema
     assert schema["required"] == [
@@ -821,9 +822,16 @@ def test_call_gemini_passes_minimal_visual_facts_json_schema() -> None:
     entity_schema = schema["properties"]["entities"]["items"]
     feature_schema = schema["properties"]["feature_observations"]["items"]
     relationship_schema = schema["properties"]["relationships"]["items"]
+    expected_entity_refs = [f"entity_{index}" for index in range(1, 13)]
     assert entity_schema["required"] == ["ref", "ontology_key", "bbox", "visibility", "model_score"]
     assert feature_schema["required"] == ["feature_key", "state", "evidence_bbox", "model_score"]
     assert relationship_schema["required"] == ["subject", "predicate", "object"]
+    assert entity_schema["properties"]["ref"]["enum"] == expected_entity_refs
+    assert relationship_schema["properties"]["subject"]["enum"] == expected_entity_refs
+    assert relationship_schema["properties"]["object"]["enum"] == [
+        *expected_entity_refs,
+        *ONTOLOGY.visible_region_keys,
+    ]
     assert entity_schema["properties"]["ontology_key"]["enum"] == sorted(
         CHECKLIST_VISIBLE_OBSERVATION_KEYS
     )
@@ -848,6 +856,8 @@ def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None
     assert "absent_with_full_coverage" in VISION_PROMPT
     assert "Output strict JSON only using this shape" not in VISION_PROMPT
     assert "x + w and y + h must be at most 1" in VISION_PROMPT
+    assert "entity_1 through entity_12" in VISION_PROMPT
+    assert "subject must be the ref of an emitted entity" in VISION_PROMPT
 
 
 def test_gemini_vocabularies_match_room_checklists() -> None:

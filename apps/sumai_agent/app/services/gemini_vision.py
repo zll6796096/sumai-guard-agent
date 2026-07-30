@@ -131,6 +131,7 @@ GEMINI_RESPONSE_JSON_SCHEMA: dict[str, Any] = {
 
 _FACTS_ROOM_TYPES = [*ONTOLOGY.room_names, "unknown"]
 _FACTS_VISIBLE_REGIONS = list(ONTOLOGY.visible_region_keys)
+_FACTS_ENTITY_REFS = [f"entity_{index}" for index in range(1, 13)]
 _FACTS_REQUIRED_FIELDS = [
     "environment",
     "room_type",
@@ -156,7 +157,7 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "ref": {"type": "string", "minLength": 1, "maxLength": 32},
+                    "ref": {"type": "string", "enum": _FACTS_ENTITY_REFS},
                     "ontology_key": {
                         "type": "string",
                         "enum": sorted(ONTOLOGY.visible_observation_keys),
@@ -196,9 +197,12 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": {
-                    "subject": {"type": "string"},
+                    "subject": {"type": "string", "enum": _FACTS_ENTITY_REFS},
                     "predicate": {"type": "string", "enum": sorted(ONTOLOGY.relationships)},
-                    "object": {"type": "string"},
+                    "object": {
+                        "type": "string",
+                        "enum": [*_FACTS_ENTITY_REFS, *_FACTS_VISIBLE_REGIONS],
+                    },
                 },
                 "required": ["subject", "predicate", "object"],
                 "additionalProperties": False,
@@ -220,12 +224,14 @@ Environment and coverage rules:
    photo does not establish a home environment. Do not invent a reason code.
 2. Correct room_type only when the room is visible; otherwise use unknown.
 3. Emit entities only for directly visible objects or conditions using the supplied ontology keys.
-   Give each a tight bbox entirely inside the image; x + w and y + h must be at most 1.
+   Assign refs sequentially from entity_1 through entity_12. Give each a tight bbox entirely inside
+   the image; x + w and y + h must be at most 1.
 4. A feature can be absent_with_full_coverage only when its relevant region is completely visible.
    Use cannot_determine for cropped, obscured, or ambiguous areas. Never infer an absence from a
    missing or out-of-frame region.
-5. Relationships must use supplied ontology predicates and refer to visible entity refs or named
-   visible regions. Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
+5. Relationships must use supplied ontology predicates. Their subject must be the ref of an emitted entity.
+   The object must be another emitted entity ref or a named visible region.
+   Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
 """
 
 
@@ -476,6 +482,7 @@ class GeminiVisionService:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_json_schema=GEMINI_FACTS_JSON_SCHEMA,
+                temperature=0,
             ),
         )
         return parse_vision_facts_json(response.text or "")
