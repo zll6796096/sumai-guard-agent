@@ -1687,8 +1687,8 @@ async def analyze(
         return JSONResponse(content=payload)
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+@app.get("/ready")
+def ready() -> dict[str, str]:
     return {"status": "ok"}
 
 

@@ -72,3 +72,15 @@ def test_action_cards_hide_redundant_report_scaffolding() -> None:
     html = _home_html()
     assert ".action-report > h2" in html
     assert ".action-report > ul > li:nth-child(-n + 2)" in html
+
+
+def test_web_readiness_endpoint_avoids_cloud_run_reserved_z_suffix() -> None:
+    spec = importlib.util.spec_from_file_location("sumai_web_readiness_contract", WEB_APP_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    response = TestClient(module.app).get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

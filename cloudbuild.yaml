@@ -276,7 +276,7 @@ steps:
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
           "$$web_candidate_url/" >/dev/null &&
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_candidate_url/healthz" >/dev/null
+          "$$web_candidate_url/ready" >/dev/null
         probe_rc="$$?"
         set -e
         printf '%s\n' "$$probe_rc" > /workspace/sumai-web-probe.rc
@@ -399,7 +399,7 @@ steps:
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
           "$$web_final_url/" >/dev/null
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_final_url/healthz" >/dev/null
+          "$$web_final_url/ready" >/dev/null
 
         assert_current_build
         owns_locks
@@ -426,7 +426,7 @@ steps:
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
           "$$stable_web_url/" >/dev/null
         curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$stable_web_url/healthz" >/dev/null
+          "$$stable_web_url/ready" >/dev/null
 
         cleanup_tags
         test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$agent_revision"

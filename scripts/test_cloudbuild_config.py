@@ -30,6 +30,8 @@ for required in (
 assert "--update-secrets=GEMINI_API_KEY=sumai-gemini-api-key:2" in text
 assert "sumai-gemini-api-key:latest" not in text
 assert not re.search(r"--(?:set|update)-env-vars[^\n]*GEMINI_API_KEY", text)
+assert text.count("/ready") == 3
+assert "/healthz" not in text
 
 probe_web_block = text.split("  - id: probe-web-candidate", 1)[1].split(
     "\n  - id:", 1
