@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import logging
 import sys
@@ -8,10 +9,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.config import settings
 from app.models import AnalysisResponse
+from app.services.analysis_stream import stream_analysis
 from app.services.orchestrator import AnalysisOrchestrator
 
 
@@ -146,3 +148,26 @@ async def analyze(
     except Exception as exc:
         logger.error("analyze_error", extra={"error": str(exc)[:500]})
         raise HTTPException(status_code=500, detail=f"分析中にエラーが発生しました: {exc}") from exc
+
+
+@app.post("/analyze/stream")
+async def analyze_stream(
+    image: UploadFile = File(...),
+    room_hint: str = Form("auto"),
+    mock: bool = Form(False),
+) -> StreamingResponse:
+    if image.content_type and not image.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="画像ファイルを指定してください。")
+    upload = UploadFile(
+        filename=image.filename,
+        file=io.BytesIO(await image.read()),
+        headers=image.headers,
+    )
+    return StreamingResponse(
+        stream_analysis(orchestrator, upload, room_hint, mock),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

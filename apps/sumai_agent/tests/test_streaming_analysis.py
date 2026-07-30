@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 from collections.abc import Callable
 
 import pytest
 from fastapi import UploadFile
+from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.models import VisionFacts
+from app.main import app
+from app.models import AnalysisResponse, VisionFacts
 from app.services.orchestrator import AnalysisOrchestrator
 
 
@@ -46,6 +49,11 @@ def upload_factory() -> Callable[[], UploadFile]:
         filename="toilet.png",
         file=io.BytesIO(_png_bytes()),
     )
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
 
 
 @pytest.mark.asyncio
@@ -141,3 +149,122 @@ async def test_coalesced_requests_receive_request_local_stage_events(
     assert vision.calls == 1
     assert owner_stages == ["intake_complete", "vision_complete"]
     assert follower_stages == ["intake_complete", "vision_complete"]
+
+
+def test_agent_stream_emits_progress_then_result(client: TestClient) -> None:
+    with client.stream(
+        "POST",
+        "/analyze/stream",
+        files={"image": ("toilet.png", _png_bytes(), "image/png")},
+        data={"room_hint": "toilet", "mock": "true"},
+    ) as response:
+        events = [
+            json.loads(line)
+            for line in response.iter_lines()
+            if line.strip()
+        ]
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/x-ndjson"
+    )
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert [event["type"] for event in events] == [
+        "progress",
+        "progress",
+        "result",
+    ]
+    assert [event.get("stage") for event in events[:2]] == [
+        "intake_complete",
+        "vision_complete",
+    ]
+    AnalysisResponse.model_validate(events[-1]["payload"])
+
+
+def test_agent_stream_sanitizes_provider_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app import main as main_module
+    from app.errors import GeminiUnavailableError
+
+    async def fail_analysis(**_: object) -> None:
+        raise GeminiUnavailableError("provider-secret-body")
+
+    monkeypatch.setattr(
+        main_module.orchestrator,
+        "analyze",
+        fail_analysis,
+    )
+    with client.stream(
+        "POST",
+        "/analyze/stream",
+        files={
+            "image": (
+                "toilet.png",
+                _png_bytes(),
+                "image/png",
+            )
+        },
+        data={"room_hint": "toilet", "mock": "false"},
+    ) as response:
+        events = [
+            json.loads(line)
+            for line in response.iter_lines()
+            if line.strip()
+        ]
+
+    assert response.status_code == 200
+    assert events == [
+        {
+            "type": "error",
+            "error": "gemini_unavailable",
+            "message": "解析サービスは現在利用できません。",
+        }
+    ]
+    serialized = json.dumps(events, ensure_ascii=False).lower()
+    assert "provider-secret-body" not in serialized
+    assert "api" not in serialized
+
+
+def test_agent_stream_sanitizes_unexpected_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app import main as main_module
+
+    async def fail_analysis(**_: object) -> None:
+        raise RuntimeError("private-upstream-detail")
+
+    monkeypatch.setattr(
+        main_module.orchestrator,
+        "analyze",
+        fail_analysis,
+    )
+    response = client.post(
+        "/analyze/stream",
+        files={"image": ("toilet.png", _png_bytes(), "image/png")},
+        data={"room_hint": "toilet", "mock": "false"},
+    )
+
+    assert response.status_code == 200
+    assert json.loads(response.text) == {
+        "type": "error",
+        "error": "analysis_failed",
+        "message": "分析を完了できませんでした。",
+    }
+    assert "private-upstream-detail" not in response.text
+
+
+def test_existing_synchronous_analyze_endpoint_remains_available(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/analyze",
+        files={"image": ("toilet.png", _png_bytes(), "image/png")},
+        data={"room_hint": "toilet", "mock": "true"},
+    )
+
+    assert response.status_code == 200
+    AnalysisResponse.model_validate(response.json())
