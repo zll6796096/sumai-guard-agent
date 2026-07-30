@@ -654,7 +654,7 @@ INDEX_HTML = """<!DOCTYPE html>
             margin-bottom: 20px;
         }
 
-        .unlocalized-findings-note {
+        .confirmation-items-note {
             background-color: rgba(0, 122, 255, 0.07);
             border: 1px solid rgba(0, 122, 255, 0.24);
             border-radius: 14px;
@@ -663,13 +663,13 @@ INDEX_HTML = """<!DOCTYPE html>
             padding: 14px 16px;
         }
 
-        .unlocalized-findings-note strong {
+        .confirmation-items-note strong {
             display: block;
             font-size: 0.92rem;
             margin-bottom: 5px;
         }
 
-        .unlocalized-findings-note p {
+        .confirmation-items-note p {
             color: var(--text-muted);
             font-size: 0.82rem;
             line-height: 1.55;
@@ -1037,7 +1037,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">確認項目</span>
+                        <span class="summary-label">可視リスク</span>
                         <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
@@ -1052,16 +1052,18 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
 
                 <div
-                    id="unlocalized-findings-note"
-                    class="unlocalized-findings-note"
+                    id="confirmation-items-note"
+                    class="confirmation-items-note"
                     role="note"
                     hidden
                 >
-                    <strong id="unlocalized-findings-title">画像上に位置を表示しない確認項目があります</strong>
-                    <p>
-                        写真内で設備を確認できなかった項目は、不存在や設置位置を示せません。
-                        誤解を避けるため、画像上に赤枠や設置候補を表示していません。
-                    </p>
+                    <strong id="confirmation-items-title">写真での中性確認</strong>
+                    <div id="confirmation-items-body">
+                        <p>
+                            写真内で設備を確認できなかった項目は、不存在や設置位置を示せません。
+                            誤解を避けるため、画像上に赤枠や設置候補を表示していません。
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Stacked Images: Annotated first, Improvement second -->
@@ -1391,11 +1393,16 @@ INDEX_HTML = """<!DOCTYPE html>
             const notAppContainer = document.getElementById('not-applicable-container');
             const notAppMsg = document.getElementById('not-applicable-message');
             const imagesList = document.querySelector('.result-images-list');
-            const unlocalizedNote = document.getElementById('unlocalized-findings-note');
-            const unlocalizedTitle = document.getElementById('unlocalized-findings-title');
+            const confirmationNote = document.getElementById('confirmation-items-note');
+            const confirmationTitle = document.getElementById('confirmation-items-title');
+            const confirmationBody = document.getElementById('confirmation-items-body');
             const currentImageTitle = document.getElementById('result-current-image-title');
             const currentImage = document.getElementById('result-annotated-img');
             const improvementCard = document.getElementById('result-improvement-image-card');
+            const confirmationItems = Array.isArray(payload.confirmation_items) ? payload.confirmation_items : [];
+            const findings = Array.isArray(payload.findings) ? payload.findings : [];
+            const count = findings.length;
+            const hasVisibleFindings = findings.length > 0;
 
             renderAnalysisModeBanner(payload);
 
@@ -1406,7 +1413,6 @@ INDEX_HTML = """<!DOCTYPE html>
             riskBadge.className = 'badge badge-' + overallRisk;
 
             // Set findings count
-            const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
 
             if (isNotApplicable) {
@@ -1414,34 +1420,26 @@ INDEX_HTML = """<!DOCTYPE html>
                 notAppContainer.style.display = 'block';
                 resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
-                unlocalizedNote.hidden = true;
+                confirmationNote.hidden = true;
                 btnShowSuggestions.style.display = 'none';
             } else {
-                const findings = Array.isArray(payload.findings) ? payload.findings : [];
-                const localizedVisibleFindings = findings.filter(
-                    finding => finding.ontology_rule_kind === 'visible_hazard'
-                );
-                const unlocalizedExpectedFindings = findings.filter(
-                    finding => finding.ontology_rule_kind === 'expected_feature'
-                );
-                const hasLocalizedVisibleFinding = localizedVisibleFindings.length > 0;
-
                 notAppContainer.style.display = 'none';
                 resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
-                btnShowSuggestions.style.display = '';
+                btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none';
 
-                unlocalizedNote.hidden = unlocalizedExpectedFindings.length === 0;
-                unlocalizedTitle.textContent = (
-                    `画像上に位置を表示しない確認項目：${unlocalizedExpectedFindings.length}件`
+                confirmationNote.hidden = confirmationItems.length === 0;
+                confirmationTitle.textContent = (
+                    `写真での中性確認：${confirmationItems.length}件`
                 );
-                currentImageTitle.textContent = hasLocalizedVisibleFinding
+                confirmationBody.innerHTML = marked.parse(payload.confirmation_items_markdown || '');
+                currentImageTitle.textContent = hasVisibleFindings
                     ? '写真で確認できた注意箇所'
                     : '確認した写真（位置を特定できる注意箇所はありません）';
-                currentImage.alt = hasLocalizedVisibleFinding
+                currentImage.alt = hasVisibleFindings
                     ? '赤枠で写真内の可視の注意箇所を示した写真'
                     : '確認対象として使用した写真。位置を特定できる注意箇所の表示はありません';
-                improvementCard.hidden = !hasLocalizedVisibleFinding;
+                improvementCard.hidden = !hasVisibleFindings;
 
                 // Set Images
                 currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64;
@@ -1834,6 +1832,10 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "annotated_image_base64": image_base64,
         "improvement_image_base64": image_base64,
         "risk_summary_markdown": neutral_report,
+        "confirmation_items_markdown": (
+            "## 写真での中性確認\n\n"
+            "判定保留中のため、中性確認項目は表示していません。"
+        ),
         "family_actions_markdown": empty_actions,
         "care_manager_actions_markdown": empty_actions,
         "contractor_actions_markdown": empty_actions,

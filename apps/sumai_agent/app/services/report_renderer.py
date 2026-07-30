@@ -1,6 +1,13 @@
 from __future__ import annotations
 
-from app.models import ActionItem, ActionPlan, RiskFinding, RiskLevel, RoomType
+from app.models import (
+    ActionItem,
+    ActionPlan,
+    ConfirmationItem,
+    RiskFinding,
+    RiskLevel,
+    RoomType,
+)
 
 
 ROOM_LABELS = {
@@ -34,6 +41,10 @@ class ReportRenderer:
         undecided = "対象外または判定不能のため、具体的な提案は表示していません。"
         return {
             "risk_summary_markdown": summary,
+            "confirmation_items_markdown": (
+                "## 写真での中性確認\n\n"
+                "対象外または判定不能のため、中性確認項目は表示していません。"
+            ),
             "family_actions_markdown": f"## 家族で今日できること\n\n{undecided}",
             "care_manager_actions_markdown": f"## ケアマネ・福祉用具に相談\n\n{undecided}",
             "contractor_actions_markdown": f"## 専門施工・現地確認\n\n{undecided}",
@@ -44,35 +55,25 @@ class ReportRenderer:
         room_type: RoomType,
         overall_risk_level: RiskLevel,
         findings: list[RiskFinding],
+        confirmation_items: list[ConfirmationItem],
         action_plan: ActionPlan,
     ) -> dict[str, str]:
-        if not findings:
-            msg = "写真内に明確な転倒リスクは検出されませんでした。必要に応じて別角度で撮影してください。"
-            return {
-                "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
-                "family_actions_markdown": msg,
-                "care_manager_actions_markdown": msg,
-                "contractor_actions_markdown": msg,
-            }
-        finding_kinds = {
-            finding.id: finding.ontology_rule_kind for finding in findings
-        }
         return {
             "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
+            "confirmation_items_markdown": self.confirmations_markdown(
+                confirmation_items
+            ),
             "family_actions_markdown": self.actions_markdown(
                 "家族で今日できること",
                 action_plan.family_no_cost,
-                finding_kinds,
             ),
             "care_manager_actions_markdown": self.actions_markdown(
                 "ケアマネ・福祉用具に相談",
                 action_plan.care_manager_purchase,
-                finding_kinds,
             ),
             "contractor_actions_markdown": self.actions_markdown(
                 "専門施工・現地確認",
                 action_plan.contractor_construction,
-                finding_kinds,
             ),
         }
 
@@ -95,23 +96,6 @@ class ReportRenderer:
 
         for finding in findings:
             confidence_percent = round(finding.confidence * 100)
-            if finding.ontology_rule_kind == "expected_feature":
-                lines.extend(
-                    [
-                        f"### 写真内で確認できなかった設備: {finding.label_ja}",
-                        f"- 確認結果: {finding.description_ja}",
-                        f"- 確認した範囲: {finding.evidence_ja}",
-                        "- 画像上の位置表示: なし"
-                        "（不存在や設置位置を示すものではありません）",
-                        f"- 参考根拠: {finding.basis_label_ja}",
-                        f"- 根拠の要約: {finding.basis_summary_ja}",
-                        f"- モデル検出スコア（未校正）: {confidence_percent}%",
-                        "- 人による確認: 写真だけで不存在や必要性を断定せず、"
-                        "実際の設備と状況を確認してください。",
-                        "",
-                    ]
-                )
-                continue
             lines.extend(
                 [
                     f"### 注意箇所: {finding.label_ja}",
@@ -127,31 +111,48 @@ class ReportRenderer:
             lines.append("")
         return "\n".join(lines).strip()
 
+    def confirmations_markdown(
+        self,
+        confirmation_items: list[ConfirmationItem],
+    ) -> str:
+        lines = [
+            "## 写真での中性確認",
+            "",
+            "ここに示す内容は中性の観察であり、可視リスクや行動提案の根拠ではありません。",
+            "写真だけでは、設備が存在しないこと、増設が必要かどうか、設置位置を判断できません。",
+            "誤解を避けるため、画像上に赤枠や設置候補を表示していません。",
+            "",
+        ]
+        if not confirmation_items:
+            lines.append("この写真から追加の中性確認項目はありません。")
+            return "\n".join(lines)
+
+        for item in confirmation_items:
+            lines.extend(
+                [
+                    f"### 確認項目: {item.label_ja}",
+                    f"- 写真上の観察: {item.description_ja}",
+                    "- 人による確認: 必要に応じて、実際の設備と周囲の状況を確認してください。",
+                    "",
+                ]
+            )
+        return "\n".join(lines).strip()
+
     def actions_markdown(
         self,
         title: str,
         actions: list[ActionItem],
-        finding_kinds: dict[str, str | None] | None = None,
     ) -> str:
         lines = [f"## {title}", ""]
         if not actions:
-            lines.append("この写真からは、この区分の具体的な提案はありません。")
+            lines.append("現時点で可視リスクに対応する行動候補はありません。")
             return "\n".join(lines)
 
         for action in actions:
-            is_expected_feature = (
-                finding_kinds is not None
-                and finding_kinds.get(action.risk_id) == "expected_feature"
-            )
-            target = (
-                "写真内で確認できなかった設備（画像上の位置表示なし）"
-                if is_expected_feature
-                else "今回検出された危険箇所"
-            )
             lines.extend(
                 [
                     f"### {action.title_ja}",
-                    f"- 対象: {target}",
+                    "- 対象: 今回検出された危険箇所",
                     f"- 内容: {action.description_ja}",
                     f"- 理由: {action.why_ja}",
                     f"- 注意: {action.disclaimer_ja}",

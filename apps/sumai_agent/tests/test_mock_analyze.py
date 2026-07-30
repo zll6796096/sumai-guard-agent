@@ -102,6 +102,8 @@ def test_mock_analyze_returns_valid_schema_and_japanese_reports() -> None:
     assert "家族で今日できること" in payload["family_actions_markdown"]
     assert "ケアマネ・福祉用具に相談" in payload["care_manager_actions_markdown"]
     assert "専門施工・現地確認" in payload["contractor_actions_markdown"]
+    assert isinstance(payload["confirmation_items_markdown"], str)
+    assert payload["confirmation_items_markdown"].strip()
     assert "モデル検出スコア（未校正）:" in payload["risk_summary_markdown"]
     assert "信頼度:" not in payload["risk_summary_markdown"]
     assert "医療・介護・施工判断を代替しません" in payload["disclaimer_ja"]
@@ -118,6 +120,7 @@ def test_analysis_response_defaults_to_current_public_identity() -> None:
         annotated_image_base64="image",
         improvement_image_base64="image",
         risk_summary_markdown="summary",
+        confirmation_items_markdown="confirmations",
         family_actions_markdown="family",
         care_manager_actions_markdown="care",
         contractor_actions_markdown="contractor",
@@ -172,6 +175,9 @@ def test_confirmation_only_analysis_is_neutral_canonical_and_cached(
     ]
     assert first_payload["annotated_image_base64"]
     assert first_payload["improvement_image_base64"]
+    assert "## 写真での中性確認" in first_payload["confirmation_items_markdown"]
+    assert "手すり" in first_payload["confirmation_items_markdown"]
+    assert "手すり" not in first_payload["risk_summary_markdown"]
     assert rendered_findings == [[], []]
     assert vision.calls == 1
     assert first_payload["analysis_id"] != second_payload["analysis_id"]
@@ -197,6 +203,8 @@ def test_not_applicable_analysis_has_no_confirmation_items(
     payload = response.json()
     assert payload["is_not_applicable"] is True
     assert payload["confirmation_items"] == []
+    assert isinstance(payload["confirmation_items_markdown"], str)
+    assert payload["confirmation_items_markdown"].strip()
 
 
 def test_analysis_response_enforces_the_public_applicability_invariant() -> None:
@@ -313,5 +321,7 @@ def test_web_local_abstention_uses_current_schema_identity_and_empty_confirmatio
     payload = web_module._build_local_mock(_png_bytes(), "auto", "test")
 
     assert payload["confirmation_items"] == []
+    assert isinstance(payload["confirmation_items_markdown"], str)
+    assert payload["confirmation_items_markdown"].strip()
     assert payload["schema_version"] == "2.1.0"
     assert payload["inference_config_version"] == "1.0.5"

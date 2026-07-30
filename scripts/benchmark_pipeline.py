@@ -349,15 +349,19 @@ def validate_response_schema(payload: object) -> bool:
 def _is_public_response_text(payload: dict[str, object]) -> bool:
     string_fields = {
         "annotated_image_base64", "improvement_image_base64", "risk_summary_markdown",
-        "family_actions_markdown", "care_manager_actions_markdown", "contractor_actions_markdown",
+        "confirmation_items_markdown", "family_actions_markdown",
+        "care_manager_actions_markdown", "contractor_actions_markdown",
         "disclaimer_ja", "mode", "model", "schema_version", "ontology_version",
         "preprocess_version", "inference_config_version",
     }
     reason = payload.get("not_applicable_reason_ja")
+    confirmation_markdown = payload.get("confirmation_items_markdown")
     return (
         "not_applicable_reason_ja" in payload
         and (reason is None or isinstance(reason, str))
         and all(isinstance(payload.get(field), str) for field in string_fields)
+        and isinstance(confirmation_markdown, str)
+        and bool(confirmation_markdown.strip())
         and isinstance(payload.get("is_home_environment"), bool)
         and isinstance(payload.get("is_not_applicable"), bool)
     )

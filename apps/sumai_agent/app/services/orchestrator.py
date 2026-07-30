@@ -193,6 +193,7 @@ class AnalysisOrchestrator:
                     room_type=response_room,
                     overall_risk_level=overall_risk,
                     findings=findings,
+                    confirmation_items=confirmation_items,
                     action_plan=action_plan,
                 )
             stage_timings_ms["report"] = elapsed_ms(report_started)

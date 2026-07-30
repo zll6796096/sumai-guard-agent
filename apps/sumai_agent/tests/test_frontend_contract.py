@@ -37,20 +37,41 @@ def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> No
     assert "payload.is_not_applicable === true || payload.is_home_environment === false" in html
     assert "resultSummary.style.display = 'none'" in html
     assert "imagesList.style.display = 'none'" in html
+    assert "confirmationNote.hidden = true" in html
     assert "btnShowSuggestions.style.display = 'none'" in html
     assert "resultSummary.style.display = 'flex'" in html
-    assert "btnShowSuggestions.style.display = ''" in html
     assert "document.getElementById('screen2-title').textContent = \"安全チェック結果\"" in html
 
 
-def test_expected_features_are_explained_without_claiming_image_locations() -> None:
+def test_visible_risks_and_neutral_confirmations_use_separate_payload_contracts() -> None:
     html = _index_html()
 
-    assert 'id="unlocalized-findings-note"' in html
+    assert '<span class="summary-label">可視リスク</span>' in html
+    assert 'id="confirmation-items-note"' in html
+    assert 'id="confirmation-items-title"' in html
+    assert 'id="confirmation-items-body"' in html
     assert 'id="result-current-image-card"' in html
     assert 'id="result-improvement-image-card"' in html
-    assert "finding.ontology_rule_kind === 'visible_hazard'" in html
-    assert "finding.ontology_rule_kind === 'expected_feature'" in html
-    assert "improvementCard.hidden = !hasLocalizedVisibleFinding" in html
+    assert (
+        "const confirmationItems = Array.isArray(payload.confirmation_items) "
+        "? payload.confirmation_items : [];"
+    ) in html
+    assert "const findings = Array.isArray(payload.findings) ? payload.findings : [];" in html
+    assert "const count = findings.length;" in html
+    assert "const hasVisibleFindings = findings.length > 0;" in html
+    assert "confirmationNote.hidden = confirmationItems.length === 0;" in html
+    assert "marked.parse(payload.confirmation_items_markdown || '')" in html
+    assert "improvementCard.hidden = !hasVisibleFindings" in html
+    assert "btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none'" in html
+    assert "finding.ontology_rule_kind === 'expected_feature'" not in html
     assert "画像上に赤枠や設置候補を表示していません" in html
     assert "位置を特定できる注意箇所はありません" in html
+
+
+def test_applicable_zero_risk_keeps_current_image_but_hides_improvement_and_navigation() -> None:
+    html = _index_html()
+
+    assert "imagesList.style.display = 'flex'" in html
+    assert "currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64" in html
+    assert "improvementCard.hidden = !hasVisibleFindings" in html
+    assert "btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none'" in html

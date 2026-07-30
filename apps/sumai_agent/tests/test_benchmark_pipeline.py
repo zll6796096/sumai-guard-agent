@@ -232,7 +232,8 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
             "care_manager_purchase": [], "contractor_construction": [],
         },
         "annotated_image_base64": "aGVsbG8=", "improvement_image_base64": "aGVsbG8=",
-        "risk_summary_markdown": "summary", "family_actions_markdown": "family",
+        "risk_summary_markdown": "summary", "confirmation_items_markdown": "confirmations",
+        "family_actions_markdown": "family",
         "care_manager_actions_markdown": "care", "contractor_actions_markdown": "contractor",
         "disclaimer_ja": "POC", "mode": "mock", "is_home_environment": True,
         "is_not_applicable": False, "model": "N/A",
@@ -266,6 +267,13 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed.pop("confirmation_items")
+    assert benchmark.validate_response_schema(malformed) is False
+    for invalid_value in (None, 42, ""):
+        malformed = deepcopy(payload)
+        malformed["confirmation_items_markdown"] = invalid_value
+        assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed.pop("confirmation_items_markdown")
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed.pop("not_applicable_reason_ja")
