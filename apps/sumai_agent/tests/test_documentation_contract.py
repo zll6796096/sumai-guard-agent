@@ -198,6 +198,9 @@ def test_docs_define_truthful_streamed_waiting_and_resource_boundary() -> None:
     assert "cache hits and coalesced followers" in architecture
     assert "static browser data" in architecture
     assert "synchronous `/analyze`" in architecture
+    assert "validated complete NDJSON lines" in architecture
+    assert "public `AnalysisResponse` wire contract" in architecture
+    assert "last waiter disconnects" in architecture
 
     assert "no polling and no additional Gemini request" in decisions
     assert "indeterminate activity bar" in decisions
@@ -205,3 +208,5 @@ def test_docs_define_truthful_streamed_waiting_and_resource_boundary() -> None:
     assert "20 seconds" in decisions
     assert "`prefers-reduced-motion`" in decisions
     assert "no percentage or ETA" in decisions
+    assert "`document.hidden`" in decisions
+    assert "fixed safe Japanese response" in decisions
