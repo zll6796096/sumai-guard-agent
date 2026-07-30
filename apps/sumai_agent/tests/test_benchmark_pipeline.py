@@ -95,7 +95,7 @@ def test_example_manifest_is_synthetic_and_uses_only_safe_relative_paths() -> No
     ]
     for case in manifest["cases"]:
         assert not case["image"].startswith("/")
-        assert "/Users/" not in case["image"]
+        assert ("/" + "Users/") not in case["image"]
         assert "private" not in case["image"].lower()
 
 

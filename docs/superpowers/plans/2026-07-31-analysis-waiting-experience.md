@@ -32,10 +32,12 @@
 
 - [ ] **Step 1: Verify the visible-risk branch is clean and reviewed**
 
+Run these commands from the repository root.
+
 ```bash
-git -C /Users/zhanglonglong/Projects/apps/sumai-guard-agent/.worktrees/codex-sumaiguard-visible-risk-policy \
+git -C .worktrees/codex-sumaiguard-visible-risk-policy \
   status --short --branch
-git -C /Users/zhanglonglong/Projects/apps/sumai-guard-agent/.worktrees/codex-sumaiguard-visible-risk-policy \
+git -C .worktrees/codex-sumaiguard-visible-risk-policy \
   log -1 --oneline
 ```
 
@@ -44,9 +46,8 @@ Expected: no working-tree changes and HEAD is the reviewed visible-risk commit.
 - [ ] **Step 2: Create the waiting-experience worktree**
 
 ```bash
-git -C /Users/zhanglonglong/Projects/apps/sumai-guard-agent \
-  worktree add \
-  /Users/zhanglonglong/Projects/apps/sumai-guard-agent/.worktrees/codex-sumaiguard-analysis-waiting-experience \
+git worktree add \
+  .worktrees/codex-sumaiguard-analysis-waiting-experience \
   -b codex/sumaiguard-analysis-waiting-experience \
   codex/sumaiguard-visible-risk-policy
 ```
@@ -56,7 +57,7 @@ Expected: the new branch HEAD equals the visible-risk branch HEAD.
 - [ ] **Step 3: Run the inherited baseline**
 
 ```bash
-cd /Users/zhanglonglong/Projects/apps/sumai-guard-agent/.worktrees/codex-sumaiguard-analysis-waiting-experience
+cd .worktrees/codex-sumaiguard-analysis-waiting-experience
 PATH=/Library/Frameworks/Python.framework/Versions/3.13/bin:$PATH \
   ./scripts/test_all.sh
 ```
