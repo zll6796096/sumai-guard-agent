@@ -8,12 +8,13 @@ import logging
 import math
 import os
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from dotenv import load_dotenv
 from PIL import Image
 
@@ -1702,6 +1703,109 @@ def _safe_backend_client_error(status_code: int) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=content)
 
 
+def _ndjson_line(payload: dict[str, object]) -> bytes:
+    return (
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+
+
+def _ndjson_error(error: str, message: str) -> bytes:
+    return _ndjson_line(
+        {
+            "type": "error",
+            "error": error,
+            "message": message,
+        }
+    )
+
+
+def _ndjson_result(payload: dict[str, Any]) -> bytes:
+    return _ndjson_line({"type": "result", "payload": payload})
+
+
+async def _proxy_analysis_stream(
+    image_bytes: bytes,
+    filename: str,
+    content_type: str,
+    room_hint: str,
+) -> AsyncIterator[bytes]:
+    """Forward one trusted Agent stream without polling or duplicate analysis."""
+    files = {"image": (filename, image_bytes, content_type)}
+    data = {
+        "room_hint": room_hint,
+        "mock": "true" if FRONTEND_MOCK else "false",
+    }
+    try:
+        async with backend_client().stream(
+            "POST",
+            f"{SUMAI_AGENT_URL}/analyze/stream",
+            data=data,
+            files=files,
+        ) as response:
+            if response.status_code == 200:
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        yield chunk
+                return
+
+            if response.status_code in {400, 422}:
+                yield _ndjson_error(
+                    "invalid_upload",
+                    "画像または入力内容を確認してください。",
+                )
+                return
+
+            if 400 <= response.status_code < 500:
+                yield _ndjson_error(
+                    "backend_request_rejected",
+                    "分析リクエストを処理できませんでした。",
+                )
+                return
+
+            if (
+                FRONTEND_REQUIRE_REAL_GEMINI
+                or response.status_code == 503
+            ):
+                yield _ndjson_error(
+                    "gemini_unavailable",
+                    "解析サービスは現在利用できません。",
+                )
+                return
+
+            if 500 <= response.status_code < 600:
+                yield _ndjson_result(
+                    _build_local_mock(
+                        image_bytes,
+                        room_hint,
+                        "backend_http_error",
+                    )
+                )
+                return
+
+            yield _ndjson_error(
+                "backend_invalid_response",
+                "分析サービスから有効な応答を受け取れませんでした。",
+            )
+    except httpx.RequestError as exc:
+        logger.warning(
+            "backend_stream_failed",
+            extra={"failure_type": type(exc).__name__},
+        )
+        if FRONTEND_REQUIRE_REAL_GEMINI:
+            yield _ndjson_error(
+                "gemini_unavailable",
+                "解析サービスは現在利用できません。",
+            )
+        else:
+            yield _ndjson_result(
+                _build_local_mock(
+                    image_bytes,
+                    room_hint,
+                    "backend_unreachable",
+                )
+            )
+
+
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
@@ -1773,6 +1877,27 @@ async def analyze(
         logger.warning("backend_call_failed", extra={"failure_type": type(exc).__name__})
         payload = _build_local_mock(image_bytes, room_hint, "backend_unreachable")
         return JSONResponse(content=payload)
+
+
+@app.post("/analyze/stream")
+async def analyze_stream(
+    image: UploadFile = File(...),
+    room_hint: str = Form("auto"),
+) -> StreamingResponse:
+    image_bytes = await image.read()
+    return StreamingResponse(
+        _proxy_analysis_stream(
+            image_bytes,
+            image.filename or "photo.png",
+            image.content_type or "image/png",
+            room_hint,
+        ),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/ready")
