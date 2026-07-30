@@ -1767,8 +1767,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
                 if (event.type === 'result') {
                     if (
-                        this.progressIndex !== this.progressStages.length
-                        || !event.payload
+                        !event.payload
                         || typeof event.payload !== 'object'
                     ) {
                         throw new AnalysisUiError(

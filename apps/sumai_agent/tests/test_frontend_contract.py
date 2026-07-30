@@ -217,8 +217,33 @@ def test_analysis_request_and_event_state_machines_execute_in_node() -> None:
         flags=re.DOTALL,
     )
     assert block is not None
+    handler = re.search(
+        r"function handleAnalysisEvent\(event, eventState\) \{"
+        r"(?P<body>.*?)"
+        r"\n        \}"
+        r"\n\n        async function uploadAndAnalyze",
+        html,
+        flags=re.DOTALL,
+    )
+    assert handler is not None
     test_script = r"""
 const assert = require('node:assert/strict');
+let completedStages = 0;
+let stoppedWaiting = 0;
+let renderedPayload = null;
+function completeAnalysisStages() {
+    completedStages += 1;
+}
+function stopWaitingExperience() {
+    stoppedWaiting += 1;
+}
+function renderResults(payload) {
+    renderedPayload = payload;
+}
+function setAnalysisStage() {}
+function analysisErrorMessage() {
+    return 'safe error';
+}
 
 (async () => {
     const state = new AnalysisEventStateMachine();
@@ -243,11 +268,44 @@ const assert = require('node:assert/strict');
         AnalysisUiError
     );
 
-    const earlyResult = new AnalysisEventStateMachine();
+    const fallbackResult = new AnalysisEventStateMachine();
+    assert.deepEqual(
+        fallbackResult.accept({
+            type: 'result',
+            payload: {mode: 'local_mock', is_not_applicable: true}
+        }),
+        {
+            type: 'result',
+            payload: {mode: 'local_mock', is_not_applicable: true}
+        }
+    );
     assert.throws(
-        () => earlyResult.accept({type: 'result', payload: {ok: true}}),
+        () => fallbackResult.accept({
+            type: 'result',
+            payload: {mode: 'local_mock'}
+        }),
         AnalysisUiError
     );
+
+    const directFallbackState = new AnalysisEventStateMachine();
+    const directFallbackPayload = {
+        mode: 'local_mock',
+        is_not_applicable: true
+    };
+    const webFallbackNdjson = (
+        JSON.stringify({type: 'result', payload: directFallbackPayload}) + '\n'
+    );
+    const webFallbackEvent = JSON.parse(webFallbackNdjson.trim());
+    assert.equal(
+        handleAnalysisEvent(
+            webFallbackEvent,
+            directFallbackState
+        ),
+        true
+    );
+    assert.equal(completedStages, 1);
+    assert.equal(stoppedWaiting, 1);
+    assert.deepEqual(renderedPayload, directFallbackPayload);
 
     let aborts = 0;
     let cancels = 0;
@@ -331,7 +389,17 @@ const assert = require('node:assert/strict');
 });
 """
     completed = subprocess.run(
-        ["node", "-e", block.group("body") + test_script],
+        [
+            "node",
+            "-e",
+            (
+                block.group("body")
+                + "\nfunction handleAnalysisEvent(event, eventState) {"
+                + handler.group("body")
+                + "\n}\n"
+                + test_script
+            ),
+        ],
         check=False,
         capture_output=True,
         text=True,

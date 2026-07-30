@@ -201,6 +201,7 @@ def test_docs_define_truthful_streamed_waiting_and_resource_boundary() -> None:
     assert "validated complete NDJSON lines" in architecture
     assert "public `AnalysisResponse` wire contract" in architecture
     assert "last waiter disconnects" in architecture
+    assert "without fabricating progress" in architecture
 
     assert "no polling and no additional Gemini request" in decisions
     assert "indeterminate activity bar" in decisions
