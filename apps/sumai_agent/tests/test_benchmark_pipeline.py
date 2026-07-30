@@ -167,9 +167,12 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "id": "R1", "risk_type": "hallway_cord", "label_ja": "コード",
         "description_ja": "通路上のコードです。", "severity": 3, "confidence": 0.8,
         "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+        "display_bbox": None,
         "evidence_source_ids": ["E1"], "evidence_ja": "床に見えます。",
         "basis_label_ja": "転倒予防", "basis_summary_ja": "通路を空けます。",
         "needs_human_confirmation": False,
+        "ontology_key": "hallway_cord",
+        "ontology_rule_kind": "visible_hazard",
     }
     action = {
         "id": "A1", "risk_id": "R1", "tier": "FAMILY_NO_COST", "title_ja": "整理",
@@ -178,7 +181,8 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
     }
     resolved_findings = [finding] if findings is None else findings
     return {
-        "analysis_id": "opaque-id", "room_type": "hallway", "overall_risk_level": "medium",
+        "analysis_id": "opaque-id", "room_type": "hallway",
+        "overall_risk_level": "medium" if resolved_findings else "low",
         "findings": resolved_findings,
         "confirmation_items": [],
         "action_plan": {
@@ -259,6 +263,96 @@ def test_schema_helper_rejects_zero_area_and_out_of_frame_bbox(
     assert benchmark.validate_response_schema(payload) is False
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda finding: finding.update({"ontology_rule_kind": "expected_feature"}),
+        lambda finding: finding.pop("ontology_key"),
+        lambda finding: finding.update({"ontology_key": ""}),
+        lambda finding: finding.pop("ontology_rule_kind"),
+        lambda finding: finding.pop("display_bbox"),
+        lambda finding: finding.update({"unexpected": "field"}),
+    ],
+)
+def test_finding_schema_is_exact_and_visible_only(
+    mutate: Callable[[dict[str, object]], object],
+) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    finding = payload["findings"][0]  # type: ignore[index]
+    mutate(finding)
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
+def test_action_schema_rejects_extra_fields() -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    payload["action_plan"]["family_no_cost"][0]["unexpected"] = "field"  # type: ignore[index]
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
+@pytest.mark.parametrize(
+    ("severity", "overall_risk_level"),
+    [
+        (1, "medium"),
+        (2, "low"),
+        (3, "high"),
+        (4, "medium"),
+        (5, "medium"),
+    ],
+)
+def test_overall_risk_level_must_match_max_finding_severity(
+    severity: int,
+    overall_risk_level: str,
+) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload()
+    payload["findings"][0]["severity"] = severity  # type: ignore[index]
+    payload["overall_risk_level"] = overall_risk_level
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
+def test_empty_findings_require_low_overall_risk() -> None:
+    benchmark = _load_module()
+    payload = _valid_payload(findings=[])
+    payload["overall_risk_level"] = "medium"
+
+    assert benchmark.validate_response_schema(payload) is False
+
+
+def test_finding_ids_must_be_canonical_and_follow_response_order() -> None:
+    benchmark = _load_module()
+    noncanonical = _valid_payload()
+    noncanonical["findings"][0]["id"] = "risk-1"  # type: ignore[index]
+    noncanonical["action_plan"]["family_no_cost"][0]["risk_id"] = "risk-1"  # type: ignore[index]
+    assert benchmark.validate_response_schema(noncanonical) is False
+
+    out_of_order = _valid_payload()
+    first = deepcopy(out_of_order["findings"][0])  # type: ignore[index]
+    second = deepcopy(first)
+    second["id"] = "R2"
+    out_of_order["findings"] = [second, first]
+    assert benchmark.validate_response_schema(out_of_order) is False
+
+
+def test_response_versions_must_match_current_benchmark_contract() -> None:
+    benchmark = _load_module()
+    assert benchmark.validate_response_schema(_valid_payload()) is True
+
+    for field, stale_value in (
+        ("schema_version", "2.0.0"),
+        ("ontology_version", "arbitrary"),
+        ("preprocess_version", "0.9.0"),
+        ("inference_config_version", "1.0.4"),
+    ):
+        payload = _valid_payload()
+        payload[field] = stale_value
+        assert benchmark.validate_response_schema(payload) is False
+
+
 def test_not_applicable_response_requires_empty_findings_actions_and_reason() -> None:
     benchmark = _load_module()
     payload = _valid_payload(findings=[])
@@ -318,6 +412,32 @@ def test_confirmation_only_applicable_response_is_schema_valid() -> None:
     })
 
     assert benchmark.validate_response_schema(payload) is True
+
+
+def test_confirmation_ids_must_be_canonical_and_follow_response_order() -> None:
+    benchmark = _load_module()
+    noncanonical = _valid_payload(findings=[])
+    noncanonical.update({
+        "room_type": "toilet",
+        "overall_risk_level": "low",
+        "confirmation_items": [_valid_confirmation_item()],
+    })
+    noncanonical["confirmation_items"][0]["id"] = "confirmation-1"  # type: ignore[index]
+    assert benchmark.validate_response_schema(noncanonical) is False
+
+    out_of_order = _valid_payload(findings=[])
+    first = _valid_confirmation_item()
+    second = deepcopy(first)
+    second.update({
+        "id": "C2",
+        "feature_key": "has_emergency_call_button",
+    })
+    out_of_order.update({
+        "room_type": "toilet",
+        "overall_risk_level": "low",
+        "confirmation_items": [second, first],
+    })
+    assert benchmark.validate_response_schema(out_of_order) is False
 
 
 @pytest.mark.parametrize(

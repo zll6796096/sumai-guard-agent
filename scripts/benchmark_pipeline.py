@@ -35,6 +35,38 @@ STAGE_TIMING_KEYS = {
     "intake", "memo_lookup", "vision", "ontology", "render", "report", "serialize", "total",
 }
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+EXPECTED_SCHEMA_VERSION = "2.1.0"
+EXPECTED_ONTOLOGY_VERSION = "1.0.0"
+EXPECTED_PREPROCESS_VERSION = "1.0.0"
+EXPECTED_INFERENCE_CONFIG_VERSION = "1.0.5"
+FINDING_FIELDS = {
+    "id",
+    "risk_type",
+    "label_ja",
+    "description_ja",
+    "severity",
+    "confidence",
+    "bbox",
+    "display_bbox",
+    "evidence_source_ids",
+    "evidence_ja",
+    "basis_label_ja",
+    "basis_summary_ja",
+    "needs_human_confirmation",
+    "ontology_key",
+    "ontology_rule_kind",
+}
+ACTION_FIELDS = {
+    "id",
+    "risk_id",
+    "tier",
+    "title_ja",
+    "description_ja",
+    "why_ja",
+    "cost_level",
+    "requires_professional",
+    "disclaimer_ja",
+}
 
 
 class BenchmarkError(ValueError):
@@ -172,6 +204,16 @@ def validate_response_schema(payload: object) -> bool:
         return False
     if not _is_public_response_text(payload):
         return False
+    if any(
+        payload.get(field) != expected
+        for field, expected in {
+            "schema_version": EXPECTED_SCHEMA_VERSION,
+            "ontology_version": EXPECTED_ONTOLOGY_VERSION,
+            "preprocess_version": EXPECTED_PREPROCESS_VERSION,
+            "inference_config_version": EXPECTED_INFERENCE_CONFIG_VERSION,
+        }.items()
+    ):
+        return False
     if not HEX_64.fullmatch(str(payload.get("result_key", ""))):
         return False
     if not HEX_64.fullmatch(str(payload.get("semantic_hash", ""))):
@@ -184,6 +226,8 @@ def validate_response_schema(payload: object) -> bool:
         not isinstance(confirmation_items, list)
         or not all(_valid_confirmation_item(item) for item in confirmation_items)
     ):
+        return False
+    if payload.get("overall_risk_level") != _risk_level_for_findings(findings):
         return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")
@@ -212,8 +256,10 @@ def validate_response_schema(payload: object) -> bool:
     confirmation_ids = [item["id"] for item in confirmation_items]
     confirmation_keys = [item["feature_key"] for item in confirmation_items]
     if (
-        len(set(finding_ids)) != len(finding_ids)
-        or len(set(confirmation_ids)) != len(confirmation_ids)
+        finding_ids
+        != [f"R{index}" for index in range(1, len(finding_ids) + 1)]
+        or confirmation_ids
+        != [f"C{index}" for index in range(1, len(confirmation_ids) + 1)]
         or len(set(confirmation_keys)) != len(confirmation_keys)
         or not _valid_action_plan(payload.get("action_plan"), set(finding_ids))
     ):
@@ -242,17 +288,28 @@ def _is_public_response_text(payload: dict[str, object]) -> bool:
 
 
 def _valid_finding(item: object) -> bool:
-    if not isinstance(item, dict):
+    if not isinstance(item, dict) or set(item) != FINDING_FIELDS:
         return False
-    text_fields = {"id", "risk_type", "label_ja", "description_ja", "evidence_ja", "basis_label_ja", "basis_summary_ja"}
+    text_fields = {
+        "id",
+        "risk_type",
+        "label_ja",
+        "description_ja",
+        "evidence_ja",
+        "basis_label_ja",
+        "basis_summary_ja",
+        "ontology_key",
+    }
     if not all(isinstance(item.get(field), str) and item[field].strip() for field in text_fields):
+        return False
+    if item.get("ontology_rule_kind") != "visible_hazard":
         return False
     severity, confidence = item.get("severity"), item.get("confidence")
     if not isinstance(severity, int) or isinstance(severity, bool) or severity not in range(1, 6):
         return False
     if not _unit_number(confidence) or not _valid_bbox(item.get("bbox")):
         return False
-    if "display_bbox" in item and item["display_bbox"] is not None and not _valid_bbox(item["display_bbox"]):
+    if item["display_bbox"] is not None and not _valid_bbox(item["display_bbox"]):
         return False
     return isinstance(item.get("evidence_source_ids"), list) and all(
         isinstance(source, str) and source for source in item["evidence_source_ids"]
@@ -299,6 +356,17 @@ def _unit_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
 
 
+def _risk_level_for_findings(findings: list[dict[str, object]]) -> str:
+    if not findings:
+        return "low"
+    max_severity = max(int(finding["severity"]) for finding in findings)
+    if max_severity >= 4:
+        return "high"
+    if max_severity >= 2:
+        return "medium"
+    return "low"
+
+
 def _valid_bbox(value: object) -> bool:
     if (
         not isinstance(value, dict)
@@ -338,7 +406,7 @@ def _valid_action_plan(value: object, finding_ids: set[str]) -> bool:
 
 
 def _valid_action(value: object) -> bool:
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or set(value) != ACTION_FIELDS:
         return False
     text_fields = {"id", "risk_id", "title_ja", "description_ja", "why_ja", "disclaimer_ja"}
     return (
