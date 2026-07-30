@@ -53,6 +53,33 @@ def test_rule_engine_marks_low_confidence_for_human_confirmation() -> None:
     assert findings[0].needs_human_confirmation is True
 
 
+def test_legacy_known_visible_risk_gets_rule_kind_for_visual_rendering() -> None:
+    findings, _ = RuleEngine().apply([_finding("hallway_cord")], "hallway")
+
+    assert findings[0].ontology_key == "hallway_cord"
+    assert findings[0].ontology_rule_kind == "visible_hazard"
+
+
+def test_legacy_expected_feature_always_requires_human_confirmation() -> None:
+    finding = _finding("toilet_missing_handrail", confidence=0.9).model_copy(
+        update={"needs_human_confirmation": False}
+    )
+
+    findings, plan = RuleEngine().apply([finding], "toilet")
+
+    assert findings[0].ontology_key == "has_handrail"
+    assert findings[0].ontology_rule_kind == "expected_feature"
+    assert findings[0].needs_human_confirmation is True
+    assert all(
+        "写真内で確認できなかった設備" in action.why_ja
+        for action in (
+            *plan.family_no_cost,
+            *plan.care_manager_purchase,
+            *plan.contractor_construction,
+        )
+    )
+
+
 def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
     ontology = OntologyRepository.load_default()
     facts = VisionFacts.model_validate(

@@ -8,7 +8,6 @@ from app.models import BoundingBox, RiskFinding
 from app.services.visual_renderer import (
     VisualRenderer,
     _select_visual_findings,
-    _get_mapped_bbox,
     _compute_iou,
     DANGER_LABELS,
     _improvement_label
@@ -23,7 +22,10 @@ def _make_finding(
     x: float,
     y: float,
     w: float,
-    h: float
+    h: float,
+    *,
+    rule_kind: str = "visible_hazard",
+    ontology_key: str = "cluttered_path",
 ) -> RiskFinding:
     return RiskFinding(
         id=id_val,
@@ -37,6 +39,8 @@ def _make_finding(
         basis_label_ja="テスト",
         basis_summary_ja="テスト",
         needs_human_confirmation=False,
+        ontology_key=ontology_key,
+        ontology_rule_kind=rule_kind,
     )
 
 
@@ -90,14 +94,30 @@ def test_no_r_indices() -> None:
         assert not any(f"R{i}" in imp_lbl for i in range(1, 10))
 
 
-def test_huge_bbox_is_normalized_for_improvement_callout_only() -> None:
-    # Improvement presentation may map a huge box into a smaller callout zone.
-    # Area = 0.8 * 0.9 = 0.72 (> 0.65)
-    finding = _make_finding("F1", "toilet_slip", 4, 0.8, 0.1, 0.05, 0.8, 0.9)
-    mapped = _get_mapped_bbox(finding, "toilet")
-    # Verify the mapped bbox area is much smaller
-    mapped_area = mapped.w * mapped.h
-    assert mapped_area <= 0.65
+def test_expected_feature_findings_are_excluded_before_overlap_suppression() -> None:
+    coverage = (0.0, 0.0, 1.0, 0.8)
+    findings = [
+        _make_finding(
+            "F1",
+            "toilet_missing_handrail",
+            4,
+            1.0,
+            *coverage,
+            rule_kind="expected_feature",
+            ontology_key="has_handrail",
+        ),
+        _make_finding(
+            "F2",
+            "toilet_missing_emergency_call",
+            2,
+            1.0,
+            *coverage,
+            rule_kind="expected_feature",
+            ontology_key="has_emergency_call_button",
+        ),
+    ]
+
+    assert _select_visual_findings(findings, "toilet") == []
 
 
 def test_overlapping_deduplication() -> None:
@@ -111,21 +131,9 @@ def test_overlapping_deduplication() -> None:
     assert selected[0][0].id == "F1"
 
 
-def test_toilet_missing_handrail_maps_to_improvement_candidate_zone() -> None:
-    # Improvement presentation creates a handrail candidate zone.
-    finding = _make_finding("F1", "toilet_missing_handrail", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
-    mapped = _get_mapped_bbox(finding, "toilet")
-    # Area must not cover the full photo
-    assert mapped.w * mapped.h < 0.5
-    # Should map to one of the toilet side wall zones
-    assert mapped.x in [0.08, 0.70]
-    assert mapped.y == 0.42
+def test_visible_hazard_selection_preserves_exact_evidence_bbox() -> None:
+    finding = _make_finding(
+        "F1", "cluttered_path", 3, 0.9, 0.72, 0.12, 0.12, 0.10
+    )
 
-
-def test_toilet_missing_emergency_call_has_improvement_label() -> None:
-    # The improvement callout uses the consultation label.
-    finding = _make_finding("F1", "toilet_missing_emergency_call", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
-    
-    # Check improvement label matches
-    label = _improvement_label(finding.risk_type)
-    assert label == "緊急呼出相談"
+    assert _select_visual_findings([finding], "toilet") == [(finding, finding.bbox)]

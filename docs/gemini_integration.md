@@ -43,7 +43,7 @@ The current provider contract is `GEMINI_FACTS_JSON_SCHEMA`, passed as the JSON 
 
 The prompt requires direct, minimal visual evidence. A feature may be `absent_with_full_coverage` only when the relevant area is fully visible. Cropped, obscured, or ambiguous evidence must be `cannot_determine`; it creates no missing-feature finding. Negative observation of a bathroom chair uses the expected key `has_shower_chair`, not a negated ontology key.
 
-Evidence bboxes are normalized floating-point values in the inclusive 0..1 image coordinate domain, with positive width/height and `x + w` / `y + h` in bounds. Evidence bboxes are analysis facts; a presentation-only `display_bbox` is derived later and is not provider evidence. The legacy parser has compatibility tests, but it is not the current provider contract and does not justify a provider-path default box or coordinate clamping.
+Evidence bboxes are normalized floating-point values in the inclusive 0..1 image coordinate domain, with positive width/height and `x + w` / `y + h` in bounds. For a visible entity, the bbox localizes the visible evidence. For `absent_with_full_coverage`, it is a coverage region that states which relevant area was checked; it is not a missing-object location or an installation position. Downstream rendering therefore accepts only exact `visible_hazard` findings and never converts expected-feature coverage into a red box or a suggested product/construction location. The legacy parser has compatibility tests, but it is not the current provider contract and does not justify a provider-path default box, coordinate clamping, or room-template rendering.
 
 ## Strict parsing and deterministic ownership
 

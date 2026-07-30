@@ -54,11 +54,26 @@ class ReportRenderer:
                 "care_manager_actions_markdown": msg,
                 "contractor_actions_markdown": msg,
             }
+        finding_kinds = {
+            finding.id: finding.ontology_rule_kind for finding in findings
+        }
         return {
             "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
-            "family_actions_markdown": self.actions_markdown("家族で今日できること", action_plan.family_no_cost),
-            "care_manager_actions_markdown": self.actions_markdown("ケアマネ・福祉用具に相談", action_plan.care_manager_purchase),
-            "contractor_actions_markdown": self.actions_markdown("専門施工・現地確認", action_plan.contractor_construction),
+            "family_actions_markdown": self.actions_markdown(
+                "家族で今日できること",
+                action_plan.family_no_cost,
+                finding_kinds,
+            ),
+            "care_manager_actions_markdown": self.actions_markdown(
+                "ケアマネ・福祉用具に相談",
+                action_plan.care_manager_purchase,
+                finding_kinds,
+            ),
+            "contractor_actions_markdown": self.actions_markdown(
+                "専門施工・現地確認",
+                action_plan.contractor_construction,
+                finding_kinds,
+            ),
         }
 
     def risk_summary(
@@ -80,6 +95,23 @@ class ReportRenderer:
 
         for finding in findings:
             confidence_percent = round(finding.confidence * 100)
+            if finding.ontology_rule_kind == "expected_feature":
+                lines.extend(
+                    [
+                        f"### 写真内で確認できなかった設備: {finding.label_ja}",
+                        f"- 確認結果: {finding.description_ja}",
+                        f"- 確認した範囲: {finding.evidence_ja}",
+                        "- 画像上の位置表示: なし"
+                        "（不存在や設置位置を示すものではありません）",
+                        f"- 参考根拠: {finding.basis_label_ja}",
+                        f"- 根拠の要約: {finding.basis_summary_ja}",
+                        f"- モデル検出スコア（未校正）: {confidence_percent}%",
+                        "- 人による確認: 写真だけで不存在や必要性を断定せず、"
+                        "実際の設備と状況を確認してください。",
+                        "",
+                    ]
+                )
+                continue
             lines.extend(
                 [
                     f"### 注意箇所: {finding.label_ja}",
@@ -95,17 +127,31 @@ class ReportRenderer:
             lines.append("")
         return "\n".join(lines).strip()
 
-    def actions_markdown(self, title: str, actions: list[ActionItem]) -> str:
+    def actions_markdown(
+        self,
+        title: str,
+        actions: list[ActionItem],
+        finding_kinds: dict[str, str | None] | None = None,
+    ) -> str:
         lines = [f"## {title}", ""]
         if not actions:
             lines.append("この写真からは、この区分の具体的な提案はありません。")
             return "\n".join(lines)
 
         for action in actions:
+            is_expected_feature = (
+                finding_kinds is not None
+                and finding_kinds.get(action.risk_id) == "expected_feature"
+            )
+            target = (
+                "写真内で確認できなかった設備（画像上の位置表示なし）"
+                if is_expected_feature
+                else "今回検出された危険箇所"
+            )
             lines.extend(
                 [
                     f"### {action.title_ja}",
-                    f"- 対象: 今回検出された危険箇所",
+                    f"- 対象: {target}",
                     f"- 内容: {action.description_ja}",
                     f"- 理由: {action.why_ja}",
                     f"- 注意: {action.disclaimer_ja}",

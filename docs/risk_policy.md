@@ -6,6 +6,8 @@ This local POC presents cautious, photo-scoped safety candidates. It does not ma
 
 Only `RelationshipEngine` may turn typed visual facts into candidate findings. A visible hazard needs a clear entity and a configured full relationship triple (subject, predicate, target). A missing expected feature needs `absent_with_full_coverage` plus an evidence bbox; `cannot_determine`, partial coverage, a non-home image, or an unknown room produces no finding.
 
+The bbox for an `expected_feature` non-detection is a coverage region: it records which relevant wall, floor, fixture, or transfer area was visible enough to check. It is not the location of a missing object and must never be presented as a danger location or installation position. Only exact `visible_hazard` findings may receive red or improvement overlays, and those overlays stay on the provider evidence rather than a room-template position.
+
 Only `is_not_applicable=true` is a neutral not-applicable result. It is reserved for non-home, unknown-room, or explicit insufficient-evidence facts, and requires empty findings/actions plus a non-empty neutral reason. The web UI then hides its compatibility low-risk summary, images, and suggestion button.
 
 A known home room with `is_not_applicable=false` and ordinary empty findings is different: it means no obvious candidate was detected in the visible, validated scope. It keeps the ordinary `overall_risk_level=low` compatibility semantics and must not be reclassified as neutral not-applicable. It is also not proof that the home is safe or risk-free beyond the photo.

@@ -16,7 +16,9 @@ Reason: the immediate value is reproducible, room-scoped deterministic policy. A
 
 The provider output is `GEMINI_FACTS_JSON_SCHEMA`: visual environment/room/regions/entities/features/relationships only. `RelationshipEngine` requires a valid subject/predicate/target triple; absence requires `absent_with_full_coverage` and evidence bbox. `RuleEngine` deterministically assigns known-rule severity, Japanese wording, source IDs, model-score threshold treatment, and the three action tiers. The compatible `confidence` API field is not a calibrated correctness probability, so the user report calls it `モデル検出スコア（未校正）`.
 
-Reason: a model must not decide medical/care/insurance/construction meaning, action text, or final risk policy. Unknown/insufficient/non-home inputs render neutral not-applicable output, rather than a low-risk conclusion.
+An expected-feature bbox is a coverage region, not the location of a missing object or an installation position. It can support cautious text saying that a feature was not confirmed in the visible scope, but it cannot support a red danger box or a product/construction placement. Image overlays are limited to exact `visible_hazard` findings and stay on their evidence bbox.
+
+Reason: a model must not decide medical/care/insurance/construction meaning, action text, final risk policy, or installation position. Unknown/insufficient/non-home inputs render neutral not-applicable output, rather than a low-risk conclusion.
 
 ## Three action tiers are required
 
@@ -46,7 +48,7 @@ Every request, including a web-local abstention, has a random request-local `ana
 
 Canonicalization clears `display_bbox`, and overlap deduplication uses exact ontology rule identity before falling back to `risk_type` only for two identity-free legacy findings. Thus presentation values cannot choose the retained evidence, while distinct rules sharing a risk type keep separate actions. The memo is bounded TTL/LRU, process-local, stores no image, and is not persistent or cross-process; rendering/report delivery remains per request.
 
-Annotated danger boxes always use positive, in-frame evidence coordinates. Boolean-only legacy observations create no visual finding; coordinate-backed missing features and visible hazards preserve their evidence bbox. Visual-zone and room-anchor mapping is limited to improvement callouts and cannot alter evidence or semantic identity. The web proxy preserves safe 400/422 and other 4xx statuses instead of converting input rejection into availability fallback, and never forwards the upstream detail. Non-strict `local_mock` is limited to transport failure, invalid JSON on a 200 response, or explicit 5xx fallback; it remains an empty neutral abstention with unannotated images, not fabricated medium-risk findings or actions.
+Annotated danger boxes always use positive, in-frame evidence coordinates from exact `visible_hazard` findings. Boolean-only legacy observations and expected-feature coverage create no image overlay. Red and improvement overlays use the same evidence location; visual-zone, anchor, and room-template placement are forbidden. When only expected-feature non-detections remain, the renderer returns the unannotated sanitized image and the web UI explains that no image location or installation position can be claimed. The web proxy preserves safe 400/422 and other 4xx statuses instead of converting input rejection into availability fallback, and never forwards the upstream detail. Non-strict `local_mock` is limited to transport failure, invalid JSON on a 200 response, or explicit 5xx fallback; it remains an empty neutral abstention with unannotated images, not fabricated medium-risk findings or actions.
 
 Reason: distinguish correlation, safe computation reuse, and semantic equality without retaining user images or treating cache behavior as durable state.
 

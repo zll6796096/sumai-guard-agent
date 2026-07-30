@@ -52,27 +52,31 @@ class ChecklistEngine:
             missing = missing_map[key]
             confidence = missing.confidence
             bbox = missing.bbox
-            evidence = missing.evidence_ja
             if confidence < 0.60:
                 continue
 
             rule = self.ontology.rule(room, key, "expected_feature")
+            expected_feature_label = str(feature.get("label_ja", "対象設備"))
             findings.append(
                 RiskFinding(
                     id=rule.risk_type,
                     risk_type=rule.risk_type,
                     label_ja=rule.label_ja,
                     description_ja=(
-                        f"写真内に{feature.get('label_ja', '')}が確認できず、"
-                        "高齢者の安全に影響を及ぼす可能性があります。"
+                        "写真で十分に表示された範囲では、"
+                        f"{expected_feature_label}を確認できませんでした。"
                     ),
                     severity=rule.severity,
                     confidence=confidence,
                     bbox=bbox,
-                    evidence_ja=evidence,
+                    evidence_ja=(
+                        f"写真内で{expected_feature_label}を確認する対象範囲が"
+                        "表示されています。この範囲は不存在や設置位置を"
+                        "示すものではありません。"
+                    ),
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
-                    needs_human_confirmation=confidence < 0.75,
+                    needs_human_confirmation=True,
                     ontology_key=rule.key,
                     ontology_rule_kind=rule.rule_kind,
                 )

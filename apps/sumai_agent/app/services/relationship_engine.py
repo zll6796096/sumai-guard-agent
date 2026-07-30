@@ -108,23 +108,32 @@ class RelationshipEngine:
             rule = self.ontology.rule(
                 room, feature.feature_key, "expected_feature"
             )
+            expected_feature_label = str(
+                expected_features[feature.feature_key]["label_ja"]
+            )
             findings.append(
                 RiskFinding(
                     id="pending",
                     risk_type=rule.risk_type,
                     label_ja=rule.label_ja,
                     description_ja=(
-                        f"写真で十分に表示された範囲では、{rule.label_ja}を確認できませんでした。"
+                        "写真で十分に表示された範囲では、"
+                        f"{expected_feature_label}を確認できませんでした。"
                     ),
                     severity=rule.severity,
                     confidence=feature.model_score,
                     bbox=feature.evidence_bbox,
                     display_bbox=None,
                     evidence_source_ids=list(rule.evidence_source_ids),
-                    evidence_ja="写真内の十分に表示された範囲に可視の根拠があります。",
+                    evidence_ja=(
+                        f"写真内で{expected_feature_label}を確認する対象範囲が表示されています。"
+                        "この範囲は不存在や設置位置を示すものではありません。"
+                    ),
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
-                    needs_human_confirmation=feature.model_score < 0.60,
+                    # One photo can support a cautious non-detection, but it
+                    # cannot prove absence or determine whether/where to install.
+                    needs_human_confirmation=True,
                     ontology_key=rule.key,
                     ontology_rule_kind=rule.rule_kind,
                 )

@@ -77,6 +77,19 @@ def test_decisions_retires_rag_lite_demo_rules_language() -> None:
     assert "demo_rules.yaml" not in decisions
 
 
+def test_documents_distinguish_localized_hazards_from_absence_coverage() -> None:
+    architecture = _document("architecture.md")
+    gemini = _document("gemini_integration.md")
+    risk_policy = _document("risk_policy.md")
+    decisions = _document("decisions.md")
+
+    for document in (architecture, gemini, risk_policy, decisions):
+        assert "coverage region" in document
+        assert "installation position" in document
+    assert "only `visible_hazard` findings receive image overlays" in architecture
+    assert "room-template" in architecture
+
+
 def test_government_review_docs_reflect_source_layer_without_overclaiming() -> None:
     risk_gaps = _document("risk_gap_analysis.md")
     pre_review = _document("pre_government_review.md")

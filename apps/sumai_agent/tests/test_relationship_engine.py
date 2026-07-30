@@ -239,6 +239,11 @@ def test_missing_bathroom_handrail_requires_full_coverage_evidence() -> None:
         "MHLW_WELFARE_HOUSING",
         "MHLW_NOTICE_OLD34",
     ]
+    assert findings[0].needs_human_confirmation is True
+    assert findings[0].description_ja == (
+        "写真で十分に表示された範囲では、浴室手すりを確認できませんでした。"
+    )
+    assert "設置位置を示すものではありません" in findings[0].evidence_ja
 
 
 def test_missing_feature_without_evidence_bbox_is_not_derived() -> None:

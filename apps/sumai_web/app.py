@@ -654,6 +654,28 @@ INDEX_HTML = """<!DOCTYPE html>
             margin-bottom: 20px;
         }
 
+        .unlocalized-findings-note {
+            background-color: rgba(0, 122, 255, 0.07);
+            border: 1px solid rgba(0, 122, 255, 0.24);
+            border-radius: 14px;
+            color: var(--text-color);
+            margin-bottom: 16px;
+            padding: 14px 16px;
+        }
+
+        .unlocalized-findings-note strong {
+            display: block;
+            font-size: 0.92rem;
+            margin-bottom: 5px;
+        }
+
+        .unlocalized-findings-note p {
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            line-height: 1.55;
+            margin: 0;
+        }
+
         .result-image-card {
             background-color: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -1015,7 +1037,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">注意が必要な箇所</span>
+                        <span class="summary-label">確認項目</span>
                         <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
@@ -1029,15 +1051,28 @@ INDEX_HTML = """<!DOCTYPE html>
                     <p id="not-applicable-message" style="color: var(--warning-color); font-weight: bold; font-size: 0.95rem;"></p>
                 </div>
 
+                <div
+                    id="unlocalized-findings-note"
+                    class="unlocalized-findings-note"
+                    role="note"
+                    hidden
+                >
+                    <strong id="unlocalized-findings-title">画像上に位置を表示しない確認項目があります</strong>
+                    <p>
+                        写真内で設備を確認できなかった項目は、不存在や設置位置を示せません。
+                        誤解を避けるため、画像上に赤枠や設置候補を表示していません。
+                    </p>
+                </div>
+
                 <!-- Stacked Images: Annotated first, Improvement second -->
                 <div class="result-images-list">
-                    <div class="result-image-card">
-                        <span class="image-card-title">現在の注意箇所</span>
+                    <div id="result-current-image-card" class="result-image-card">
+                        <span id="result-current-image-title" class="image-card-title">現在の注意箇所</span>
                         <div class="image-wrapper">
                             <img id="result-annotated-img" src="" alt="赤枠で注意箇所を示した現在の写真">
                         </div>
                     </div>
-                    <div class="result-image-card">
+                    <div id="result-improvement-image-card" class="result-image-card">
                         <span class="image-card-title">対策イメージ（施工図ではありません）</span>
                         <div class="image-wrapper">
                             <img id="result-improvement-img" src="" alt="注意箇所への一般的な対策イメージ">
@@ -1356,6 +1391,11 @@ INDEX_HTML = """<!DOCTYPE html>
             const notAppContainer = document.getElementById('not-applicable-container');
             const notAppMsg = document.getElementById('not-applicable-message');
             const imagesList = document.querySelector('.result-images-list');
+            const unlocalizedNote = document.getElementById('unlocalized-findings-note');
+            const unlocalizedTitle = document.getElementById('unlocalized-findings-title');
+            const currentImageTitle = document.getElementById('result-current-image-title');
+            const currentImage = document.getElementById('result-annotated-img');
+            const improvementCard = document.getElementById('result-improvement-image-card');
 
             renderAnalysisModeBanner(payload);
 
@@ -1374,15 +1414,37 @@ INDEX_HTML = """<!DOCTYPE html>
                 notAppContainer.style.display = 'block';
                 resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
+                unlocalizedNote.hidden = true;
                 btnShowSuggestions.style.display = 'none';
             } else {
+                const findings = Array.isArray(payload.findings) ? payload.findings : [];
+                const localizedVisibleFindings = findings.filter(
+                    finding => finding.ontology_rule_kind === 'visible_hazard'
+                );
+                const unlocalizedExpectedFindings = findings.filter(
+                    finding => finding.ontology_rule_kind === 'expected_feature'
+                );
+                const hasLocalizedVisibleFinding = localizedVisibleFindings.length > 0;
+
                 notAppContainer.style.display = 'none';
                 resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
                 btnShowSuggestions.style.display = '';
-                
+
+                unlocalizedNote.hidden = unlocalizedExpectedFindings.length === 0;
+                unlocalizedTitle.textContent = (
+                    `画像上に位置を表示しない確認項目：${unlocalizedExpectedFindings.length}件`
+                );
+                currentImageTitle.textContent = hasLocalizedVisibleFinding
+                    ? '写真で確認できた注意箇所'
+                    : '確認した写真（位置を特定できる注意箇所はありません）';
+                currentImage.alt = hasLocalizedVisibleFinding
+                    ? '赤枠で写真内の可視の注意箇所を示した写真'
+                    : '確認対象として使用した写真。位置を特定できる注意箇所の表示はありません';
+                improvementCard.hidden = !hasLocalizedVisibleFinding;
+
                 // Set Images
-                document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
+                currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64;
                 document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
             }
 

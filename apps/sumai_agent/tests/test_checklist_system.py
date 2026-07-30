@@ -39,6 +39,13 @@ def test_toilet_missing_handrail() -> None:
     assert len(handrail_finding) == 1
     assert handrail_finding[0].severity == 4
     assert "厚労省" in handrail_finding[0].basis_label_ja
+    assert handrail_finding[0].needs_human_confirmation is True
+    assert handrail_finding[0].description_ja == (
+        "写真で十分に表示された範囲では、手すりを確認できませんでした。"
+    )
+    assert "不存在や設置位置を示すものではありません" in (
+        handrail_finding[0].evidence_ja
+    )
 
 
 def test_toilet_missing_emergency_call() -> None:

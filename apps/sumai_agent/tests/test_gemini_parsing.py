@@ -870,6 +870,8 @@ def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None
 def test_auto_prompt_does_not_eagerly_enumerate_every_room_checklist() -> None:
     assert "Emit exactly one feature_observation for every expected feature" not in VISION_PROMPT
     assert "Never use the entire image as evidence_bbox." in VISION_PROMPT
+    assert "coverage region, not the location of a missing object" in VISION_PROMPT
+    assert "Never treat it as a recommended installation position" in VISION_PROMPT
 
     for room_name in ONTOLOGY.room_names:
         room = ONTOLOGY.room(room_name)

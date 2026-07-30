@@ -41,3 +41,16 @@ def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> No
     assert "resultSummary.style.display = 'flex'" in html
     assert "btnShowSuggestions.style.display = ''" in html
     assert "document.getElementById('screen2-title').textContent = \"安全チェック結果\"" in html
+
+
+def test_expected_features_are_explained_without_claiming_image_locations() -> None:
+    html = _index_html()
+
+    assert 'id="unlocalized-findings-note"' in html
+    assert 'id="result-current-image-card"' in html
+    assert 'id="result-improvement-image-card"' in html
+    assert "finding.ontology_rule_kind === 'visible_hazard'" in html
+    assert "finding.ontology_rule_kind === 'expected_feature'" in html
+    assert "improvementCard.hidden = !hasLocalizedVisibleFinding" in html
+    assert "画像上に赤枠や設置候補を表示していません" in html
+    assert "位置を特定できる注意箇所はありません" in html

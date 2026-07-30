@@ -256,7 +256,9 @@ Environment and coverage rules:
    missing or out-of-frame region.
    Use evidence_bbox for present or absent_with_full_coverage and null for cannot_determine.
    Never use the entire image as evidence_bbox.
-   Bound only the relevant visible wall, floor, fixture, or transfer region.
+   For an absent feature, evidence_bbox is a coverage region, not the location of a missing object.
+   Never treat it as a recommended installation position. Bound only the relevant visible wall,
+   floor, fixture, or transfer region.
 5. Relationships must use supplied ontology predicates. Their subject must be the ref of an emitted entity.
    The object must be another emitted entity ref or a named visible region.
    Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
