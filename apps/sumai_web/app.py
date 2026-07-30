@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import codecs
 import hashlib
 import io
 import json
@@ -10,13 +11,14 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from dotenv import load_dotenv
 from PIL import Image
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 load_dotenv()
@@ -35,6 +37,307 @@ DISCLAIMER = (
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
+
+CURRENT_SCHEMA_VERSION = "2.1.0"
+CURRENT_ONTOLOGY_VERSION = "1.0.1"
+CURRENT_PREPROCESS_VERSION = "1.0.0"
+CURRENT_INFERENCE_CONFIG_VERSION = "1.0.6"
+
+CURRENT_VISIBLE_FINDING_IDENTITIES = frozenset(
+    {
+        ("toilet", "has_floor_clutter", "cluttered_path"),
+        ("toilet", "has_loose_mat", "loose_mat"),
+        ("toilet", "lighting_poor", "poor_lighting"),
+        ("bathroom", "wet_floor", "bathroom_slip"),
+        ("bathroom", "bathtub_stepover", "bathtub_stepover"),
+        ("bathroom", "cluttered_floor", "cluttered_path"),
+        ("genkan", "genkan_step", "genkan_step"),
+        ("genkan", "loose_shoes", "cluttered_path"),
+        ("genkan", "poor_lighting", "poor_lighting"),
+        ("genkan", "cluttered_path", "cluttered_path"),
+        ("hallway", "hallway_cord", "hallway_cord"),
+        ("hallway", "cluttered_path", "cluttered_path"),
+        ("hallway", "loose_mat", "loose_mat"),
+        ("hallway", "poor_lighting", "poor_lighting"),
+        ("bedroom", "cluttered_path", "cluttered_path"),
+        ("bedroom", "loose_mat", "loose_mat"),
+        ("bedroom", "poor_lighting", "poor_lighting"),
+        ("kitchen", "loose_mat", "loose_mat"),
+        ("kitchen", "cluttered_path", "cluttered_path"),
+    }
+)
+CURRENT_EXPECTED_CONFIRMATION_IDENTITIES = frozenset(
+    {
+        ("toilet", "has_handrail"),
+        ("toilet", "has_emergency_call_button"),
+        ("bathroom", "has_handrail"),
+        ("bathroom", "has_non_slip_floor_or_mat"),
+        ("bathroom", "has_bath_transfer_support"),
+        ("bathroom", "has_emergency_call_button"),
+        ("bathroom", "has_shower_chair"),
+        ("genkan", "has_handrail_or_support"),
+        ("genkan", "step_visible_marking"),
+        ("hallway", "clear_path"),
+        ("hallway", "sufficient_lighting"),
+        ("bedroom", "clear_path_from_bed"),
+        ("bedroom", "bedside_light"),
+        ("bedroom", "stable_bedside_support"),
+        ("kitchen", "clear_floor"),
+        ("kitchen", "stable_working_path"),
+    }
+)
+CURRENT_FAMILY_FORBIDDEN_WORDS = (
+    "購入",
+    "レンタル",
+    "工事",
+    "施工",
+    "設置を依頼",
+    "専門",
+)
+
+
+class WireBoundingBox(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    x: float = Field(ge=0.0, le=1.0)
+    y: float = Field(ge=0.0, le=1.0)
+    w: float = Field(gt=0.0, le=1.0)
+    h: float = Field(gt=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _fits_frame(self) -> "WireBoundingBox":
+        if self.x + self.w > 1.0 + 1e-9 or self.y + self.h > 1.0 + 1e-9:
+            raise ValueError("bbox_outside_frame")
+        return self
+
+
+class WireFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    risk_type: str
+    label_ja: str
+    description_ja: str
+    severity: int = Field(ge=1, le=5)
+    confidence: float = Field(ge=0.0, le=1.0)
+    bbox: WireBoundingBox
+    display_bbox: WireBoundingBox | None = None
+    evidence_source_ids: list[str] = Field(default_factory=list)
+    evidence_ja: str
+    basis_label_ja: str
+    basis_summary_ja: str
+    needs_human_confirmation: bool
+    ontology_key: str | None = None
+    ontology_rule_kind: Literal[
+        "visible_hazard", "expected_feature"
+    ] | None = None
+
+
+class WireConfirmationItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    feature_key: str
+    label_ja: str
+    description_ja: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_source_ids: list[str] = Field(default_factory=list)
+    basis_label_ja: str
+    basis_summary_ja: str
+    needs_human_confirmation: Literal[True]
+
+
+class WireActionItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    risk_id: str
+    tier: Literal[
+        "FAMILY_NO_COST",
+        "CARE_MANAGER_PURCHASE",
+        "CONTRACTOR_CONSTRUCTION",
+    ]
+    title_ja: str
+    description_ja: str
+    why_ja: str
+    cost_level: Literal["ZERO", "LOW", "MEDIUM", "HIGH"]
+    requires_professional: bool
+    disclaimer_ja: str
+
+
+class WireActionPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    family_no_cost: list[WireActionItem] = Field(default_factory=list)
+    care_manager_purchase: list[WireActionItem] = Field(default_factory=list)
+    contractor_construction: list[WireActionItem] = Field(default_factory=list)
+
+
+class WireAnalysisResponse(BaseModel):
+    """Web-side copy of the Agent's public AnalysisResponse wire contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    analysis_id: str
+    room_type: Literal[
+        "genkan",
+        "hallway",
+        "bathroom",
+        "toilet",
+        "bedroom",
+        "kitchen",
+        "auto",
+    ]
+    overall_risk_level: Literal["low", "medium", "high"]
+    findings: list[WireFinding]
+    confirmation_items: list[WireConfirmationItem] = Field(
+        default_factory=list
+    )
+    action_plan: WireActionPlan
+    annotated_image_base64: str
+    improvement_image_base64: str
+    risk_summary_markdown: str
+    confirmation_items_markdown: str = Field(min_length=1)
+    family_actions_markdown: str
+    care_manager_actions_markdown: str
+    contractor_actions_markdown: str
+    disclaimer_ja: str
+    mode: str = "mock"
+    is_home_environment: bool = True
+    is_not_applicable: bool = False
+    not_applicable_reason_ja: str | None = None
+    model: str = "N/A"
+    result_key: str = ""
+    semantic_hash: str = ""
+    schema_version: str = CURRENT_SCHEMA_VERSION
+    ontology_version: str = CURRENT_ONTOLOGY_VERSION
+    preprocess_version: str = CURRENT_PREPROCESS_VERSION
+    inference_config_version: str = CURRENT_INFERENCE_CONFIG_VERSION
+    stage_timings_ms: dict[str, int] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _public_invariants(self) -> "WireAnalysisResponse":
+        if (
+            self.schema_version != CURRENT_SCHEMA_VERSION
+            or self.ontology_version != CURRENT_ONTOLOGY_VERSION
+            or self.preprocess_version != CURRENT_PREPROCESS_VERSION
+            or self.inference_config_version
+            != CURRENT_INFERENCE_CONFIG_VERSION
+        ):
+            raise ValueError("response_contract_version_mismatch")
+        actions = (
+            self.action_plan.family_no_cost
+            + self.action_plan.care_manager_purchase
+            + self.action_plan.contractor_construction
+        )
+        action_ids = [action.id for action in actions]
+        if len(set(action_ids)) != len(action_ids):
+            raise ValueError("action_ids_must_be_unique")
+        for action in self.action_plan.family_no_cost:
+            action_text = " ".join(
+                (action.title_ja, action.description_ja, action.why_ja)
+            )
+            if any(
+                forbidden in action_text
+                for forbidden in CURRENT_FAMILY_FORBIDDEN_WORDS
+            ):
+                raise ValueError("family_action_contains_forbidden_word")
+        if self.is_not_applicable:
+            if (
+                self.room_type != "auto"
+                or self.overall_risk_level != "low"
+                or self.findings
+                or self.confirmation_items
+                or actions
+                or not isinstance(self.not_applicable_reason_ja, str)
+                or not self.not_applicable_reason_ja.strip()
+            ):
+                raise ValueError("invalid_not_applicable_response")
+            return self
+
+        if (
+            not self.is_home_environment
+            or self.room_type == "auto"
+            or self.not_applicable_reason_ja is not None
+        ):
+            raise ValueError("invalid_applicable_response")
+        if any(
+            not finding.ontology_key
+            or finding.ontology_rule_kind != "visible_hazard"
+            for finding in self.findings
+        ):
+            raise ValueError("findings_must_be_visible_hazards")
+        if any(
+            (
+                self.room_type,
+                finding.ontology_key or "",
+                finding.risk_type,
+            )
+            not in CURRENT_VISIBLE_FINDING_IDENTITIES
+            for finding in self.findings
+        ):
+            raise ValueError("finding_identity_not_allowed_for_room")
+        if any(
+            (self.room_type, item.feature_key)
+            not in CURRENT_EXPECTED_CONFIRMATION_IDENTITIES
+            for item in self.confirmation_items
+        ):
+            raise ValueError("confirmation_identity_not_allowed_for_room")
+        if [finding.id for finding in self.findings] != [
+            f"R{index}" for index in range(1, len(self.findings) + 1)
+        ]:
+            raise ValueError("invalid_finding_ids")
+        if [item.id for item in self.confirmation_items] != [
+            f"C{index}"
+            for index in range(1, len(self.confirmation_items) + 1)
+        ]:
+            raise ValueError("invalid_confirmation_ids")
+        confirmation_features = [
+            item.feature_key for item in self.confirmation_items
+        ]
+        if len(set(confirmation_features)) != len(confirmation_features):
+            raise ValueError("confirmation_feature_keys_must_be_unique")
+        expected_risk = "low"
+        if self.findings:
+            maximum = max(finding.severity for finding in self.findings)
+            expected_risk = (
+                "high" if maximum >= 4 else "medium" if maximum >= 2 else "low"
+            )
+        if self.overall_risk_level != expected_risk:
+            raise ValueError("risk_level_mismatch")
+        finding_ids = {finding.id for finding in self.findings}
+        if not finding_ids and actions:
+            raise ValueError("zero_findings_require_empty_actions")
+        policies = (
+            (
+                self.action_plan.family_no_cost,
+                "FAMILY_NO_COST",
+                "ZERO",
+                False,
+            ),
+            (
+                self.action_plan.care_manager_purchase,
+                "CARE_MANAGER_PURCHASE",
+                "LOW",
+                True,
+            ),
+            (
+                self.action_plan.contractor_construction,
+                "CONTRACTOR_CONSTRUCTION",
+                "HIGH",
+                True,
+            ),
+        )
+        for items, tier, cost, professional in policies:
+            if any(
+                item.risk_id not in finding_ids
+                or item.tier != tier
+                or item.cost_level != cost
+                or item.requires_professional is not professional
+                for item in items
+            ):
+                raise ValueError("action_plan_policy_mismatch")
+        return self
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -1437,10 +1740,109 @@ INDEX_HTML = """<!DOCTYPE html>
             vision: '写真に見える範囲を解析しています',
             organize: '結果を整理しています'
         };
+        /* ANALYSIS_STATE_MACHINES_START */
         class AnalysisUiError extends Error {}
+
+        class AnalysisEventStateMachine {
+            constructor() {
+                this.progressStages = ['intake_complete', 'vision_complete'];
+                this.progressIndex = 0;
+                this.terminal = false;
+            }
+
+            accept(event) {
+                if (!event || typeof event !== 'object' || this.terminal) {
+                    throw new AnalysisUiError(
+                        '分析結果を正しく受信できませんでした。'
+                    );
+                }
+                if (event.type === 'progress') {
+                    if (event.stage !== this.progressStages[this.progressIndex]) {
+                        throw new AnalysisUiError(
+                            '分析結果を正しく受信できませんでした。'
+                        );
+                    }
+                    this.progressIndex += 1;
+                    return { type: 'progress', stage: event.stage };
+                }
+                if (event.type === 'result') {
+                    if (
+                        this.progressIndex !== this.progressStages.length
+                        || !event.payload
+                        || typeof event.payload !== 'object'
+                    ) {
+                        throw new AnalysisUiError(
+                            '分析結果を正しく受信できませんでした。'
+                        );
+                    }
+                    this.terminal = true;
+                    return { type: 'result', payload: event.payload };
+                }
+                if (event.type === 'error' && typeof event.error === 'string') {
+                    this.terminal = true;
+                    return { type: 'error', error: event.error };
+                }
+                throw new AnalysisUiError(
+                    '分析結果を正しく受信できませんでした。'
+                );
+            }
+        }
+
+        class AnalysisRequestSession {
+            constructor(controller) {
+                this.controller = controller;
+                this.reader = null;
+                this.readerCancelPromise = null;
+                this.cancelled = false;
+                this.succeeded = false;
+                this.eventState = new AnalysisEventStateMachine();
+            }
+
+            attachReader(reader) {
+                if (this.reader && this.reader !== reader) {
+                    throw new AnalysisUiError(
+                        '分析結果を正しく受信できませんでした。'
+                    );
+                }
+                this.reader = reader;
+                if (this.cancelled) {
+                    void this.cancelReader();
+                }
+            }
+
+            cancelReader() {
+                if (!this.reader) {
+                    return Promise.resolve();
+                }
+                if (!this.readerCancelPromise) {
+                    this.readerCancelPromise = Promise.resolve()
+                        .then(() => this.reader.cancel())
+                        .catch(() => {});
+                }
+                return this.readerCancelPromise;
+            }
+
+            async cancel() {
+                if (this.succeeded) return;
+                this.cancelled = true;
+                if (!this.controller.signal.aborted) {
+                    this.controller.abort();
+                }
+                await this.cancelReader();
+            }
+
+            async finishSuccess() {
+                if (this.controller.signal.aborted) {
+                    throw new DOMException('Analysis aborted', 'AbortError');
+                }
+                this.succeeded = true;
+                await this.cancelReader();
+            }
+        }
+        /* ANALYSIS_STATE_MACHINES_END */
         let analysisTipTimer = null;
         let longWaitTimer = null;
-        let activeAnalysisController = null;
+        let activeAnalysisSession = null;
 
         // Nav functions
         function showScreen(screenId) {
@@ -1573,9 +1975,12 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         function cancelActiveAnalysis() {
-            if (activeAnalysisController) {
-                activeAnalysisController.abort();
-                activeAnalysisController = null;
+            const session = activeAnalysisSession;
+            if (session) {
+                if (activeAnalysisSession === session) {
+                    activeAnalysisSession = null;
+                }
+                void session.cancel();
             }
             stopWaitingExperience();
         }
@@ -1590,35 +1995,34 @@ INDEX_HTML = """<!DOCTYPE html>
             return '分析を完了できませんでした。もう一度お試しください。';
         }
 
-        function handleAnalysisEvent(event) {
-            if (!event || typeof event !== 'object') {
-                throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
-            }
-            if (event.type === 'progress') {
-                if (event.stage === 'intake_complete') {
+        function handleAnalysisEvent(event, eventState) {
+            const accepted = eventState.accept(event);
+            if (accepted.type === 'progress') {
+                if (accepted.stage === 'intake_complete') {
                     setAnalysisStage('vision');
-                } else if (event.stage === 'vision_complete') {
+                } else if (accepted.stage === 'vision_complete') {
                     setAnalysisStage('organize');
                 }
                 return false;
             }
-            if (event.type === 'result') {
+            if (accepted.type === 'result') {
                 completeAnalysisStages();
                 stopWaitingExperience();
-                renderResults(event.payload);
+                renderResults(accepted.payload);
                 return true;
             }
-            if (event.type === 'error') {
+            if (accepted.type === 'error') {
                 stopWaitingExperience();
-                throw new AnalysisUiError(analysisErrorMessage(event.error));
+                throw new AnalysisUiError(analysisErrorMessage(accepted.error));
             }
-            return false;
+            throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
         }
 
         async function uploadAndAnalyze(file) {
             cancelActiveAnalysis();
-            activeAnalysisController = new AbortController();
-            const controller = activeAnalysisController;
+            const session = new AnalysisRequestSession(new AbortController());
+            activeAnalysisSession = session;
+            let reader = null;
             startWaitingExperience();
             const formData = new FormData();
             formData.append('image', file);
@@ -1629,7 +2033,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     method: 'POST',
                     body: formData,
                     headers: { 'Accept': 'application/x-ndjson' },
-                    signal: controller.signal
+                    signal: session.controller.signal
                 });
 
                 if (!response.ok) {
@@ -1640,7 +2044,8 @@ INDEX_HTML = """<!DOCTYPE html>
                     throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
                 }
 
-                const reader = response.body.getReader();
+                reader = response.body.getReader();
+                session.attachReader(reader);
                 const decoder = new TextDecoder();
                 let buffer = '';
                 while (true) {
@@ -1665,12 +2070,8 @@ INDEX_HTML = """<!DOCTYPE html>
                                 '分析結果を正しく受信できませんでした。'
                             );
                         }
-                        if (handleAnalysisEvent(event)) {
-                            try {
-                                await reader.cancel();
-                            } catch (_cancelError) {
-                                // The terminal result is already validated and rendered.
-                            }
+                        if (handleAnalysisEvent(event, session.eventState)) {
+                            await session.finishSuccess();
                             return;
                         }
                     }
@@ -1678,6 +2079,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
                 throw new AnalysisUiError('分析結果を受信できませんでした。');
             } catch (err) {
+                await session.cancel();
                 if (err && err.name === 'AbortError') return;
                 console.error('analysis_request_failed');
                 clearPreview();
@@ -1689,8 +2091,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 );
                 errorDiv.style.display = 'block';
             } finally {
-                if (activeAnalysisController === controller) {
-                    activeAnalysisController = null;
+                if (!session.succeeded) {
+                    await session.cancel();
+                }
+                if (activeAnalysisSession === session) {
+                    activeAnalysisSession = null;
                     stopWaitingExperience();
                 }
             }
@@ -1914,6 +2319,11 @@ INDEX_HTML = """<!DOCTYPE html>
             btn.addEventListener('click', resetApp);
         });
         window.addEventListener('pagehide', cancelActiveAnalysis);
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                cancelActiveAnalysis();
+            }
+        });
     </script>
 </body>
 </html>
@@ -2038,6 +2448,134 @@ def _ndjson_result(payload: dict[str, Any]) -> bytes:
     return _ndjson_line({"type": "result", "payload": payload})
 
 
+class _UpstreamStreamProtocolError(Exception):
+    """Internal marker whose text is never logged or returned."""
+
+
+_SAFE_UPSTREAM_ERRORS = {
+    "gemini_unavailable": "解析サービスは現在利用できません。",
+    "invalid_upload": "画像または入力内容を確認してください。",
+    "analysis_failed": "分析を完了できませんでした。",
+}
+_EXPECTED_PROGRESS = ("intake_complete", "vision_complete")
+
+
+def _safe_stream_failure(
+    image_bytes: bytes,
+    room_hint: str,
+    reason: str,
+) -> bytes:
+    if FRONTEND_REQUIRE_REAL_GEMINI:
+        return _ndjson_error(
+            "analysis_failed",
+            "分析を完了できませんでした。",
+        )
+    return _ndjson_result(
+        _build_local_mock(
+            image_bytes,
+            room_hint,
+            reason,
+        )
+    )
+
+
+def _validate_upstream_event(
+    event: object,
+    *,
+    progress_index: int,
+) -> tuple[bytes, int, bool]:
+    if not isinstance(event, dict):
+        raise _UpstreamStreamProtocolError()
+    event_type = event.get("type")
+    if event_type == "progress":
+        if (
+            progress_index >= len(_EXPECTED_PROGRESS)
+            or event.get("stage") != _EXPECTED_PROGRESS[progress_index]
+        ):
+            raise _UpstreamStreamProtocolError()
+        stage = _EXPECTED_PROGRESS[progress_index]
+        return (
+            _ndjson_line({"type": "progress", "stage": stage}),
+            progress_index + 1,
+            False,
+        )
+    if event_type == "error":
+        error_code = event.get("error")
+        if not isinstance(error_code, str):
+            raise _UpstreamStreamProtocolError()
+        safe_message = _SAFE_UPSTREAM_ERRORS.get(error_code)
+        if safe_message is None:
+            raise _UpstreamStreamProtocolError()
+        return (
+            _ndjson_error(error_code, safe_message),
+            progress_index,
+            True,
+        )
+    if event_type == "result":
+        if progress_index != len(_EXPECTED_PROGRESS):
+            raise _UpstreamStreamProtocolError()
+        try:
+            response = WireAnalysisResponse.model_validate(event.get("payload"))
+        except Exception as exc:
+            raise _UpstreamStreamProtocolError() from exc
+        return (
+            _ndjson_result(response.model_dump(mode="json")),
+            progress_index,
+            True,
+        )
+    raise _UpstreamStreamProtocolError()
+
+
+async def _validated_upstream_stream(
+    response: httpx.Response,
+) -> AsyncIterator[tuple[bytes, bool]]:
+    content_type = response.headers.get("content-type", "")
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    if media_type != "application/x-ndjson":
+        raise _UpstreamStreamProtocolError()
+
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
+    buffer = ""
+    progress_index = 0
+    async for chunk in response.aiter_bytes():
+        if not chunk:
+            continue
+        try:
+            buffer += decoder.decode(chunk, final=False)
+        except UnicodeDecodeError as exc:
+            raise _UpstreamStreamProtocolError() from exc
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except (json.JSONDecodeError, UnicodeError) as exc:
+                raise _UpstreamStreamProtocolError() from exc
+            encoded, progress_index, terminal = _validate_upstream_event(
+                event,
+                progress_index=progress_index,
+            )
+            if terminal:
+                try:
+                    await response.aclose()
+                except Exception:
+                    pass
+            yield encoded, terminal
+            if terminal:
+                return
+
+    try:
+        buffer += decoder.decode(b"", final=True)
+    except UnicodeDecodeError as exc:
+        raise _UpstreamStreamProtocolError() from exc
+    # A final non-newline-terminated fragment is not an NDJSON record and is
+    # intentionally discarded before the Web emits its own safe terminal.
+    if buffer:
+        raise _UpstreamStreamProtocolError()
+    raise _UpstreamStreamProtocolError()
+
+
 async def _proxy_analysis_stream(
     image_bytes: bytes,
     filename: str,
@@ -2050,6 +2588,7 @@ async def _proxy_analysis_stream(
         "room_hint": room_hint,
         "mock": "true" if FRONTEND_MOCK else "false",
     }
+    terminal_sent = False
     try:
         async with backend_client().stream(
             "POST",
@@ -2058,10 +2597,14 @@ async def _proxy_analysis_stream(
             files=files,
         ) as response:
             if response.status_code == 200:
-                async for chunk in response.aiter_bytes():
-                    if chunk:
-                        yield chunk
-                return
+                async for line, terminal in _validated_upstream_stream(
+                    response
+                ):
+                    terminal_sent = terminal
+                    yield line
+                    if terminal_sent:
+                        return
+                raise _UpstreamStreamProtocolError()
 
             if response.status_code in {400, 422}:
                 yield _ndjson_error(
@@ -2101,24 +2644,37 @@ async def _proxy_analysis_stream(
                 "backend_invalid_response",
                 "分析サービスから有効な応答を受け取れませんでした。",
             )
+            terminal_sent = True
+    except _UpstreamStreamProtocolError as exc:
+        logger.warning(
+            "backend_stream_protocol_error",
+            extra={"failure_type": type(exc).__name__},
+        )
+        if not terminal_sent:
+            yield _safe_stream_failure(
+                image_bytes,
+                room_hint,
+                "backend_invalid_stream",
+            )
     except Exception as exc:
         logger.warning(
             "backend_stream_failed",
             extra={"failure_type": type(exc).__name__},
         )
-        if FRONTEND_REQUIRE_REAL_GEMINI:
-            yield _ndjson_error(
-                "gemini_unavailable",
-                "解析サービスは現在利用できません。",
-            )
-        else:
-            yield _ndjson_result(
-                _build_local_mock(
-                    image_bytes,
-                    room_hint,
-                    "backend_unreachable",
+        if not terminal_sent:
+            if FRONTEND_REQUIRE_REAL_GEMINI:
+                yield _ndjson_error(
+                    "gemini_unavailable",
+                    "解析サービスは現在利用できません。",
                 )
-            )
+            else:
+                yield _ndjson_result(
+                    _build_local_mock(
+                        image_bytes,
+                        room_hint,
+                        "backend_unreachable",
+                    )
+                )
 
 
 @app.get("/", response_class=HTMLResponse)

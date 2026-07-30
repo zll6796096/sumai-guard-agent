@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -172,16 +173,17 @@ def test_waiting_lifecycle_cleans_local_timers_and_active_request() -> None:
 
     assert "let analysisTipTimer = null;" in html
     assert "let longWaitTimer = null;" in html
-    assert "let activeAnalysisController = null;" in html
+    assert "let activeAnalysisSession = null;" in html
     assert "window.clearInterval(analysisTipTimer);" in html
     assert "window.clearTimeout(longWaitTimer);" in html
-    assert "activeAnalysisController.abort();" in html
-    assert "signal: controller.signal" in html
+    assert "session.controller.signal" in html
     assert "event.type === 'result'" in html
     assert "event.type === 'error'" in html
     assert "stopWaitingExperience();" in html
     assert "cancelActiveAnalysis();" in html
     assert "window.addEventListener('pagehide', cancelActiveAnalysis);" in html
+    assert "document.addEventListener('visibilitychange'" in html
+    assert "if (document.hidden)" in html
     assert "function resetApp()" in html
 
 
@@ -193,11 +195,144 @@ def test_waiting_stream_contract_is_indeterminate_local_and_safe() -> None:
     assert "setInterval" in html
     assert "setInterval(fetch" not in html
     assert "setTimeout(fetch" not in html
-    assert "analysisErrorMessage(event.error)" in html
+    assert "analysisErrorMessage(accepted.error)" in html
     assert "event.message" not in html
-    assert "activeAnalysisController = new AbortController();" in html
-    assert "const reader = response.body.getReader();" in html
+    assert "new AnalysisRequestSession(new AbortController())" in html
+    assert "let reader = null;" in html
+    assert "reader = response.body.getReader();" in html
     assert "new TextDecoder()" in html
     assert "class AnalysisUiError extends Error" in html
     assert "err instanceof AnalysisUiError" in html
     assert "err && err.message" not in html
+
+
+def test_analysis_request_and_event_state_machines_execute_in_node() -> None:
+    html = _index_html()
+    block = re.search(
+        r"/\* ANALYSIS_STATE_MACHINES_START \*/"
+        r"(?P<body>.*?)"
+        r"/\* ANALYSIS_STATE_MACHINES_END \*/",
+        html,
+        flags=re.DOTALL,
+    )
+    assert block is not None
+    test_script = r"""
+const assert = require('node:assert/strict');
+
+(async () => {
+    const state = new AnalysisEventStateMachine();
+    assert.deepEqual(
+        state.accept({type: 'progress', stage: 'intake_complete'}),
+        {type: 'progress', stage: 'intake_complete'}
+    );
+    assert.throws(
+        () => state.accept({type: 'progress', stage: 'intake_complete'}),
+        AnalysisUiError
+    );
+    assert.deepEqual(
+        state.accept({type: 'progress', stage: 'vision_complete'}),
+        {type: 'progress', stage: 'vision_complete'}
+    );
+    assert.deepEqual(
+        state.accept({type: 'result', payload: {ok: true}}),
+        {type: 'result', payload: {ok: true}}
+    );
+    assert.throws(
+        () => state.accept({type: 'error', error: 'analysis_failed'}),
+        AnalysisUiError
+    );
+
+    const earlyResult = new AnalysisEventStateMachine();
+    assert.throws(
+        () => earlyResult.accept({type: 'result', payload: {ok: true}}),
+        AnalysisUiError
+    );
+
+    let aborts = 0;
+    let cancels = 0;
+    const controller = {
+        signal: {aborted: false},
+        abort() {
+            aborts += 1;
+            this.signal.aborted = true;
+        }
+    };
+    const reader = {
+        cancel() {
+            cancels += 1;
+            return Promise.resolve();
+        }
+    };
+    const request = new AnalysisRequestSession(controller);
+    request.attachReader(reader);
+    await request.cancel();
+    await request.cancel();
+    assert.equal(aborts, 1);
+    assert.equal(cancels, 1);
+    assert.equal(request.succeeded, false);
+
+    let successAborts = 0;
+    let successCancels = 0;
+    const successController = {
+        signal: {aborted: false},
+        abort() {
+            successAborts += 1;
+            this.signal.aborted = true;
+        }
+    };
+    const successRequest = new AnalysisRequestSession(successController);
+    successRequest.attachReader({
+        cancel() {
+            successCancels += 1;
+            return Promise.resolve();
+        }
+    });
+    await successRequest.finishSuccess();
+    await successRequest.cancel();
+    assert.equal(successRequest.succeeded, true);
+    assert.equal(successAborts, 0);
+    assert.equal(successCancels, 1);
+
+    let lateCancels = 0;
+    const lateController = {
+        signal: {aborted: false},
+        abort() {
+            this.signal.aborted = true;
+        }
+    };
+    const lateRequest = new AnalysisRequestSession(lateController);
+    await lateRequest.cancel();
+    lateRequest.attachReader({
+        cancel() {
+            lateCancels += 1;
+            return Promise.resolve();
+        }
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(lateCancels, 1);
+
+    const throwingRequest = new AnalysisRequestSession({
+        signal: {aborted: false},
+        abort() {
+            this.signal.aborted = true;
+        }
+    });
+    throwingRequest.attachReader({
+        cancel() {
+            throw new Error('reader-secret');
+        }
+    });
+    await assert.doesNotReject(() => throwingRequest.cancel());
+})().catch(error => {
+    console.error(error);
+    process.exit(1);
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", block.group("body") + test_script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr
