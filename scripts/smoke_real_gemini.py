@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 HOME_SMOKE_IMAGE = REPO_ROOT / "evaluation" / "smoke" / "residential_bathroom.jpg"
 HOME_SMOKE_PROVENANCE = REPO_ROOT / "evaluation" / "smoke" / "README.md"
 HOME_SMOKE_SHA256 = "77411a4952caab8851f8b0c786fb59a48b3b2db5b14d8e11e907f61723082649"
-HOME_SMOKE_ROOM_HINT = "bathroom"
+HOME_SMOKE_ROOM_HINT = "auto"
 
 
 def _require(condition: bool, message: str) -> None:
@@ -103,6 +103,17 @@ def validate_analysis_payload(
             risk_level == "low",
             "payload.overall_risk_level must be 'low' for non-home image; "
             f"got {risk_level!r}",
+        )
+    else:
+        room_type = payload.get("room_type")
+        _require(
+            room_type in {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen"},
+            f"payload.room_type must identify a supported home room; got {room_type!r}",
+        )
+        findings = payload.get("findings")
+        _require(
+            isinstance(findings, list) and len(findings) > 0,
+            "payload.findings must contain at least one finding for the reviewed home fixture",
         )
 
     return analysis_id

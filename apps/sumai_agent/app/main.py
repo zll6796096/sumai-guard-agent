@@ -29,7 +29,8 @@ def _setup_logging() -> None:
             # Add extra fields (analysis_id, mode, latency_ms, etc.)
             for key in ("analysis_id", "mode", "model", "room_hint", "mock_or_gemini",
                         "number_of_findings", "latency_ms", "fallback_reason",
-                        "finding_count", "reason", "raw_length", "index", "error",
+                        "finding_count", "entity_count", "feature_count",
+                        "reason", "raw_length", "index", "error",
                         "original", "type", "stage_timings_ms", "cache_hit"):
                 value = getattr(record, key, None)
                 if value is not None:

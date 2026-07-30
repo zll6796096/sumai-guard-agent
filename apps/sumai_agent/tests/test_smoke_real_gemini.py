@@ -31,6 +31,7 @@ def _valid_payload(
         "model": EXPECTED_MODEL,
         "analysis_id": analysis_id,
         "is_home_environment": is_home,
+        "room_type": "bathroom" if is_home else "auto",
         "findings": [{"risk_type": "hallway_cord"}] if is_home else [],
         "overall_risk_level": "medium" if is_home else "low",
     }
@@ -126,6 +127,19 @@ def test_validate_analysis_payload_accepts_home_payload() -> None:
     assert analysis_id == "sumai_home"
 
 
+def test_validate_analysis_payload_rejects_empty_findings_for_reviewed_home_fixture() -> None:
+    payload = _valid_payload(is_home=True)
+    payload["findings"] = []
+    payload["overall_risk_level"] = "low"
+
+    with pytest.raises(AssertionError, match="at least one finding"):
+        smoke_real_gemini.validate_analysis_payload(
+            payload,
+            EXPECTED_MODEL,
+            expected_home=True,
+        )
+
+
 def test_validate_analysis_payload_accepts_non_home_payload_with_distinct_id() -> None:
     analysis_id = smoke_real_gemini.validate_analysis_payload(
         _valid_payload(analysis_id="sumai_nonhome", is_home=False),
@@ -140,7 +154,7 @@ def test_validate_analysis_payload_accepts_non_home_payload_with_distinct_id() -
 def test_home_smoke_fixture_is_the_fixed_licensed_residential_photo() -> None:
     image_bytes = smoke_real_gemini.load_home_smoke_image()
 
-    assert smoke_real_gemini.HOME_SMOKE_ROOM_HINT == "bathroom"
+    assert smoke_real_gemini.HOME_SMOKE_ROOM_HINT == "auto"
     assert smoke_real_gemini.HOME_SMOKE_IMAGE.name == "residential_bathroom.jpg"
     assert (
         hashlib.sha256(image_bytes).hexdigest()

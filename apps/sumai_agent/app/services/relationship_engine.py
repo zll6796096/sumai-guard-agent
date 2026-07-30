@@ -1,7 +1,16 @@
 from __future__ import annotations
 
-from app.models import RiskFinding, VisionFacts
+from app.models import BoundingBox, RiskFinding, VisionFacts
 from app.ontology import OntologyRepository
+
+
+def _is_full_frame_placeholder(bbox: BoundingBox) -> bool:
+    return (
+        bbox.x <= 0.01
+        and bbox.y <= 0.01
+        and bbox.x + bbox.w >= 0.99
+        and bbox.y + bbox.h >= 0.99
+    )
 
 
 class RelationshipEngine:
@@ -92,6 +101,7 @@ class RelationshipEngine:
                 feature.feature_key not in expected_features
                 or feature.state != "absent_with_full_coverage"
                 or feature.evidence_bbox is None
+                or _is_full_frame_placeholder(feature.evidence_bbox)
             ):
                 continue
             rule = self.ontology.rule(

@@ -146,6 +146,30 @@ def test_endpoint_logs_one_finalized_json_completion_without_sensitive_identity_
     assert re.search(r"\b[0-9a-f]{64}\b", serialized_log) is None
 
 
+def test_structured_json_formatter_keeps_safe_visual_fact_counts() -> None:
+    formatter = next(
+        handler.formatter
+        for handler in logging.root.handlers
+        if handler.formatter is not None
+    )
+    record = logging.LogRecord(
+        name="sumai.gemini_vision",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="vision_complete_strict",
+        args=(),
+        exc_info=None,
+    )
+    record.entity_count = 2
+    record.feature_count = 3
+
+    rendered = json.loads(formatter.format(record))
+
+    assert rendered["entity_count"] == 2
+    assert rendered["feature_count"] == 3
+
+
 def test_memo_hit_zeroes_shared_stages_renders_again_and_keeps_cache_metadata_private(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:

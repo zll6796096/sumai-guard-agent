@@ -233,6 +233,23 @@ def test_missing_feature_without_evidence_bbox_is_not_derived() -> None:
     assert _engine().derive(facts) == []
 
 
+def test_missing_feature_with_full_frame_placeholder_is_not_derived() -> None:
+    facts = _facts(
+        room_type="toilet",
+        entities=[],
+        feature_observations=[
+            {
+                "feature_key": "has_handrail",
+                "state": "absent_with_full_coverage",
+                "evidence_bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                "model_score": 0.9,
+            }
+        ],
+    )
+
+    assert _engine().derive(facts) == []
+
+
 def test_missing_shower_chair_requires_full_coverage_evidence() -> None:
     cannot_determine = _facts(
         room_type="bathroom",

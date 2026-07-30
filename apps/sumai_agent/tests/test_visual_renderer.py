@@ -44,6 +44,17 @@ def test_not_applicable_renderer_returns_unannotated_identical_images() -> None:
     assert annotated == improvement
 
 
+def test_applicable_empty_findings_returns_unannotated_identical_images() -> None:
+    image = Image.new("RGB", (64, 48), (236, 232, 224))
+
+    annotated, improvement = VisualRenderer().render(image, [], "toilet")
+
+    assert annotated == improvement
+    decoded = Image.open(io.BytesIO(base64.b64decode(improvement))).convert("RGB")
+    assert decoded.size == image.size
+    assert decoded.getpixel((32, 24)) == (236, 232, 224)
+
+
 def test_danger_selection_uses_evidence_bbox_without_mutating_evidence_bbox() -> None:
     image = Image.new("RGB", (640, 480), "white")
     evidence_bbox = BoundingBox(x=0.05, y=0.05, w=0.10, h=0.10)

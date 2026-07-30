@@ -860,6 +860,29 @@ def test_vision_prompt_keeps_semantics_without_duplicating_json_schema() -> None
     assert "subject must be the ref of an emitted entity" in VISION_PROMPT
 
 
+def test_vision_prompt_enumerates_every_room_scoped_checklist_for_auto_mode() -> None:
+    assert (
+        "Emit exactly one feature_observation for every expected feature of the detected room."
+        in VISION_PROMPT
+    )
+    assert "Never use the entire image as evidence_bbox." in VISION_PROMPT
+
+    for room_name in ONTOLOGY.room_names:
+        room = ONTOLOGY.room(room_name)
+        assert room is not None
+        expected_features = ",".join(
+            item["key"] for item in room["expected_features"]
+        )
+        visible_hazards = ",".join(
+            item["key"] for item in room["visible_hazards"]
+        )
+        expected_line = (
+            f"- {room_name}: expected_features=[{expected_features}]; "
+            f"visible_hazards=[{visible_hazards}]"
+        )
+        assert expected_line in VISION_PROMPT
+
+
 def test_gemini_vocabularies_match_room_checklists() -> None:
     checklist_path = (
         Path(__file__).resolve().parents[1]

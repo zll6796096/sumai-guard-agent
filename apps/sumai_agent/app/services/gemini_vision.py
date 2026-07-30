@@ -215,6 +215,25 @@ GEMINI_FACTS_JSON_SCHEMA: dict[str, Any] = {
 }
 
 
+def _room_scoped_fact_checklist() -> str:
+    lines: list[str] = []
+    for room_name in ONTOLOGY.room_names:
+        room = ONTOLOGY.room(room_name)
+        if room is None:
+            continue
+        expected_features = ",".join(
+            item["key"] for item in room["expected_features"]
+        )
+        visible_hazards = ",".join(
+            item["key"] for item in room["visible_hazards"]
+        )
+        lines.append(
+            f"- {room_name}: expected_features=[{expected_features}]; "
+            f"visible_hazards=[{visible_hazards}]"
+        )
+    return "\n".join(lines)
+
+
 VISION_PROMPT = f"""Extract only minimal visual evidence from one photo of a possible home.
 Return facts that are directly visible; do not assess risk, severity, action tiers, Japanese reports,
 recommendations, legal compliance, care needs, or construction. Do not ask user profile questions.
@@ -229,9 +248,16 @@ Environment and coverage rules:
 4. A feature can be absent_with_full_coverage only when its relevant region is completely visible.
    Use cannot_determine for cropped, obscured, or ambiguous areas. Never infer an absence from a
    missing or out-of-frame region.
+   Emit exactly one feature_observation for every expected feature of the detected room.
+   Do this also when room_hint=auto. Use evidence_bbox for present or
+   absent_with_full_coverage and null for cannot_determine.
+   Never use the entire image as evidence_bbox.
+   Bound only the relevant visible wall, floor, fixture, or transfer region.
 5. Relationships must use supplied ontology predicates. Their subject must be the ref of an emitted entity.
    The object must be another emitted entity ref or a named visible region.
    Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
+6. Use only the expected feature keys and visible hazard entity keys listed for the detected room:
+{_room_scoped_fact_checklist()}
 """
 
 

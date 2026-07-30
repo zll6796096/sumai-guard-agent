@@ -174,6 +174,9 @@ class VisualRenderer:
     def render(
         self, image: Image.Image, findings: list[RiskFinding], room_type: str | None = None
     ) -> tuple[str, str]:
+        if not findings:
+            return self.render_not_applicable(image)
+
         selected_findings = _select_visual_findings(findings, room_type, max_items=3)
         annotated = self._annotated_image(image, selected_findings)
         improvement_findings = [
@@ -333,17 +336,6 @@ class VisualRenderer:
                     width=2,
                 )
                 _safe_text(draw, (lx + 10, ly + 10), label, fill=BLACK, font=label_font)
-
-        if not selected_findings:
-            # Fallback if no findings selected (draw clean default overlay)
-            draw.rounded_rectangle(
-                (36, int(height * 0.58), width - 36, int(height * 0.82)),
-                radius=14,
-                fill=GREEN + (42,),
-                outline=GREEN + (220,),
-                width=4,
-            )
-            _safe_text(draw, (56, int(height * 0.64)), "動線確保", fill=BLACK, font=label_font)
 
         footer_y = height
         draw.rectangle((0, footer_y, width, footer_y + footer_h), fill=(255, 255, 255))
