@@ -125,16 +125,17 @@ class RelationshipEngine:
                     label_ja=expected_feature_label,
                     description_ja=(
                         f"この写真では、{expected_feature_label}を確認できませんでした。"
-                        f"これは{expected_feature_label}が存在しないことを"
-                        "示すものではありません。"
+                        f"これは{expected_feature_label}が存在しないことや、"
+                        "追加が必要なことを示すものではありません。"
                     ),
                     confidence=feature.model_score,
                     evidence_source_ids=list(rule.evidence_source_ids),
                     basis_label_ja="写真で確認できる範囲",
                     basis_summary_ja=(
-                        "この写真に写っている範囲では、"
-                        f"{expected_feature_label}を確認できませんでした。"
-                        "写真だけでは実際の有無を判断できません。"
+                        "この項目は、現在の写真で"
+                        f"{expected_feature_label}を確認できなかったという観察だけを"
+                        "示します。写真だけでは実際の有無や追加の必要性を"
+                        "判断できません。"
                     ),
                     needs_human_confirmation=True,
                 )

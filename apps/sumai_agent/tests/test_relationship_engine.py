@@ -55,11 +55,14 @@ def _analysis_response_payload(**overrides: object) -> dict[str, object]:
 
 
 def _finding_payload(
-    *, ontology_key: str | None, ontology_rule_kind: str | None
+    *,
+    ontology_key: str | None,
+    ontology_rule_kind: str | None,
+    risk_type: str = "hallway_cord",
 ) -> dict[str, object]:
     return {
         "id": "risk-1",
-        "risk_type": "hallway_cord",
+        "risk_type": risk_type,
         "label_ja": "廊下のコード",
         "description_ja": "写真で確認されました。",
         "severity": 3,
@@ -96,6 +99,34 @@ def test_applicable_response_rejects_finding_without_complete_visible_identity(
                     _finding_payload(
                         ontology_key=ontology_key,
                         ontology_rule_kind=ontology_rule_kind,
+                    )
+                ]
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("ontology_key", "risk_type"),
+    [
+        ("sufficient_lighting", "hallway_cord"),
+        ("unknown_key", "hallway_cord"),
+        ("kitchen_slip", "kitchen_slip"),
+        ("hallway_cord", "arbitrary_risk_type"),
+    ],
+)
+def test_applicable_response_rejects_finding_outside_room_visible_ontology(
+    ontology_key: str, risk_type: str
+) -> None:
+    with pytest.raises(
+        ValidationError, match="applicable_findings_must_match_visible_ontology"
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                findings=[
+                    _finding_payload(
+                        ontology_key=ontology_key,
+                        ontology_rule_kind="visible_hazard",
+                        risk_type=risk_type,
                     )
                 ]
             )
@@ -261,8 +292,8 @@ def test_expected_feature_rule_identity_uses_neutral_ontology_label() -> None:
     assert item.label_ja == "通路の照明"
     assert item.basis_label_ja == "写真で確認できる範囲"
     assert item.basis_summary_ja == (
-        "この写真に写っている範囲では、通路の照明を確認できませんでした。"
-        "写真だけでは実際の有無を判断できません。"
+        "この項目は、現在の写真で通路の照明を確認できなかったという観察だけを"
+        "示します。写真だけでは実際の有無や追加の必要性を判断できません。"
     )
 
 
@@ -294,7 +325,7 @@ def test_expected_feature_becomes_neutral_confirmation_not_risk() -> None:
     assert not hasattr(item, "bbox")
 
 
-def test_confirmation_serialized_copy_excludes_risk_and_action_policy_language() -> None:
+def test_confirmation_serialized_copy_is_exact_neutral_boundary() -> None:
     result = _engine().derive(
         _facts(
             room_type="bathroom",
@@ -313,24 +344,34 @@ def test_confirmation_serialized_copy_excludes_risk_and_action_policy_language()
     assert result.visible_findings == []
     assert len(result.confirmation_items) == 1
     item = result.confirmation_items[0]
+    assert item.description_ja == (
+        "この写真では、浴室手すりを確認できませんでした。"
+        "これは浴室手すりが存在しないことや、追加が必要なことを示すものではありません。"
+    )
     assert item.basis_label_ja == "写真で確認できる範囲"
     assert item.basis_summary_ja == (
-        "この写真に写っている範囲では、浴室手すりを確認できませんでした。"
-        "写真だけでは実際の有無を判断できません。"
+        "この項目は、現在の写真で浴室手すりを確認できなかったという観察だけを"
+        "示します。写真だけでは実際の有無や追加の必要性を判断できません。"
     )
-    serialized = item.model_dump_json()
-    for forbidden_copy in (
-        "リスク",
-        "必要",
-        "購入",
-        "レンタル",
-        "貸与",
-        "設置",
-        "施工",
-        "工事",
-        "改修",
+    serialized = item.model_dump()
+    assert set(serialized).isdisjoint(
+        {
+            "risk_type",
+            "severity",
+            "bbox",
+            "display_bbox",
+            "family_actions",
+            "care_manager_actions",
+            "contractor_actions",
+        }
+    )
+    serialized_copy = item.model_dump_json()
+    for ontology_policy_fragment in (
+        "住宅改修の検討対象",
+        "設置・貸与する自治体事業",
+        "極めて重要",
     ):
-        assert forbidden_copy not in serialized
+        assert ontology_policy_fragment not in serialized_copy
 
 
 def test_visible_and_confirmation_channels_remain_separate() -> None:
@@ -441,7 +482,7 @@ def test_missing_bathroom_handrail_requires_full_coverage_evidence() -> None:
     assert item.needs_human_confirmation is True
     assert item.description_ja == (
         "この写真では、浴室手すりを確認できませんでした。"
-        "これは浴室手すりが存在しないことを示すものではありません。"
+        "これは浴室手すりが存在しないことや、追加が必要なことを示すものではありません。"
     )
 
 

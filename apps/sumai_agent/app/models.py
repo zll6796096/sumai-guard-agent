@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -13,6 +14,23 @@ ActionTier = Literal[
     "CONTRACTOR_CONSTRUCTION",
 ]
 CostLevel = Literal["ZERO", "LOW", "MEDIUM", "HIGH"]
+
+
+@lru_cache(maxsize=1)
+def _default_visible_finding_identities() -> frozenset[tuple[str, str, str]]:
+    from app.ontology import OntologyRepository
+
+    ontology = OntologyRepository.load_default()
+    identities: set[tuple[str, str, str]] = set()
+    for room in ontology.room_names:
+        room_data = ontology.room(room)
+        if room_data is None:
+            raise ValueError("default_ontology_room_missing")
+        identities.update(
+            (room, str(item["key"]), str(item["risk_type"]))
+            for item in room_data["visible_hazards"]
+        )
+    return frozenset(identities)
 
 
 class BoundingBox(BaseModel):
@@ -203,6 +221,16 @@ class AnalysisResponse(BaseModel):
             for finding in self.findings
         ):
             raise ValueError("applicable_findings_must_be_visible_hazards")
+        elif any(
+            (
+                self.room_type,
+                finding.ontology_key or "",
+                finding.risk_type,
+            )
+            not in _default_visible_finding_identities()
+            for finding in self.findings
+        ):
+            raise ValueError("applicable_findings_must_match_visible_ontology")
         return self
 
 
