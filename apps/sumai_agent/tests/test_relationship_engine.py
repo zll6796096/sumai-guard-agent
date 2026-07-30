@@ -74,7 +74,19 @@ def _finding_payload(
     }
 
 
-def test_applicable_response_rejects_expected_feature_as_risk() -> None:
+@pytest.mark.parametrize(
+    ("ontology_key", "ontology_rule_kind"),
+    [
+        (None, None),
+        ("hallway_cord", None),
+        (None, "visible_hazard"),
+        ("sufficient_lighting", "expected_feature"),
+        ("", "visible_hazard"),
+    ],
+)
+def test_applicable_response_rejects_finding_without_complete_visible_identity(
+    ontology_key: str | None, ontology_rule_kind: str | None
+) -> None:
     with pytest.raises(
         ValidationError, match="applicable_findings_must_be_visible_hazards"
     ):
@@ -82,8 +94,8 @@ def test_applicable_response_rejects_expected_feature_as_risk() -> None:
             _analysis_response_payload(
                 findings=[
                     _finding_payload(
-                        ontology_key="sufficient_lighting",
-                        ontology_rule_kind="expected_feature",
+                        ontology_key=ontology_key,
+                        ontology_rule_kind=ontology_rule_kind,
                     )
                 ]
             )
@@ -120,13 +132,13 @@ def test_not_applicable_response_requires_empty_confirmations() -> None:
         )
 
 
-def test_applicable_response_preserves_legacy_finding_without_ontology_identity() -> None:
+def test_applicable_response_accepts_finding_with_complete_visible_identity() -> None:
     response = AnalysisResponse.model_validate(
         _analysis_response_payload(
             findings=[
                 _finding_payload(
-                    ontology_key=None,
-                    ontology_rule_kind=None,
+                    ontology_key="hallway_cord",
+                    ontology_rule_kind="visible_hazard",
                 )
             ]
         )
@@ -247,7 +259,11 @@ def test_expected_feature_rule_identity_uses_neutral_ontology_label() -> None:
     item = result.confirmation_items[0]
     assert item.feature_key == "sufficient_lighting"
     assert item.label_ja == "通路の照明"
-    assert item.basis_summary_ja.startswith("夜間のトイレ移動など")
+    assert item.basis_label_ja == "写真で確認できる範囲"
+    assert item.basis_summary_ja == (
+        "この写真に写っている範囲では、通路の照明を確認できませんでした。"
+        "写真だけでは実際の有無を判断できません。"
+    )
 
 
 def test_expected_feature_becomes_neutral_confirmation_not_risk() -> None:
@@ -276,6 +292,45 @@ def test_expected_feature_becomes_neutral_confirmation_not_risk() -> None:
     assert "存在しない" in item.description_ja
     assert not hasattr(item, "severity")
     assert not hasattr(item, "bbox")
+
+
+def test_confirmation_serialized_copy_excludes_risk_and_action_policy_language() -> None:
+    result = _engine().derive(
+        _facts(
+            room_type="bathroom",
+            entities=[],
+            feature_observations=[
+                {
+                    "feature_key": "has_handrail",
+                    "state": "absent_with_full_coverage",
+                    "evidence_bbox": {"x": 0.1, "y": 0.1, "w": 0.8, "h": 0.8},
+                    "model_score": 0.9,
+                }
+            ],
+        )
+    )
+
+    assert result.visible_findings == []
+    assert len(result.confirmation_items) == 1
+    item = result.confirmation_items[0]
+    assert item.basis_label_ja == "写真で確認できる範囲"
+    assert item.basis_summary_ja == (
+        "この写真に写っている範囲では、浴室手すりを確認できませんでした。"
+        "写真だけでは実際の有無を判断できません。"
+    )
+    serialized = item.model_dump_json()
+    for forbidden_copy in (
+        "リスク",
+        "必要",
+        "購入",
+        "レンタル",
+        "貸与",
+        "設置",
+        "施工",
+        "工事",
+        "改修",
+    ):
+        assert forbidden_copy not in serialized
 
 
 def test_visible_and_confirmation_channels_remain_separate() -> None:
@@ -386,7 +441,7 @@ def test_missing_bathroom_handrail_requires_full_coverage_evidence() -> None:
     assert item.needs_human_confirmation is True
     assert item.description_ja == (
         "この写真では、浴室手すりを確認できませんでした。"
-        "これは浴室手すりが存在しないことや、追加が必要なことを示すものではありません。"
+        "これは浴室手すりが存在しないことを示すものではありません。"
     )
 
 

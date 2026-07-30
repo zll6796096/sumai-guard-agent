@@ -197,11 +197,9 @@ class AnalysisResponse(BaseModel):
         ):
             raise ValueError("applicable_response_requires_home_known_room_and_no_reason")
         elif any(
-            finding.ontology_rule_kind == "expected_feature"
-            or (
-                finding.ontology_key is not None
-                and finding.ontology_rule_kind != "visible_hazard"
-            )
+            not finding.ontology_key
+            or not finding.ontology_key.strip()
+            or finding.ontology_rule_kind != "visible_hazard"
             for finding in self.findings
         ):
             raise ValueError("applicable_findings_must_be_visible_hazards")
