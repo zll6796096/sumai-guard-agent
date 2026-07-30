@@ -21,6 +21,48 @@ def _load_module():
     return module
 
 
+@pytest.mark.parametrize(
+    "ontology_text",
+    [
+        None,
+        (
+            'ontology_version: "1.0.0"\n'
+            'schema_version: "2.1.0"\n'
+            'inference_config_version: "1.0.5"\n'
+            "rooms: [not-a-mapping]\n"
+        ),
+        "ontology_version: [\n",
+    ],
+)
+def test_module_import_fails_closed_for_invalid_ontology_contract(
+    tmp_path: Path,
+    ontology_text: str | None,
+) -> None:
+    script_path = tmp_path / "scripts" / "benchmark_pipeline.py"
+    script_path.parent.mkdir(parents=True)
+    script_path.write_text(SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    if ontology_text is not None:
+        ontology_path = (
+            tmp_path
+            / "apps"
+            / "sumai_agent"
+            / "app"
+            / "knowledge_base"
+            / "room_checklists.yaml"
+        )
+        ontology_path.parent.mkdir(parents=True)
+        ontology_path.write_text(ontology_text, encoding="utf-8")
+    spec = importlib.util.spec_from_file_location(
+        "benchmark_pipeline_invalid_ontology",
+        script_path,
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+
+    with pytest.raises(ValueError, match="invalid_ontology_contract"):
+        spec.loader.exec_module(module)
+
+
 def test_percentile_uses_nearest_rank_and_rejects_bad_samples() -> None:
     benchmark = _load_module()
     assert benchmark.percentile([1, 2, 3, 4], 0.50) == 2
@@ -283,6 +325,24 @@ def test_finding_schema_is_exact_and_visible_only(
     mutate(finding)
 
     assert benchmark.validate_response_schema(payload) is False
+
+
+def test_findings_must_match_room_scoped_visible_ontology_identity() -> None:
+    benchmark = _load_module()
+    assert benchmark.validate_response_schema(_valid_payload()) is True
+
+    for ontology_key, risk_type in (
+        ("sufficient_lighting", "poor_lighting"),
+        ("unknown_hallway_key", "hallway_cord"),
+        ("kitchen_slip", "kitchen_slip"),
+        ("hallway_cord", "cluttered_path"),
+    ):
+        payload = _valid_payload()
+        payload["findings"][0].update({  # type: ignore[index]
+            "ontology_key": ontology_key,
+            "risk_type": risk_type,
+        })
+        assert benchmark.validate_response_schema(payload) is False
 
 
 def test_action_schema_rejects_extra_fields() -> None:

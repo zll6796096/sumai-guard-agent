@@ -35,10 +35,15 @@ STAGE_TIMING_KEYS = {
     "intake", "memo_lookup", "vision", "ontology", "render", "report", "serialize", "total",
 }
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
-EXPECTED_SCHEMA_VERSION = "2.1.0"
-EXPECTED_ONTOLOGY_VERSION = "1.0.0"
+ONTOLOGY_CONTRACT_PATH = (
+    REPO_ROOT
+    / "apps"
+    / "sumai_agent"
+    / "app"
+    / "knowledge_base"
+    / "room_checklists.yaml"
+)
 EXPECTED_PREPROCESS_VERSION = "1.0.0"
-EXPECTED_INFERENCE_CONFIG_VERSION = "1.0.5"
 FINDING_FIELDS = {
     "id",
     "risk_type",
@@ -71,6 +76,70 @@ ACTION_FIELDS = {
 
 class BenchmarkError(ValueError):
     """A stable, non-sensitive benchmark failure code."""
+
+
+def _load_ontology_contract(
+    path: Path,
+) -> tuple[str, str, str, frozenset[tuple[str, str, str]]]:
+    """Load public versions and room-scoped visible identities or fail closed."""
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, yaml.YAMLError):
+        raise BenchmarkError("invalid_ontology_contract") from None
+    if not isinstance(document, dict):
+        raise BenchmarkError("invalid_ontology_contract")
+
+    versions: list[str] = []
+    for field in (
+        "schema_version",
+        "ontology_version",
+        "inference_config_version",
+    ):
+        value = document.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise BenchmarkError("invalid_ontology_contract")
+        versions.append(value)
+
+    rooms = document.get("rooms")
+    expected_rooms = ROOM_HINTS - {"auto"}
+    if not isinstance(rooms, dict) or set(rooms) != expected_rooms:
+        raise BenchmarkError("invalid_ontology_contract")
+
+    identities: set[tuple[str, str, str]] = set()
+    for room_name, room_document in rooms.items():
+        if not isinstance(room_document, dict):
+            raise BenchmarkError("invalid_ontology_contract")
+        visible_hazards = room_document.get("visible_hazards")
+        if not isinstance(visible_hazards, list) or not visible_hazards:
+            raise BenchmarkError("invalid_ontology_contract")
+        room_keys: set[str] = set()
+        for rule in visible_hazards:
+            if not isinstance(rule, dict):
+                raise BenchmarkError("invalid_ontology_contract")
+            ontology_key = rule.get("key")
+            risk_type = rule.get("risk_type")
+            if (
+                not isinstance(ontology_key, str)
+                or not ontology_key.strip()
+                or ontology_key in room_keys
+                or not isinstance(risk_type, str)
+                or not risk_type.strip()
+            ):
+                raise BenchmarkError("invalid_ontology_contract")
+            room_keys.add(ontology_key)
+            identities.add((room_name, ontology_key, risk_type))
+    if not identities:
+        raise BenchmarkError("invalid_ontology_contract")
+
+    return versions[0], versions[1], versions[2], frozenset(identities)
+
+
+(
+    EXPECTED_SCHEMA_VERSION,
+    EXPECTED_ONTOLOGY_VERSION,
+    EXPECTED_INFERENCE_CONFIG_VERSION,
+    VISIBLE_FINDING_IDENTITIES,
+) = _load_ontology_contract(ONTOLOGY_CONTRACT_PATH)
 
 
 def percentile(samples: list[float | int], quantile: float) -> float | int:
@@ -220,6 +289,13 @@ def validate_response_schema(payload: object) -> bool:
         return False
     findings = payload.get("findings")
     if not isinstance(findings, list) or not all(_valid_finding(item) for item in findings):
+        return False
+    room_type = payload.get("room_type")
+    if any(
+        (room_type, finding["ontology_key"], finding["risk_type"])
+        not in VISIBLE_FINDING_IDENTITIES
+        for finding in findings
+    ):
         return False
     confirmation_items = payload.get("confirmation_items")
     if (
