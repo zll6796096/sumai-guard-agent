@@ -185,6 +185,7 @@ def test_waiting_lifecycle_cleans_local_timers_and_active_request() -> None:
     assert "document.addEventListener('visibilitychange'" in html
     assert "if (document.hidden)" in html
     assert "if (activeAnalysisSession !== session) return;" in html
+    assert html.count("if (!analysisSessionCanMutateUi(session)) {") >= 2
     assert "function resetApp()" in html
 
 
@@ -228,9 +229,11 @@ def test_analysis_request_and_event_state_machines_execute_in_node() -> None:
     assert handler is not None
     test_script = r"""
 const assert = require('node:assert/strict');
+let activeAnalysisSession = null;
 let completedStages = 0;
 let stoppedWaiting = 0;
 let renderedPayload = null;
+let stagedUi = 0;
 function completeAnalysisStages() {
     completedStages += 1;
 }
@@ -240,7 +243,9 @@ function stopWaitingExperience() {
 function renderResults(payload) {
     renderedPayload = payload;
 }
-function setAnalysisStage() {}
+function setAnalysisStage() {
+    stagedUi += 1;
+}
 function analysisErrorMessage() {
     return 'safe error';
 }
@@ -306,6 +311,59 @@ function analysisErrorMessage() {
     assert.equal(completedStages, 1);
     assert.equal(stoppedWaiting, 1);
     assert.deepEqual(renderedPayload, directFallbackPayload);
+
+    const staleController = {
+        signal: {aborted: false},
+        abort() {
+            this.signal.aborted = true;
+        }
+    };
+    let staleReaderCancels = 0;
+    const staleRequest = new AnalysisRequestSession(staleController);
+    staleRequest.attachReader({
+        cancel() {
+            staleReaderCancels += 1;
+            return Promise.resolve();
+        }
+    });
+    const newRequest = new AnalysisRequestSession({
+        signal: {aborted: false},
+        abort() {
+            this.signal.aborted = true;
+        }
+    });
+    activeAnalysisSession = newRequest;
+    const uiBeforeStaleEvents = {
+        completedStages,
+        stoppedWaiting,
+        renderedPayload,
+        stagedUi
+    };
+    for (const queuedEvent of [
+        {type: 'progress', stage: 'intake_complete'},
+        {type: 'result', payload: {mode: 'local_mock'}},
+        {type: 'error', error: 'analysis_failed'}
+    ]) {
+        assert.deepEqual(
+            await dispatchAnalysisEventForSession(
+                queuedEvent,
+                staleRequest
+            ),
+            {stale: true, terminal: false}
+        );
+    }
+    assert.equal(staleController.signal.aborted, true);
+    assert.equal(staleReaderCancels, 1);
+    assert.deepEqual(
+        {
+            completedStages,
+            stoppedWaiting,
+            renderedPayload,
+            stagedUi
+        },
+        uiBeforeStaleEvents
+    );
+    assert.equal(activeAnalysisSession, newRequest);
 
     let aborts = 0;
     let cancels = 0;

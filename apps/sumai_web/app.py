@@ -1838,6 +1838,24 @@ INDEX_HTML = """<!DOCTYPE html>
                 await this.cancelReader();
             }
         }
+
+        function analysisSessionCanMutateUi(session) {
+            return (
+                activeAnalysisSession === session
+                && !session.cancelled
+            );
+        }
+
+        async function dispatchAnalysisEventForSession(event, session) {
+            if (!analysisSessionCanMutateUi(session)) {
+                await session.cancel();
+                return { stale: true, terminal: false };
+            }
+            return {
+                stale: false,
+                terminal: handleAnalysisEvent(event, session.eventState)
+            };
+        }
         /* ANALYSIS_STATE_MACHINES_END */
         let analysisTipTimer = null;
         let longWaitTimer = null;
@@ -2049,6 +2067,10 @@ INDEX_HTML = """<!DOCTYPE html>
                 let buffer = '';
                 while (true) {
                     const { value, done } = await reader.read();
+                    if (!analysisSessionCanMutateUi(session)) {
+                        await session.cancel();
+                        return;
+                    }
                     buffer += decoder.decode(
                         value || new Uint8Array(),
                         { stream: !done }
@@ -2061,6 +2083,10 @@ INDEX_HTML = """<!DOCTYPE html>
                     }
                     for (const line of lines) {
                         if (!line.trim()) continue;
+                        if (!analysisSessionCanMutateUi(session)) {
+                            await session.cancel();
+                            return;
+                        }
                         let event;
                         try {
                             event = JSON.parse(line);
@@ -2069,7 +2095,12 @@ INDEX_HTML = """<!DOCTYPE html>
                                 '分析結果を正しく受信できませんでした。'
                             );
                         }
-                        if (handleAnalysisEvent(event, session.eventState)) {
+                        const eventOutcome = await dispatchAnalysisEventForSession(
+                            event,
+                            session
+                        );
+                        if (eventOutcome.stale) return;
+                        if (eventOutcome.terminal) {
                             await session.finishSuccess();
                             return;
                         }
