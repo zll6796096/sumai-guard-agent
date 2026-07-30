@@ -12,7 +12,13 @@ from pydantic import ValidationError
 
 from app import main as main_module
 from app.main import app
-from app.models import AnalysisResponse, BoundingBox, FeatureObservation, VisionFacts
+from app.models import (
+    ActionPlan,
+    AnalysisResponse,
+    BoundingBox,
+    FeatureObservation,
+    VisionFacts,
+)
 from app.services.orchestrator import AnalysisOrchestrator
 
 
@@ -102,8 +108,24 @@ def test_mock_analyze_returns_valid_schema_and_japanese_reports() -> None:
     assert AnalysisResponse.model_validate(payload).is_not_applicable is False
 
 
-def test_analysis_response_defaults_to_current_public_schema_version() -> None:
-    assert AnalysisResponse.model_fields["schema_version"].default == "2.1.0"
+def test_analysis_response_defaults_to_current_public_identity() -> None:
+    response = AnalysisResponse(
+        analysis_id="sumai_test",
+        room_type="toilet",
+        overall_risk_level="low",
+        findings=[],
+        action_plan=ActionPlan(),
+        annotated_image_base64="image",
+        improvement_image_base64="image",
+        risk_summary_markdown="summary",
+        family_actions_markdown="family",
+        care_manager_actions_markdown="care",
+        contractor_actions_markdown="contractor",
+        disclaimer_ja="POC",
+    )
+
+    assert response.schema_version == "2.1.0"
+    assert response.inference_config_version == "1.0.5"
 
 
 def test_confirmation_only_analysis_is_neutral_canonical_and_cached(

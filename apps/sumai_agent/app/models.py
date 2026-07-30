@@ -192,7 +192,7 @@ class AnalysisResponse(BaseModel):
     schema_version: str = "2.1.0"
     ontology_version: str = "1.0.0"
     preprocess_version: str = "1.0.0"
-    inference_config_version: str = "1.0.0"
+    inference_config_version: str = "1.0.5"
     stage_timings_ms: dict[str, int] = Field(default_factory=dict)
 
     @model_validator(mode="after")
