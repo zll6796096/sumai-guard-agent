@@ -1,6 +1,6 @@
-ontology_version: "1.0.0"
-schema_version: "2.0.0"
-inference_config_version: "1.0.4"
+ontology_version: "1.0.1"
+schema_version: "2.1.0"
+inference_config_version: "1.0.6"
 relationships:
   - located_in
   - intersects
@@ -15,16 +15,12 @@ relationship_targets:
   has_floor_clutter: [walking_path]
   loose_mat: [floor]
   has_loose_mat: [floor]
-  looks_slippery_floor: [floor]
   wet_floor: [floor]
-  kitchen_slip: [floor]
   poor_lighting: [room]
   lighting_poor: [room]
   genkan_step: [floor]
   bathtub_stepover: [transfer_zone]
-  space_looks_narrow: [walking_path]
   loose_shoes: [walking_path]
-  reachable_storage_issue: [storage]
 source_registry:
   MHLW_WELFARE_HOUSING:
     title_ja: 福祉用具・住宅改修
@@ -120,19 +116,6 @@ rooms:
           - 滑り止めマットを相談する
         contractor_actions: []
 
-      - key: looks_slippery_floor
-        risk_type: toilet_slip
-        label_ja: 床の滑りやすさ
-        severity: 3
-        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-        basis_summary_ja: トイレの床面が濡れていたり滑りやすい素材の場合、立ち座りや方向転換時に転倒のリスクが高まります。
-        measure_label_ja: 滑り止め
-        family_actions:
-          - 濡れた床を拭く
-        care_manager_actions:
-          - 滑り止めマットやスリッパを検討する
-        contractor_actions: []
-
       - key: lighting_poor
         risk_type: poor_lighting
         label_ja: 照明不足
@@ -145,20 +128,6 @@ rooms:
         care_manager_actions:
           - センサーライトなどの福祉用具を相談する
         contractor_actions: []
-
-      - key: space_looks_narrow
-        risk_type: toilet_transfer_support
-        label_ja: 移乗動作のスペース不足
-        severity: 3
-        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-        basis_summary_ja: トイレ内の動作スペースや出入口が狭いと、方向転換や介助時の転倒リスクが高まります。
-        measure_label_ja: 動線確保
-        family_actions:
-          - 出入口周辺の物を移動し、動線を空ける
-        care_manager_actions:
-          - 移動を補助する福祉用具を相談する
-        contractor_actions:
-          - 引き戸への交換など改修可能性を確認する
 
   bathroom:
     expected_features:
@@ -562,19 +531,6 @@ rooms:
         contractor_actions: []
 
     visible_hazards:
-      - key: kitchen_slip
-        risk_type: kitchen_slip
-        label_ja: キッチン床の滑りやすさ
-        severity: 3
-        basis_label_ja: 厚労省 福祉用具・住宅改修の考え方に関連
-        basis_summary_ja: キッチンの床は油汚れや水滴が飛び散りやすく、滑ってバランスを崩す危険性が高い場所です。
-        measure_label_ja: 滑り止め
-        family_actions:
-          - 油や水をこまめに拭き取る
-        care_manager_actions:
-          - 吸着性の高い薄型キッチンマットなどを相談する
-        contractor_actions: []
-
       - key: loose_mat
         risk_type: loose_mat
         label_ja: キッチンマットのつまずき
@@ -599,17 +555,3 @@ rooms:
           - 床置きの物を片付ける
         care_manager_actions: []
         contractor_actions: []
-
-      - key: reachable_storage_issue
-        risk_type: kitchen_unreachable_storage
-        label_ja: 高所収納の取り出し負荷
-        severity: 3
-        basis_label_ja: 消費者庁 転倒予防ポイントに基づく一般注意
-        basis_summary_ja: 高すぎる収納から物を取る行為は、背伸びによるふらつきや踏み台からの転落を招くため極めて危険です。
-        measure_label_ja: 片付け
-        family_actions:
-          - よく使う食器や調味料を手の届く高さに移動する
-        care_manager_actions:
-          - 手の届く範囲で使える収納用具などを相談する
-        contractor_actions:
-          - 昇降式吊戸棚への交換工事を相談する

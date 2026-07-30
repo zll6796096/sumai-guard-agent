@@ -554,11 +554,9 @@ def test_rule_engine_confidence_filtering() -> None:
     ], "hallway")
     assert len(findings) == 0
 
-    # 4. Unknown risk type: kept only if confidence >= 0.75
+    # 4. Unknown risk types are rejected at every confidence.
     findings, _ = engine.apply([
-        _make_finding("unknown_risk", 0.74),  # Too low for unknown
-        _make_finding("unknown_risk", 0.76)   # High enough
+        _make_finding("unknown_risk", 0.74),
+        _make_finding("unknown_risk", 0.99),
     ], "hallway")
-    assert len(findings) == 1
-    assert findings[0].risk_type == "unknown_risk"
-    assert findings[0].confidence == 0.76
+    assert findings == []

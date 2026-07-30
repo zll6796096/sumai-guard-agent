@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from app.config import Settings
-from app.models import VisionFacts
+from app.models import BoundingBox, VisionFacts
 from app.services.gemini_vision import (
     CHECKLIST_EXPECTED_FEATURE_KEYS,
     CHECKLIST_VISIBLE_OBSERVATION_KEYS,
@@ -24,9 +24,11 @@ from app.services.gemini_vision import (
     VISION_PROMPT,
     _has_actionable_local_evidence,
     _normalize_bbox,
+    _validate_targeted_facts,
     mock_vision_result,
     parse_vision_json,
 )
+from app.services.relationship_engine import RelationshipEngine
 
 
 def test_parse_valid_json() -> None:
@@ -897,30 +899,45 @@ def test_auto_call_retries_once_with_only_the_detected_room_checklist() -> None:
             "room_type": "toilet",
             "visible_regions": ["floor", "room", "walking_path"],
             "entities": [],
-            "feature_observations": [],
-            "relationships": [],
-            "not_applicable_reason_code": None,
-        },
-        {
-            "environment": "home",
-            "room_type": "toilet",
-            "visible_regions": ["room", "transfer_zone"],
-            "entities": [],
             "feature_observations": [
                 {
                     "feature_key": "has_handrail",
                     "state": "absent_with_full_coverage",
                     "evidence_bbox": {"x": 0.05, "y": 0.2, "w": 0.25, "h": 0.6},
                     "model_score": 0.92,
-                },
-                {
-                    "feature_key": "has_emergency_call_button",
-                    "state": "cannot_determine",
-                    "evidence_bbox": None,
-                    "model_score": 0.55,
                 }
             ],
             "relationships": [],
+            "not_applicable_reason_code": None,
+        },
+        {
+            "environment": "home",
+            "room_type": "toilet",
+            "visible_regions": ["room", "walking_path"],
+            "entities": [
+                {
+                    "ref": "entity_1",
+                    "ontology_key": "has_floor_clutter",
+                    "bbox": {"x": 0.2, "y": 0.6, "w": 0.4, "h": 0.2},
+                    "visibility": "clear",
+                    "model_score": 0.91,
+                }
+            ],
+            "feature_observations": [
+                {
+                    "feature_key": "has_handrail",
+                    "state": "absent_with_full_coverage",
+                    "evidence_bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                    "model_score": 0.92,
+                }
+            ],
+            "relationships": [
+                {
+                    "subject": "entity_1",
+                    "predicate": "obstructs",
+                    "object": "walking_path",
+                }
+            ],
             "not_applicable_reason_code": None,
         },
     ]
@@ -969,7 +986,11 @@ def test_auto_call_retries_once_with_only_the_detected_room_checklist() -> None:
         "Emit exactly one feature_observation for every expected feature"
         in prompts[1]
     )
-    assert result.feature_observations[0].state == "absent_with_full_coverage"
+    assert result.feature_observations == []
+    derivation = RelationshipEngine(ONTOLOGY).derive(result)
+    assert [finding.risk_type for finding in derivation.visible_findings] == [
+        "cluttered_path"
+    ]
 
 
 def test_targeted_followup_rejects_a_changed_room() -> None:
@@ -1097,7 +1118,7 @@ def test_non_strict_exhausted_followup_budget_abstains_before_second_call() -> N
     assert result.room_type == "unknown"
 
 
-def test_full_frame_feature_evidence_does_not_suppress_targeted_followup() -> None:
+def test_expected_feature_non_detection_never_suppresses_targeted_followup() -> None:
     facts_payload = {
         "environment": "home",
         "room_type": "toilet",
@@ -1123,7 +1144,9 @@ def test_full_frame_feature_evidence_does_not_suppress_targeted_followup() -> No
         "w": 0.25,
         "h": 0.6,
     }
-    assert _has_actionable_local_evidence(VisionFacts.model_validate(facts_payload))
+    assert not _has_actionable_local_evidence(
+        VisionFacts.model_validate(facts_payload)
+    )
 
     facts_payload["not_applicable_reason_code"] = "insufficient_evidence"
     assert not _has_actionable_local_evidence(VisionFacts.model_validate(facts_payload))
@@ -1157,6 +1180,52 @@ def test_full_frame_entity_evidence_does_not_suppress_targeted_followup() -> Non
     )
 
     assert not _has_actionable_local_evidence(facts)
+
+    facts.entities[0].bbox = BoundingBox(x=0.1, y=0.6, w=0.6, h=0.2)
+    assert _has_actionable_local_evidence(facts)
+
+
+def test_targeted_visible_hazard_survives_invalid_expected_channel() -> None:
+    facts = VisionFacts.model_validate(
+        {
+            "environment": "home",
+            "room_type": "toilet",
+            "visible_regions": ["room", "walking_path"],
+            "entities": [
+                {
+                    "ref": "entity_1",
+                    "ontology_key": "has_floor_clutter",
+                    "bbox": {"x": 0.2, "y": 0.6, "w": 0.4, "h": 0.2},
+                    "visibility": "clear",
+                    "model_score": 0.91,
+                }
+            ],
+            "feature_observations": [
+                {
+                    "feature_key": "has_handrail",
+                    "state": "absent_with_full_coverage",
+                    "evidence_bbox": {"x": 0.0, "y": 0.0, "w": 1.0, "h": 1.0},
+                    "model_score": 0.92,
+                }
+            ],
+            "relationships": [
+                {
+                    "subject": "entity_1",
+                    "predicate": "obstructs",
+                    "object": "walking_path",
+                }
+            ],
+            "not_applicable_reason_code": None,
+        }
+    )
+
+    validated = _validate_targeted_facts(facts, "toilet")
+    derivation = RelationshipEngine(ONTOLOGY).derive(validated)
+
+    assert validated.feature_observations == []
+    assert [finding.risk_type for finding in derivation.visible_findings] == [
+        "cluttered_path"
+    ]
 
 
 def test_gemini_vocabularies_match_room_checklists() -> None:

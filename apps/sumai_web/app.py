@@ -654,7 +654,7 @@ INDEX_HTML = """<!DOCTYPE html>
             margin-bottom: 20px;
         }
 
-        .unlocalized-findings-note {
+        .confirmation-items-note {
             background-color: rgba(0, 122, 255, 0.07);
             border: 1px solid rgba(0, 122, 255, 0.24);
             border-radius: 14px;
@@ -663,13 +663,13 @@ INDEX_HTML = """<!DOCTYPE html>
             padding: 14px 16px;
         }
 
-        .unlocalized-findings-note strong {
+        .confirmation-items-note strong {
             display: block;
             font-size: 0.92rem;
             margin-bottom: 5px;
         }
 
-        .unlocalized-findings-note p {
+        .confirmation-items-note p {
             color: var(--text-muted);
             font-size: 0.82rem;
             line-height: 1.55;
@@ -1037,7 +1037,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">確認項目</span>
+                        <span class="summary-label">可視リスク</span>
                         <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
@@ -1052,16 +1052,19 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
 
                 <div
-                    id="unlocalized-findings-note"
-                    class="unlocalized-findings-note"
+                    id="confirmation-items-note"
+                    class="confirmation-items-note"
                     role="note"
                     hidden
                 >
-                    <strong id="unlocalized-findings-title">画像上に位置を表示しない確認項目があります</strong>
-                    <p>
-                        写真内で設備を確認できなかった項目は、不存在や設置位置を示せません。
-                        誤解を避けるため、画像上に赤枠や設置候補を表示していません。
-                    </p>
+                    <strong id="confirmation-items-title">写真だけでは確認できない項目</strong>
+                    <div id="confirmation-items-body">
+                        <p>
+                            写真で確認できなかったことは、住宅内に存在しないことを意味しません。
+                            増設が必要かどうかや、設置位置もこの写真だけでは判断できません。
+                            誤解を避けるため、画像上に赤枠や設置候補を表示していません。
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Stacked Images: Annotated first, Improvement second -->
@@ -1385,17 +1388,46 @@ INDEX_HTML = """<!DOCTYPE html>
             return matches ? matches.length : 0;
         }
 
+        const SAFE_MARKDOWN_TAGS = new Set([
+            'H2', 'H3', 'P', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'BR', 'CODE'
+        ]);
+
+        function renderSafeMarkdown(element, markdown) {
+            const template = document.createElement('template');
+            const parsedMarkdown = marked.parse(
+                typeof markdown === 'string' ? markdown : ''
+            );
+            template.innerHTML = parsedMarkdown;
+
+            const elements = [...template.content.querySelectorAll('*')];
+            for (const node of elements) {
+                if (!SAFE_MARKDOWN_TAGS.has(node.tagName)) {
+                    node.replaceWith(document.createTextNode(node.textContent || ''));
+                    continue;
+                }
+                for (const attribute of [...node.attributes]) {
+                    node.removeAttribute(attribute.name);
+                }
+            }
+
+            element.replaceChildren(template.content.cloneNode(true));
+        }
+
         function renderResults(payload) {
             const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
             const resultSummary = document.querySelector('.result-summary');
             const notAppContainer = document.getElementById('not-applicable-container');
             const notAppMsg = document.getElementById('not-applicable-message');
             const imagesList = document.querySelector('.result-images-list');
-            const unlocalizedNote = document.getElementById('unlocalized-findings-note');
-            const unlocalizedTitle = document.getElementById('unlocalized-findings-title');
+            const confirmationNote = document.getElementById('confirmation-items-note');
+            const confirmationTitle = document.getElementById('confirmation-items-title');
             const currentImageTitle = document.getElementById('result-current-image-title');
             const currentImage = document.getElementById('result-annotated-img');
             const improvementCard = document.getElementById('result-improvement-image-card');
+            const confirmationItems = Array.isArray(payload.confirmation_items) ? payload.confirmation_items : [];
+            const findings = Array.isArray(payload.findings) ? payload.findings : [];
+            const count = findings.length;
+            const hasVisibleFindings = findings.length > 0;
 
             renderAnalysisModeBanner(payload);
 
@@ -1406,7 +1438,6 @@ INDEX_HTML = """<!DOCTYPE html>
             riskBadge.className = 'badge badge-' + overallRisk;
 
             // Set findings count
-            const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
 
             if (isNotApplicable) {
@@ -1414,45 +1445,37 @@ INDEX_HTML = """<!DOCTYPE html>
                 notAppContainer.style.display = 'block';
                 resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
-                unlocalizedNote.hidden = true;
+                confirmationNote.hidden = true;
                 btnShowSuggestions.style.display = 'none';
             } else {
-                const findings = Array.isArray(payload.findings) ? payload.findings : [];
-                const localizedVisibleFindings = findings.filter(
-                    finding => finding.ontology_rule_kind === 'visible_hazard'
-                );
-                const unlocalizedExpectedFindings = findings.filter(
-                    finding => finding.ontology_rule_kind === 'expected_feature'
-                );
-                const hasLocalizedVisibleFinding = localizedVisibleFindings.length > 0;
-
                 notAppContainer.style.display = 'none';
                 resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
-                btnShowSuggestions.style.display = '';
+                btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none';
 
-                unlocalizedNote.hidden = unlocalizedExpectedFindings.length === 0;
-                unlocalizedTitle.textContent = (
-                    `画像上に位置を表示しない確認項目：${unlocalizedExpectedFindings.length}件`
+                confirmationNote.hidden = confirmationItems.length === 0;
+                confirmationTitle.textContent = (
+                    `写真だけでは確認できない項目：${confirmationItems.length}件`
                 );
-                currentImageTitle.textContent = hasLocalizedVisibleFinding
+                renderSafeMarkdown(document.getElementById('confirmation-items-body'), payload.confirmation_items_markdown);
+                currentImageTitle.textContent = hasVisibleFindings
                     ? '写真で確認できた注意箇所'
                     : '確認した写真（位置を特定できる注意箇所はありません）';
-                currentImage.alt = hasLocalizedVisibleFinding
+                currentImage.alt = hasVisibleFindings
                     ? '赤枠で写真内の可視の注意箇所を示した写真'
                     : '確認対象として使用した写真。位置を特定できる注意箇所の表示はありません';
-                improvementCard.hidden = !hasLocalizedVisibleFinding;
+                improvementCard.hidden = !hasVisibleFindings;
 
                 // Set Images
                 currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64;
                 document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
             }
 
-            // Render Markdown using marked.js
-            document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
-            document.getElementById('action-care-content').innerHTML = marked.parse(payload.care_manager_actions_markdown || '');
-            document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
-            document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
+            // Parse Markdown in an inert template, then append only allowlisted nodes.
+            renderSafeMarkdown(document.getElementById('action-family-content'), payload.family_actions_markdown);
+            renderSafeMarkdown(document.getElementById('action-care-content'), payload.care_manager_actions_markdown);
+            renderSafeMarkdown(document.getElementById('action-contractor-content'), payload.contractor_actions_markdown);
+            renderSafeMarkdown(document.getElementById('risk-details-content'), payload.risk_summary_markdown);
 
             // Set dynamic counts in headers
             const famCount = countItems(payload.family_actions_markdown);
@@ -1774,13 +1797,13 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
     result_identity = {
         "execution_mode": "local_mock_abstention",
-        "inference_config_version": "1.0.0",
+        "inference_config_version": "1.0.6",
         "model": "N/A",
-        "ontology_version": "1.0.0",
+        "ontology_version": "1.0.1",
         "pixel_digest": pixel_digest,
         "preprocess_version": "1.0.0",
         "room_hint": room_hint,
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
     }
     result_key = hashlib.sha256(
         json.dumps(
@@ -1799,6 +1822,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
                     "contractor_construction": [],
                     "family_no_cost": [],
                 },
+                "confirmation_items": [],
                 "findings": [],
                 "is_home_environment": True,
                 "not_applicable_reason_ja": not_applicable_reason,
@@ -1824,6 +1848,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "is_not_applicable": True,
         "not_applicable_reason_ja": not_applicable_reason,
         "findings": [],
+        "confirmation_items": [],
         "action_plan": {
             "family_no_cost": [],
             "care_manager_purchase": [],
@@ -1832,6 +1857,10 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "annotated_image_base64": image_base64,
         "improvement_image_base64": image_base64,
         "risk_summary_markdown": neutral_report,
+        "confirmation_items_markdown": (
+            "## 写真だけでは確認できない項目\n\n"
+            "判定保留中のため、項目は表示していません。"
+        ),
         "family_actions_markdown": empty_actions,
         "care_manager_actions_markdown": empty_actions,
         "contractor_actions_markdown": empty_actions,
@@ -1839,10 +1868,10 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "model": "N/A",
         "result_key": result_key,
         "semantic_hash": semantic_hash,
-        "schema_version": "2.0.0",
-        "ontology_version": "1.0.0",
+        "schema_version": "2.1.0",
+        "ontology_version": "1.0.1",
         "preprocess_version": "1.0.0",
-        "inference_config_version": "1.0.0",
+        "inference_config_version": "1.0.6",
         "stage_timings_ms": {
             "intake": 0,
             "memo_lookup": 0,

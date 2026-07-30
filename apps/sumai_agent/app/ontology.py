@@ -21,16 +21,12 @@ RELATIONSHIP_REQUIREMENTS = {
     "has_floor_clutter": "obstructs",
     "loose_mat": "located_in",
     "has_loose_mat": "located_in",
-    "looks_slippery_floor": "located_in",
     "wet_floor": "located_in",
-    "kitchen_slip": "located_in",
     "poor_lighting": "located_in",
     "lighting_poor": "located_in",
     "genkan_step": "located_in",
     "bathtub_stepover": "located_in",
-    "space_looks_narrow": "obstructs",
     "loose_shoes": "obstructs",
-    "reachable_storage_issue": "located_in",
 }
 
 

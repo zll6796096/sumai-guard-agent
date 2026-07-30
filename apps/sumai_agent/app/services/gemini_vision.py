@@ -327,20 +327,13 @@ def _has_actionable_local_evidence(facts: VisionFacts) -> bool:
         ):
             return True
 
-    expected_features = {
-        item["key"]
-        for item in room["expected_features"]
-    }
-    return any(
-        feature.feature_key in expected_features
-        and feature.state == "absent_with_full_coverage"
-        and feature.evidence_bbox is not None
-        and not _is_full_frame_bbox(feature.evidence_bbox)
-        for feature in facts.feature_observations
-    )
+    return False
 
 
-def _validate_targeted_facts(facts: VisionFacts, target_room: str) -> None:
+def _validate_targeted_facts(
+    facts: VisionFacts,
+    target_room: str,
+) -> VisionFacts:
     room = ONTOLOGY.room(target_room)
     if (
         room is None
@@ -365,22 +358,23 @@ def _validate_targeted_facts(facts: VisionFacts, target_room: str) -> None:
         item["key"]
         for item in room["expected_features"]
     }
-    observed_feature_keys = {
-        feature.feature_key
-        for feature in facts.feature_observations
-    }
-    if observed_feature_keys != expected_feature_keys:
-        _raise_facts_error("targeted_feature_set_incomplete")
-
+    valid_features = []
     for feature in facts.feature_observations:
+        if feature.feature_key not in expected_feature_keys:
+            continue
         if feature.state == "cannot_determine":
             if feature.evidence_bbox is not None:
-                _raise_facts_error("targeted_uncertain_feature_has_bbox")
+                continue
         elif (
             feature.evidence_bbox is None
             or _is_full_frame_bbox(feature.evidence_bbox)
         ):
-            _raise_facts_error("targeted_feature_lacks_local_bbox")
+            continue
+        valid_features.append(feature)
+    return facts.model_copy(
+        update={"feature_observations": valid_features},
+        deep=True,
+    )
 
 
 def _targeted_followup_abstention() -> VisionFacts:
@@ -669,11 +663,10 @@ class GeminiVisionService:
                         image_png,
                         first_result.room_type,
                     )
-                _validate_targeted_facts(
+                return _validate_targeted_facts(
                     targeted_result,
                     first_result.room_type,
                 )
-                return targeted_result
             except TargetedFollowupError:
                 raise
             except Exception as exc:
@@ -723,7 +716,7 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
         "bathroom": "wet_floor",
         "toilet": "has_floor_clutter",
         "bedroom": "cluttered_path",
-        "kitchen": "kitchen_slip",
+        "kitchen": "cluttered_path",
     }
     relationship_by_room = {
         "genkan": ("located_in", "floor"),
@@ -731,7 +724,7 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
         "bathroom": ("located_in", "floor"),
         "toilet": ("obstructs", "walking_path"),
         "bedroom": ("obstructs", "walking_path"),
-        "kitchen": ("located_in", "floor"),
+        "kitchen": ("obstructs", "walking_path"),
     }
     feature_by_room = {
         "genkan": "has_handrail_or_support",
@@ -801,7 +794,6 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
             "has_handrail": False,
             "has_emergency_call_button": False,
             "has_floor_clutter": True,
-            "looks_slippery_floor": True,
         },
         "bedroom": {
             "clear_path_from_bed": False,
@@ -811,7 +803,7 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
         },
         "kitchen": {
             "clear_floor": False,
-            "kitchen_slip": True,
+            "has_floor_clutter": True,
             "has_loose_mat": True,
         }
     }
@@ -883,13 +875,13 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
         ],
         "kitchen": [
             {
-                "risk_type": "kitchen_slip",
-                "label_ja": "キッチン床の滑り",
-                "description_ja": "水や油が落ちやすい床で滑るリスクがあります。",
+                "risk_type": "cluttered_path",
+                "label_ja": "キッチン床の物",
+                "description_ja": "調理動線上の物が、つまずきの原因になります。",
                 "severity": 3,
-                "confidence": 0.74,
+                "confidence": 0.82,
                 "bbox": {"x": 0.16, "y": 0.58, "w": 0.58, "h": 0.28},
-                "evidence_ja": "調理動線の床面が見えます。",
+                "evidence_ja": "調理動線上に局所的な床置きの物が見えます。",
             }
         ]
     }

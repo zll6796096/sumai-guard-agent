@@ -1,16 +1,21 @@
 from __future__ import annotations
 
-from app.models import BoundingBox, RiskFinding
+from typing import Literal
+
+import pytest
+
+from app.models import ActionPlan, BoundingBox, RiskFinding, VisionFacts
 from app.ontology import OntologyRepository
 from app.services.relationship_engine import RelationshipEngine
 from app.services.rule_engine import RuleEngine
-from app.models import VisionFacts
 
 
 def _finding(
     risk_type: str = "hallway_cord",
     confidence: float = 0.8,
     severity: int = 3,
+    ontology_key: str | None = None,
+    ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None = None,
 ) -> RiskFinding:
     return RiskFinding(
         id="R1",
@@ -24,6 +29,8 @@ def _finding(
         basis_label_ja="",
         basis_summary_ja="",
         needs_human_confirmation=False,
+        ontology_key=ontology_key,
+        ontology_rule_kind=ontology_rule_kind,
     )
 
 
@@ -54,30 +61,152 @@ def test_rule_engine_marks_low_confidence_for_human_confirmation() -> None:
 
 
 def test_legacy_known_visible_risk_gets_rule_kind_for_visual_rendering() -> None:
-    findings, _ = RuleEngine().apply([_finding("hallway_cord")], "hallway")
+    findings, plan = RuleEngine().apply([_finding("hallway_cord")], "hallway")
 
     assert findings[0].ontology_key == "hallway_cord"
     assert findings[0].ontology_rule_kind == "visible_hazard"
+    assert [action.title_ja for action in plan.family_no_cost] == [
+        "コードを壁沿いに寄せる",
+        "使わないコードを抜いてしまう",
+    ]
 
 
-def test_legacy_expected_feature_always_requires_human_confirmation() -> None:
+def test_unambiguous_legacy_visible_rule_overrides_policy_owned_fields() -> None:
+    evidence_bbox = BoundingBox(x=0.2, y=0.3, w=0.4, h=0.2)
+    finding = _finding("cluttered_path", severity=5).model_copy(
+        update={
+            "label_ja": "任意のラベル",
+            "description_ja": "写真内の局所的な障害物です。",
+            "bbox": evidence_bbox,
+            "evidence_source_ids": ["UNTRUSTED_SOURCE"],
+        }
+    )
+
+    findings, _ = RuleEngine().apply([finding], "bedroom")
+
+    assert len(findings) == 1
+    assert findings[0].risk_type == "cluttered_path"
+    assert findings[0].label_ja == "寝室の床の障害物"
+    assert findings[0].severity == 3
+    assert findings[0].evidence_source_ids == ["CAA_FALL_PREVENTION"]
+    assert findings[0].description_ja == "写真内の局所的な障害物です。"
+    assert findings[0].bbox == evidence_bbox
+
+
+@pytest.mark.parametrize(
+    ("ontology_key", "ontology_rule_kind", "room_type", "risk_type"),
+    [
+        ("bedside_light", None, "bedroom", "poor_lighting"),
+        (None, "visible_hazard", "hallway", "hallway_cord"),
+    ],
+)
+def test_partial_ontology_identity_is_rejected_without_risk_type_fallback(
+    ontology_key: str | None,
+    ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None,
+    room_type: str,
+    risk_type: str,
+) -> None:
+    finding = _finding(
+        risk_type,
+        confidence=0.9,
+        ontology_key=ontology_key,
+        ontology_rule_kind=ontology_rule_kind,
+    )
+
+    findings, plan = RuleEngine().apply([finding], room_type)
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+def test_ambiguous_legacy_risk_type_is_not_recovered_as_visible() -> None:
+    finding = _finding("poor_lighting", confidence=0.9)
+
+    findings, plan = RuleEngine().apply([finding], "bedroom")
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+def test_complete_visible_identity_must_resolve_exactly_in_current_room() -> None:
+    finding = _finding(
+        "poor_lighting",
+        confidence=0.9,
+        ontology_key="bedside_light",
+        ontology_rule_kind="visible_hazard",
+    )
+
+    findings, plan = RuleEngine().apply([finding], "bedroom")
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+def test_legacy_expected_feature_is_not_a_finding_or_action() -> None:
     finding = _finding("toilet_missing_handrail", confidence=0.9).model_copy(
         update={"needs_human_confirmation": False}
     )
 
     findings, plan = RuleEngine().apply([finding], "toilet")
 
-    assert findings[0].ontology_key == "has_handrail"
-    assert findings[0].ontology_rule_kind == "expected_feature"
-    assert findings[0].needs_human_confirmation is True
-    assert all(
-        "写真内で確認できなかった設備" in action.why_ja
-        for action in (
-            *plan.family_no_cost,
-            *plan.care_manager_purchase,
-            *plan.contractor_construction,
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+@pytest.mark.parametrize(
+    ("room_type", "risk_type"),
+    [
+        ("toilet", "toilet_transfer_support"),
+        ("toilet", "toilet_slip"),
+        ("kitchen", "kitchen_slip"),
+        ("kitchen", "kitchen_unreachable_storage"),
+        ("hallway", "unknown_risk"),
+    ],
+)
+def test_rule_engine_rejects_unknown_or_removed_legacy_risk_types(
+    room_type: str,
+    risk_type: str,
+) -> None:
+    findings, plan = RuleEngine().apply(
+        [_finding(risk_type, confidence=0.99)],
+        room_type,
+    )
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+@pytest.mark.parametrize("rule_kind", ["expected_feature", "future_non_visible_kind"])
+def test_explicit_non_visible_kind_is_rejected_before_ontology_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+    rule_kind: str,
+) -> None:
+    engine = RuleEngine()
+    finding = (
+        _finding(
+            "toilet_missing_handrail",
+            confidence=0.9,
+            ontology_key="has_handrail",
+            ontology_rule_kind="expected_feature",
+        )
+        if rule_kind == "expected_feature"
+        else _finding("toilet_missing_handrail", confidence=0.9).model_copy(
+            update={
+                "ontology_key": "has_handrail",
+                "ontology_rule_kind": rule_kind,
+            }
         )
     )
+
+    def fail_on_lookup(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("non-visible findings must not reach ontology lookup")
+
+    monkeypatch.setattr(engine, "_find_checklist_item", fail_on_lookup)
+
+    findings, plan = engine.apply([finding], "toilet")
+
+    assert findings == []
+    assert plan == ActionPlan()
 
 
 def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
@@ -103,7 +232,7 @@ def test_rule_engine_actions_follow_exact_relationship_rule_identity() -> None:
             "not_applicable_reason_code": None,
         }
     )
-    derived = RelationshipEngine(ontology).derive(facts)
+    derived = RelationshipEngine(ontology).derive(facts).visible_findings
 
     findings, plan = RuleEngine(ontology=ontology).apply(derived, "genkan")
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.models import RiskFinding, VisionResult
 from app.ontology import OntologyRepository
+from app.services.rule_engine import RuleEngine
 
 logger = logging.getLogger("sumai.checklist_engine")
 
@@ -25,89 +26,31 @@ class ChecklistEngine:
             if checklists_path is not None
             else OntologyRepository.load_default()
         )
+        self.rule_engine = RuleEngine(ontology=self.ontology)
 
     def process(self, vision_result: VisionResult) -> list[RiskFinding]:
-        findings: list[RiskFinding] = []
         room = vision_result.room_type
-        room_checklist = self.ontology.room(room)
-        if not room_checklist:
-            logger.warning("No checklist found for room: %s", room)
-            return vision_result.visible_hazards
-
-        expected_features = room_checklist.get("expected_features", [])
-        missing_map = {item.feature_key: item for item in vision_result.missing_safety_features}
-
-        for feature in expected_features:
-            if not isinstance(feature, dict):
-                continue
-            key = feature.get("key")
-            missing_risk_type = feature.get("missing_risk_type")
-            if not isinstance(key, str) or not isinstance(missing_risk_type, str):
-                continue
-            # A boolean legacy observation carries no location. Only an explicit
-            # coordinate-backed MissingSafetyFeature can become a visual finding.
-            if key not in missing_map:
-                continue
-
-            missing = missing_map[key]
-            confidence = missing.confidence
-            bbox = missing.bbox
-            if confidence < 0.60:
-                continue
-
-            rule = self.ontology.rule(room, key, "expected_feature")
-            expected_feature_label = str(feature.get("label_ja", "対象設備"))
-            findings.append(
-                RiskFinding(
-                    id=rule.risk_type,
-                    risk_type=rule.risk_type,
-                    label_ja=rule.label_ja,
-                    description_ja=(
-                        "写真で十分に表示された範囲では、"
-                        f"{expected_feature_label}を確認できませんでした。"
-                    ),
-                    severity=rule.severity,
-                    confidence=confidence,
-                    bbox=bbox,
-                    evidence_ja=(
-                        f"写真内で{expected_feature_label}を確認する対象範囲が"
-                        "表示されています。この範囲は不存在や設置位置を"
-                        "示すものではありません。"
-                    ),
-                    basis_label_ja=rule.basis_label_ja,
-                    basis_summary_ja=rule.basis_summary_ja,
-                    needs_human_confirmation=True,
-                    ontology_key=rule.key,
-                    ontology_rule_kind=rule.rule_kind,
-                )
+        if not vision_result.is_home_environment:
+            logger.warning(
+                "checklist_skipped_non_home",
+                extra={"room_type": room},
             )
-
-        for finding in vision_result.visible_hazards:
-            if finding.confidence < 0.45:
-                continue
-            try:
-                rule = (
-                    self.ontology.rule(
-                        room, finding.ontology_key, finding.ontology_rule_kind
-                    )
-                    if finding.ontology_key and finding.ontology_rule_kind
-                    else self.ontology.risk_rule(room, finding.risk_type)
-                )
-            except KeyError:
-                if finding.confidence >= 0.60:
-                    findings.append(finding)
-                continue
-            findings.append(
-                finding.model_copy(
-                    update={
-                        "severity": rule.severity,
-                        "basis_label_ja": rule.basis_label_ja,
-                        "basis_summary_ja": rule.basis_summary_ja,
-                        "needs_human_confirmation": finding.confidence < 0.60,
-                        "ontology_key": rule.key,
-                        "ontology_rule_kind": rule.rule_kind,
-                    }
-                )
+            return []
+        if room == "auto":
+            logger.warning(
+                "checklist_skipped_auto_room",
+                extra={"room_type": room},
             )
+            return []
+        if self.ontology.room(room) is None:
+            logger.warning(
+                "checklist_skipped_unknown_room",
+                extra={"room_type": room},
+            )
+            return []
 
-        return findings
+        # This compatibility adapter has no neutral confirmation return channel.
+        # Legacy observations and missing_safety_features therefore cannot safely
+        # become RiskFinding objects. Apply the shared visible-only policy gate to
+        # the one legacy collection that can carry localized visible evidence.
+        return self.rule_engine.apply(vision_result.visible_hazards, room)[0]

@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 
+import pytest
 from PIL import Image
 
 from app.models import (
     BoundingBox,
     MissingSafetyFeature,
     RiskFinding,
-    RoomType,
     VisionResult,
 )
 from app.services.checklist_engine import ChecklistEngine
@@ -17,8 +18,66 @@ from app.services.rule_engine import RuleEngine
 from app.services.visual_renderer import VisualRenderer
 
 
-def test_toilet_missing_handrail() -> None:
-    engine = ChecklistEngine()
+def _risk_finding(
+    *,
+    risk_type: str,
+    bbox: BoundingBox | None = None,
+    confidence: float = 0.90,
+    ontology_key: str | None = None,
+    ontology_rule_kind: str | None = None,
+) -> RiskFinding:
+    return RiskFinding(
+        id="legacy",
+        risk_type=risk_type,
+        label_ja="legacy label",
+        description_ja="写真内の候補です。",
+        severity=1,
+        confidence=confidence,
+        bbox=bbox or BoundingBox(x=0.1, y=0.1, w=0.2, h=0.2),
+        evidence_ja="写真内に局所的な根拠があります。",
+        basis_label_ja="",
+        basis_summary_ja="",
+        needs_human_confirmation=False,
+        ontology_key=ontology_key,
+        ontology_rule_kind=ontology_rule_kind,
+    )
+
+
+def _decoded_rgb(image_base64: str) -> Image.Image:
+    return Image.open(io.BytesIO(base64.b64decode(image_base64))).convert("RGB")
+
+
+@pytest.mark.parametrize(
+    ("room_type", "feature_key"),
+    [
+        ("toilet", "has_handrail"),
+        ("toilet", "has_emergency_call_button"),
+        ("bathroom", "has_non_slip_floor_or_mat"),
+    ],
+)
+def test_coordinate_backed_missing_features_do_not_become_findings(
+    room_type: str,
+    feature_key: str,
+) -> None:
+    vision_result = VisionResult(
+        room_type=room_type,
+        is_home_environment=True,
+        observations={feature_key: False},
+        visible_hazards=[],
+        missing_safety_features=[
+            MissingSafetyFeature(
+                feature_key=feature_key,
+                confidence=0.90,
+                bbox=BoundingBox(x=0.1, y=0.2, w=0.2, h=0.5),
+                evidence_ja="写真の対象範囲では設備を確認できません。",
+            )
+        ],
+    )
+
+    assert ChecklistEngine().process(vision_result) == []
+
+
+def test_missing_feature_cannot_reach_actions_or_image_overlays() -> None:
     vision_result = VisionResult(
         room_type="toilet",
         is_home_environment=True,
@@ -27,88 +86,32 @@ def test_toilet_missing_handrail() -> None:
         missing_safety_features=[
             MissingSafetyFeature(
                 feature_key="has_handrail",
-                confidence=0.85,
-                bbox=BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6),
-                evidence_ja="便器側面に手すりがありません。"
+                confidence=0.90,
+                bbox=BoundingBox(x=0.1, y=0.2, w=0.2, h=0.5),
+                evidence_ja="写真の対象範囲では手すりを確認できません。",
             )
-        ]
-    )
-    findings = engine.process(vision_result)
-    assert len(findings) > 0
-    handrail_finding = [f for f in findings if f.risk_type == "toilet_missing_handrail"]
-    assert len(handrail_finding) == 1
-    assert handrail_finding[0].severity == 4
-    assert "厚労省" in handrail_finding[0].basis_label_ja
-    assert handrail_finding[0].needs_human_confirmation is True
-    assert handrail_finding[0].description_ja == (
-        "写真で十分に表示された範囲では、手すりを確認できませんでした。"
-    )
-    assert "不存在や設置位置を示すものではありません" in (
-        handrail_finding[0].evidence_ja
+        ],
     )
 
-
-def test_toilet_missing_emergency_call() -> None:
-    engine = ChecklistEngine()
-    vision_result = VisionResult(
-        room_type="toilet",
-        is_home_environment=True,
-        observations={"has_emergency_call_button": False},
-        visible_hazards=[],
-        missing_safety_features=[
-            MissingSafetyFeature(
-                feature_key="has_emergency_call_button",
-                confidence=0.75,
-                bbox=BoundingBox(x=0.8, y=0.3, w=0.1, h=0.1),
-                evidence_ja="緊急ボタンが確認できません。"
-            )
-        ]
-    )
-    findings = engine.process(vision_result)
-    emergency_finding = [f for f in findings if f.risk_type == "toilet_missing_emergency_call"]
-    assert len(emergency_finding) == 1
-    assert emergency_finding[0].severity == 2
-    assert "自治体" in emergency_finding[0].basis_label_ja
-
-
-def test_toilet_unclear_handrail() -> None:
-    engine = ChecklistEngine()
-    # has_handrail is null/None
-    vision_result = VisionResult(
-        room_type="toilet",
-        is_home_environment=True,
-        observations={"has_handrail": None},
-        visible_hazards=[],
-        missing_safety_features=[]
-    )
-    findings = engine.process(vision_result)
-    handrail_finding = [f for f in findings if f.risk_type == "toilet_missing_handrail"]
-    assert len(handrail_finding) == 0
-
-
-def test_legacy_observations_without_evidence_coordinates_create_no_findings() -> None:
-    engine = ChecklistEngine()
-    vision_result = VisionResult(
-        room_type="genkan",
-        is_home_environment=True,
-        observations={"has_handrail_or_support": False, "cluttered_path": True},
-        visible_hazards=[],
-        missing_safety_features=[],
+    findings = ChecklistEngine().process(vision_result)
+    normalized, action_plan = RuleEngine().apply(findings, "toilet")
+    annotated, improvement = VisualRenderer().render(
+        Image.new("RGB", (100, 100), "white"),
+        normalized,
+        "toilet",
     )
 
-    findings = engine.process(vision_result)
-    annotated, _ = VisualRenderer().render(
-        Image.new("RGB", (100, 100), "white"), findings, "genkan"
-    )
-    rendered = Image.open(io.BytesIO(base64.b64decode(annotated))).convert("RGB")
-
-    assert findings == []
-    assert set(rendered.getdata()) == {(255, 255, 255)}
+    assert normalized == []
+    assert action_plan.family_no_cost == []
+    assert action_plan.care_manager_purchase == []
+    assert action_plan.contractor_construction == []
+    assert set(_decoded_rgb(annotated).getdata()) == {(255, 255, 255)}
+    assert set(_decoded_rgb(improvement).getdata()) == {(255, 255, 255)}
 
 
-def test_coordinate_backed_legacy_features_preserve_exact_evidence_bbox() -> None:
-    expected_bbox = BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6)
+def test_mixed_legacy_input_returns_only_exact_visible_hazard() -> None:
     visible_bbox = BoundingBox(x=0.7, y=0.1, w=0.1, h=0.1)
+    expected_bbox = BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6)
     vision_result = VisionResult(
         room_type="genkan",
         is_home_environment=True,
@@ -118,22 +121,13 @@ def test_coordinate_backed_legacy_features_preserve_exact_evidence_bbox() -> Non
                 feature_key="has_handrail_or_support",
                 confidence=0.85,
                 bbox=expected_bbox,
-                evidence_ja="支持物が確認できません。",
+                evidence_ja="写真の対象範囲では支持物を確認できません。",
             )
         ],
         visible_hazards=[
-            RiskFinding(
-                id="pending",
+            _risk_finding(
                 risk_type="cluttered_path",
-                label_ja="玄関動線の障害物",
-                description_ja="動線に障害物があります。",
-                severity=3,
-                confidence=0.9,
                 bbox=visible_bbox,
-                evidence_ja="動線上に物があります。",
-                basis_label_ja="",
-                basis_summary_ja="",
-                needs_human_confirmation=False,
                 ontology_key="cluttered_path",
                 ontology_rule_kind="visible_hazard",
             )
@@ -142,99 +136,164 @@ def test_coordinate_backed_legacy_features_preserve_exact_evidence_bbox() -> Non
 
     findings = ChecklistEngine().process(vision_result)
 
-    assert {
-        (finding.ontology_rule_kind, finding.ontology_key): finding.bbox
-        for finding in findings
-    } == {
-        ("expected_feature", "has_handrail_or_support"): expected_bbox,
-        ("visible_hazard", "cluttered_path"): visible_bbox,
-    }
-
-
-def test_bathroom_missing_non_slip() -> None:
-    engine = ChecklistEngine()
-    vision_result = VisionResult(
-        room_type="bathroom",
-        is_home_environment=True,
-        observations={"has_non_slip_floor_or_mat": False},
-        visible_hazards=[],
-        missing_safety_features=[
-            MissingSafetyFeature(
-                feature_key="has_non_slip_floor_or_mat",
-                confidence=0.80,
-                bbox=BoundingBox(x=0.2, y=0.6, w=0.6, h=0.3),
-                evidence_ja="滑り止め対策がありません。"
-            )
-        ]
+    assert len(findings) == 1
+    assert findings[0].id == "R1"
+    assert findings[0].risk_type == "cluttered_path"
+    assert findings[0].bbox == visible_bbox
+    assert findings[0].ontology_key == "cluttered_path"
+    assert findings[0].ontology_rule_kind == "visible_hazard"
+    assert findings[0].severity == 3
+    assert all(
+        finding.ontology_key != "has_handrail_or_support" for finding in findings
     )
-    findings = engine.process(vision_result)
-    slip_finding = [f for f in findings if f.risk_type == "bathroom_missing_non_slip"]
-    assert len(slip_finding) == 1
-    assert slip_finding[0].severity == 4
 
 
-def test_non_home_environment_no_findings() -> None:
-    engine = ChecklistEngine()
-    vision_result = VisionResult(
-        room_type="auto",
-        is_home_environment=False,
-        observations={},
-        visible_hazards=[],
-        missing_safety_features=[],
-        not_applicable_reason_ja="住宅内ではありません"
-    )
-    findings = engine.process(vision_result)
-    assert len(findings) == 0
-
-
-def test_action_tiers() -> None:
-    rule_engine = RuleEngine()
-    engine = ChecklistEngine()
-
-    # Emergency call missing in toilet
+def test_expected_feature_identity_is_rejected_even_in_visible_hazards() -> None:
     vision_result = VisionResult(
         room_type="toilet",
         is_home_environment=True,
-        observations={"has_emergency_call_button": False},
-        visible_hazards=[],
-        missing_safety_features=[
-            MissingSafetyFeature(
-                feature_key="has_emergency_call_button",
-                confidence=0.75,
-                bbox=BoundingBox(x=0.8, y=0.3, w=0.1, h=0.1),
-                evidence_ja="緊急ボタンなし。"
+        visible_hazards=[
+            _risk_finding(
+                risk_type="toilet_missing_handrail",
+                ontology_key="has_handrail",
+                ontology_rule_kind="expected_feature",
             )
-        ]
+        ],
     )
-    findings = engine.process(vision_result)
-    norm_findings, action_plan = rule_engine.apply(findings, "toilet")
 
-    # Check emergency call actions
-    # - family actions should exist
-    # - care manager actions should exist (緊急通報装置・呼出ボタンを相談する)
-    # - contractor actions should NOT have emergency call action since there is no contractor_action listed for it
-    assert len(action_plan.family_no_cost) > 0
-    assert len(action_plan.care_manager_purchase) > 0
-    assert any("緊急通報" in act.title_ja for act in action_plan.care_manager_purchase)
-    
-    # Handrail missing in toilet
-    vision_result2 = VisionResult(
-        room_type="toilet",
+    assert ChecklistEngine().process(vision_result) == []
+
+
+@pytest.mark.parametrize(
+    ("ontology_key", "ontology_rule_kind"),
+    [
+        ("cluttered_path", None),
+        (None, "visible_hazard"),
+    ],
+)
+def test_partial_ontology_identity_is_rejected(
+    ontology_key: str | None,
+    ontology_rule_kind: str | None,
+) -> None:
+    vision_result = VisionResult(
+        room_type="genkan",
         is_home_environment=True,
-        observations={"has_handrail": False},
-        visible_hazards=[],
-        missing_safety_features=[
-            MissingSafetyFeature(
-                feature_key="has_handrail",
-                confidence=0.85,
-                bbox=BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6),
-                evidence_ja="手すりなし。"
+        visible_hazards=[
+            _risk_finding(
+                risk_type="cluttered_path",
+                ontology_key=ontology_key,
+                ontology_rule_kind=ontology_rule_kind,
             )
-        ]
+        ],
     )
-    findings2 = engine.process(vision_result2)
-    norm_findings2, action_plan2 = rule_engine.apply(findings2, "toilet")
 
-    # Handrail missing can go to care manager and contractor
-    assert any("手すり" in act.title_ja for act in action_plan2.care_manager_purchase)
-    assert any("手すり" in act.title_ja for act in action_plan2.contractor_construction)
+    assert ChecklistEngine().process(vision_result) == []
+
+
+def test_ambiguous_risk_type_only_legacy_finding_is_rejected() -> None:
+    vision_result = VisionResult(
+        room_type="bedroom",
+        is_home_environment=True,
+        visible_hazards=[_risk_finding(risk_type="poor_lighting")],
+    )
+
+    assert ChecklistEngine().process(vision_result) == []
+
+
+def test_unambiguous_risk_type_only_visible_legacy_finding_is_normalized() -> None:
+    evidence_bbox = BoundingBox(x=0.2, y=0.3, w=0.4, h=0.2)
+    legacy_finding = _risk_finding(
+        risk_type="cluttered_path",
+        bbox=evidence_bbox,
+    ).model_copy(
+        update={
+            "label_ja": "任意のラベル",
+            "severity": 5,
+            "evidence_source_ids": ["UNTRUSTED_SOURCE"],
+        }
+    )
+    vision_result = VisionResult(
+        room_type="bedroom",
+        is_home_environment=True,
+        visible_hazards=[legacy_finding],
+    )
+
+    findings = ChecklistEngine().process(vision_result)
+
+    assert len(findings) == 1
+    assert findings[0].id == "R1"
+    assert findings[0].bbox == evidence_bbox
+    assert findings[0].ontology_key == "cluttered_path"
+    assert findings[0].ontology_rule_kind == "visible_hazard"
+    assert findings[0].label_ja == "寝室の床の障害物"
+    assert findings[0].severity == 3
+    assert findings[0].evidence_source_ids == ["CAA_FALL_PREVENTION"]
+
+
+def test_legacy_observations_without_visible_hazards_create_no_findings() -> None:
+    vision_result = VisionResult(
+        room_type="genkan",
+        is_home_environment=True,
+        observations={"has_handrail_or_support": False, "cluttered_path": True},
+    )
+
+    assert ChecklistEngine().process(vision_result) == []
+
+
+@pytest.mark.parametrize(
+    ("room_type", "is_home_environment"),
+    [
+        ("auto", True),
+        ("genkan", False),
+    ],
+)
+def test_unknown_room_or_non_home_input_fails_closed(
+    room_type: str,
+    is_home_environment: bool,
+) -> None:
+    vision_result = VisionResult(
+        room_type=room_type,
+        is_home_environment=is_home_environment,
+        visible_hazards=[
+            _risk_finding(
+                risk_type="cluttered_path",
+                ontology_key="cluttered_path",
+                ontology_rule_kind="visible_hazard",
+            )
+        ],
+    )
+
+    assert ChecklistEngine().process(vision_result) == []
+
+
+@pytest.mark.parametrize(
+    ("room_type", "is_home_environment", "expected_event"),
+    [
+        ("genkan", False, "checklist_skipped_non_home"),
+        ("auto", True, "checklist_skipped_auto_room"),
+        ("unknown", True, "checklist_skipped_unknown_room"),
+    ],
+)
+def test_fail_closed_checklist_logs_the_actual_skip_reason(
+    caplog: pytest.LogCaptureFixture,
+    room_type: str,
+    is_home_environment: bool,
+    expected_event: str,
+) -> None:
+    result = VisionResult(
+        room_type="auto" if room_type == "unknown" else room_type,
+        is_home_environment=is_home_environment,
+    )
+    if room_type == "unknown":
+        result = result.model_copy(update={"room_type": "unknown"})
+
+    with caplog.at_level(logging.WARNING, logger="sumai.checklist_engine"):
+        assert ChecklistEngine().process(result) == []
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "sumai.checklist_engine"
+    ]
+    assert [record.getMessage() for record in records] == [expected_event]
+    assert records[0].room_type == room_type

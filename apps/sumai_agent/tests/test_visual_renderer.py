@@ -63,7 +63,7 @@ def test_danger_selection_uses_evidence_bbox_without_mutating_evidence_bbox() ->
     display_bbox = BoundingBox(x=0.60, y=0.60, w=0.20, h=0.20)
     finding = RiskFinding(
         id="R1",
-        risk_type="unmapped_risk",
+        risk_type="cluttered_path",
         label_ja="表示用テスト",
         description_ja="表示用テストです。",
         severity=4,
@@ -170,7 +170,7 @@ def test_visible_hazard_improvement_uses_the_evidence_location_not_a_room_templa
         basis_label_ja="根拠",
         basis_summary_ja="根拠の要約です。",
         needs_human_confirmation=False,
-        ontology_key="cluttered_path",
+        ontology_key="has_floor_clutter",
         ontology_rule_kind="visible_hazard",
     )
 
