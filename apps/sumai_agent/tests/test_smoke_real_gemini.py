@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
+from PIL import Image
 
 from scripts import smoke_real_gemini
 
@@ -132,3 +135,25 @@ def test_validate_analysis_payload_accepts_non_home_payload_with_distinct_id() -
     )
 
     assert analysis_id == "sumai_nonhome"
+
+
+def test_home_smoke_fixture_is_the_fixed_licensed_residential_photo() -> None:
+    image_bytes = smoke_real_gemini.load_home_smoke_image()
+
+    assert smoke_real_gemini.HOME_SMOKE_ROOM_HINT == "bathroom"
+    assert smoke_real_gemini.HOME_SMOKE_IMAGE.name == "residential_bathroom.jpg"
+    assert (
+        hashlib.sha256(image_bytes).hexdigest()
+        == smoke_real_gemini.HOME_SMOKE_SHA256
+    )
+
+    with Image.open(smoke_real_gemini.HOME_SMOKE_IMAGE) as image:
+        assert image.format == "JPEG"
+        assert image.width >= 900
+        assert image.height >= 900
+
+    provenance = smoke_real_gemini.HOME_SMOKE_PROVENANCE.read_text(encoding="utf-8")
+    assert "Posh Living, LLC" in provenance
+    assert "CC BY-SA 2.0" in provenance
+    assert "https://commons.wikimedia.org/wiki/File:Residential_Bathroom.jpg" in provenance
+    assert smoke_real_gemini.HOME_SMOKE_SHA256 in provenance

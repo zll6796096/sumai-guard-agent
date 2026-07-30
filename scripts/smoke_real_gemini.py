@@ -1,15 +1,40 @@
 #!/usr/bin/env python3
+import hashlib
 import io
 import os
+from pathlib import Path
 from typing import cast
 
 import requests
 from PIL import Image
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HOME_SMOKE_IMAGE = REPO_ROOT / "evaluation" / "smoke" / "residential_bathroom.jpg"
+HOME_SMOKE_PROVENANCE = REPO_ROOT / "evaluation" / "smoke" / "README.md"
+HOME_SMOKE_SHA256 = "77411a4952caab8851f8b0c786fb59a48b3b2db5b14d8e11e907f61723082649"
+HOME_SMOKE_ROOM_HINT = "bathroom"
+
+
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise AssertionError(message)
+
+
+def load_home_smoke_image() -> bytes:
+    image_bytes = HOME_SMOKE_IMAGE.read_bytes()
+    image_sha256 = hashlib.sha256(image_bytes).hexdigest()
+    _require(
+        image_sha256 == HOME_SMOKE_SHA256,
+        "Home smoke fixture SHA-256 does not match the reviewed asset.",
+    )
+    with Image.open(io.BytesIO(image_bytes)) as image:
+        _require(image.format == "JPEG", "Home smoke fixture must be a JPEG photograph.")
+        _require(
+            image.width >= 900 and image.height >= 900,
+            "Home smoke fixture is below the reviewed resolution.",
+        )
+    return image_bytes
 
 
 def validate_status(status_data: dict[str, object], expected_model: str) -> None:
@@ -95,22 +120,20 @@ def main() -> int:
         validate_status(status_data, expected_model)
         print(f"✅ Status provenance passed: model={expected_model}")
 
-        home_img_path = "apps/sumai_web/assets/samples/hallway_sample.png"
-        if not os.path.exists(home_img_path):
-            home_img_path = "../apps/sumai_web/assets/samples/hallway_sample.png"
-
-        if not os.path.exists(home_img_path):
-            raise FileNotFoundError("Could not find hallway_sample.png")
-
-        print(f"Sending home interior image: {home_img_path}...")
-        with open(home_img_path, "rb") as home_file:
-            files = {"image": ("hallway.png", home_file.read(), "image/png")}
-            data = {"room_hint": "hallway", "mock": "false"}
-            res = requests.post(f"{base_url}/analyze", files=files, data=data, timeout=60)
-            if res.status_code != 200:
-                raise AssertionError(
-                    f"Home analysis failed with code {res.status_code}: {res.text}"
-                )
+        print(f"Sending reviewed home interior image: {HOME_SMOKE_IMAGE}...")
+        files = {
+            "image": (
+                HOME_SMOKE_IMAGE.name,
+                load_home_smoke_image(),
+                "image/jpeg",
+            )
+        }
+        data = {"room_hint": HOME_SMOKE_ROOM_HINT, "mock": "false"}
+        res = requests.post(f"{base_url}/analyze", files=files, data=data, timeout=60)
+        if res.status_code != 200:
+            raise AssertionError(
+                f"Home analysis failed with code {res.status_code}: {res.text}"
+            )
 
         home_payload = res.json()
         home_analysis_id = validate_analysis_payload(
