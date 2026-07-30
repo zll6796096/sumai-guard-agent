@@ -185,3 +185,23 @@ def test_current_state_docs_never_promote_expected_non_detections_to_risks() -> 
         "no visible support",
     ):
         assert retired_semantic_claim not in evidence_map
+
+
+def test_docs_define_truthful_streamed_waiting_and_resource_boundary() -> None:
+    architecture = _document("architecture.md")
+    decisions = _document("decisions.md")
+
+    assert "single NDJSON response" in architecture
+    assert "`POST /analyze/stream`" in architecture
+    assert "`intake_complete`" in architecture
+    assert "`vision_complete`" in architecture
+    assert "cache hits and coalesced followers" in architecture
+    assert "static browser data" in architecture
+    assert "synchronous `/analyze`" in architecture
+
+    assert "no polling and no additional Gemini request" in decisions
+    assert "indeterminate activity bar" in decisions
+    assert "five seconds" in decisions
+    assert "20 seconds" in decisions
+    assert "`prefers-reduced-motion`" in decisions
+    assert "no percentage or ETA" in decisions

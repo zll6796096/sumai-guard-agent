@@ -15,7 +15,7 @@ flowchart LR
     Canon --> Rules["deterministic RuleEngine and action tiers"]
     Rules --> Memo["process-local semantic TTL/LRU memo"]
     Memo --> Render["per-request render and report"]
-    Render --> Response["JSON response"]
+    Render --> Response["JSON or NDJSON response"]
     Response --> Web
 ```
 
@@ -88,6 +88,17 @@ Backend 400/422 input errors retain their HTTP status and return a fixed Japanes
 ## Async lifecycle and timing semantics
 
 Pillow decode/sanitization and rendering run through `asyncio.to_thread`; Gemini uses a lazily created reusable async client. The web proxy likewise reuses an async `httpx` client. FastAPI lifespan shutdown closes both clients.
+
+The browser waiting flow sends one `POST /analyze/stream` request to the Web service, and the Web service sends one upstream `POST /analyze/stream` request to the Agent. The Agent returns a single NDJSON response while preserving the synchronous `/analyze` endpoint for existing callers. The stream has only these event kinds:
+
+- `progress` with `intake_complete` after in-memory image decoding, orientation normalization, EXIF stripping, and sanitized PNG creation;
+- `progress` with `vision_complete` after provider or deterministic mock analysis has returned, or when equivalent semantic work is ready for cache hits and coalesced followers;
+- one terminal `result` containing the ordinary validated `AnalysisResponse`; or
+- one terminal `error` with a fixed Japanese message and no provider detail.
+
+The progress callback is request-local. The semantic memo may reuse or coalesce computation, but cache hits and coalesced followers still receive both truthful readiness events for their own stream. Neither the callback nor streaming changes visible-risk derivation, rule policy, rendering, or the number of Gemini calls.
+
+The waiting presentation consumes that single NDJSON response incrementally. Its scan line, indeterminate bar, 20-second long-wait notice, and three rotating tips are static browser data and local timers; they do not make network requests. Selecting a new photo, receiving a result or error, returning home, or leaving the page clears the timers and aborts the applicable browser request. `prefers-reduced-motion` keeps the state readable while disabling scan, bar, and active-stage movement.
 
 The agent timeout defaults to 120 seconds. The local web proxy adds a 30-second margin, yielding a default 150-second read budget. These are local POC settings, not a production SLO.
 

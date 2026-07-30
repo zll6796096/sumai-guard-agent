@@ -52,6 +52,16 @@ Annotated danger boxes always use positive, in-frame evidence coordinates from e
 
 Reason: distinguish correlation, safe computation reuse, and semantic equality without retaining user images or treating cache behavior as durable state.
 
+## Truthful waiting experience
+
+The browser uses a single streamed request with no polling and no additional Gemini request. Only real backend boundaries advance the three Japanese stage labels: sanitized intake, visual analysis, and result organization. The UI uses an indeterminate activity bar and calm scan line rather than a fabricated completion percentage.
+
+The three safety tips are fixed local copy and rotate every five seconds. After 20 seconds, the page says only that analysis is taking longer and is still continuing. It shows no percentage or ETA. The timers are presentational only and are cleared together with the active `AbortController` on result, error, return-home navigation, replacement by a new photo, or `pagehide`. Under `prefers-reduced-motion`, movement stops while the text stages and static activity indicators remain.
+
+Stream error codes are mapped to fixed Japanese browser messages instead of displaying provider bodies or event detail. Non-strict transport or 5xx fallback remains the same empty neutral abstention used by the synchronous proxy; streaming does not create findings, confirmations, actions, or overlays.
+
+Reason: reducing perceived waiting time is acceptable only when the interface remains honest about what the system has actually completed and does not spend another model or network request to create the effect.
+
 ## Benchmarks and logs
 
 Synthetic benchmark repetitions are capped at 50. Mock P/R/F1 = 1 means the deterministic pipeline matched the synthetic fixture; it is not recognition accuracy. Schema-valid `is_not_applicable=true` output is an abstention, not a risk prediction: it is excluded from P/R/F1 even with an empty gold set. `scored_applicable_response_count` and `scored_applicable_response_coverage` use repeated `request_count` as the coverage denominator, while valid abstentions are reported separately. If no applicable response is scored, risk metrics are unavailable rather than an empty-set accuracy. Real-mode accuracy requires strict status plus reviewed real-photo labels.
