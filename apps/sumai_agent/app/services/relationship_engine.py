@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from app.models import BoundingBox, RiskFinding, VisionFacts
+from app.models import (
+    BoundingBox,
+    ConfirmationItem,
+    RelationshipDerivation,
+    RiskFinding,
+    VisionFacts,
+)
 from app.ontology import OntologyRepository
 
 
@@ -19,9 +25,9 @@ class RelationshipEngine:
     def __init__(self, ontology: OntologyRepository) -> None:
         self.ontology = ontology
 
-    def derive(self, facts: VisionFacts) -> list[RiskFinding]:
+    def derive(self, facts: VisionFacts) -> RelationshipDerivation:
         if facts.environment != "home" or facts.room_type not in self.ontology.room_names:
-            return []
+            return RelationshipDerivation()
 
         entity_refs = [entity.ref for entity in facts.entities]
         feature_keys = [feature.feature_key for feature in facts.feature_observations]
@@ -31,20 +37,21 @@ class RelationshipEngine:
             or len(feature_keys) != len(set(feature_keys))
             or not visible_regions <= set(self.ontology.visible_region_keys)
         ):
-            return []
+            return RelationshipDerivation()
         valid_reference_objects = set(entity_refs) | visible_regions
         if any(
             relationship.subject not in set(entity_refs)
             or relationship.object not in valid_reference_objects
             for relationship in facts.relationships
         ):
-            return []
+            return RelationshipDerivation()
 
         room = facts.room_type
         room_data = self.ontology.room(room)
         if room_data is None:
-            return []
-        findings: list[RiskFinding] = []
+            return RelationshipDerivation()
+        visible_findings: list[RiskFinding] = []
+        confirmation_items: list[ConfirmationItem] = []
         visible_hazards = {
             item["key"]: item
             for item in room_data["visible_hazards"]
@@ -73,7 +80,7 @@ class RelationshipEngine:
             rule = self.ontology.rule(
                 room, entity.ontology_key, "visible_hazard"
             )
-            findings.append(
+            visible_findings.append(
                 RiskFinding(
                     id="pending",
                     risk_type=rule.risk_type,
@@ -111,31 +118,24 @@ class RelationshipEngine:
             expected_feature_label = str(
                 expected_features[feature.feature_key]["label_ja"]
             )
-            findings.append(
-                RiskFinding(
+            confirmation_items.append(
+                ConfirmationItem(
                     id="pending",
-                    risk_type=rule.risk_type,
-                    label_ja=rule.label_ja,
+                    feature_key=rule.key,
+                    label_ja=expected_feature_label,
                     description_ja=(
-                        "写真で十分に表示された範囲では、"
-                        f"{expected_feature_label}を確認できませんでした。"
+                        f"この写真では、{expected_feature_label}を確認できませんでした。"
+                        f"これは{expected_feature_label}が存在しないことや、"
+                        "追加が必要なことを示すものではありません。"
                     ),
-                    severity=rule.severity,
                     confidence=feature.model_score,
-                    bbox=feature.evidence_bbox,
-                    display_bbox=None,
                     evidence_source_ids=list(rule.evidence_source_ids),
-                    evidence_ja=(
-                        f"写真内で{expected_feature_label}を確認する対象範囲が表示されています。"
-                        "この範囲は不存在や設置位置を示すものではありません。"
-                    ),
                     basis_label_ja=rule.basis_label_ja,
                     basis_summary_ja=rule.basis_summary_ja,
-                    # One photo can support a cautious non-detection, but it
-                    # cannot prove absence or determine whether/where to install.
                     needs_human_confirmation=True,
-                    ontology_key=rule.key,
-                    ontology_rule_kind=rule.rule_kind,
                 )
             )
-        return findings
+        return RelationshipDerivation(
+            visible_findings=visible_findings,
+            confirmation_items=confirmation_items,
+        )

@@ -107,6 +107,27 @@ class RiskFinding(BaseModel):
     ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None = None
 
 
+class ConfirmationItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    feature_key: str
+    label_ja: str
+    description_ja: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    evidence_source_ids: list[str] = Field(default_factory=list)
+    basis_label_ja: str
+    basis_summary_ja: str
+    needs_human_confirmation: Literal[True] = True
+
+
+class RelationshipDerivation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    visible_findings: list[RiskFinding] = Field(default_factory=list)
+    confirmation_items: list[ConfirmationItem] = Field(default_factory=list)
+
+
 class ActionItem(BaseModel):
     id: str
     risk_id: str
@@ -134,6 +155,7 @@ class AnalysisResponse(BaseModel):
     room_type: RoomType
     overall_risk_level: RiskLevel
     findings: list[RiskFinding]
+    confirmation_items: list[ConfirmationItem] = Field(default_factory=list)
     action_plan: ActionPlan
     annotated_image_base64: str
     improvement_image_base64: str
@@ -160,7 +182,7 @@ class AnalysisResponse(BaseModel):
         if self.is_not_applicable:
             if self.room_type != "auto" or self.overall_risk_level != "low":
                 raise ValueError("not_applicable_requires_auto_room_and_low_risk")
-            if self.findings or any((
+            if self.findings or self.confirmation_items or any((
                 self.action_plan.family_no_cost,
                 self.action_plan.care_manager_purchase,
                 self.action_plan.contractor_construction,
@@ -174,6 +196,15 @@ class AnalysisResponse(BaseModel):
             or self.not_applicable_reason_ja is not None
         ):
             raise ValueError("applicable_response_requires_home_known_room_and_no_reason")
+        elif any(
+            finding.ontology_rule_kind == "expected_feature"
+            or (
+                finding.ontology_key is not None
+                and finding.ontology_rule_kind != "visible_hazard"
+            )
+            for finding in self.findings
+        ):
+            raise ValueError("applicable_findings_must_be_visible_hazards")
         return self
 
 
