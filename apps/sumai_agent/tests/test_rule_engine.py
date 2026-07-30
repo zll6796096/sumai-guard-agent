@@ -1,18 +1,21 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 
-from app.models import ActionPlan, BoundingBox, RiskFinding
+from app.models import ActionPlan, BoundingBox, RiskFinding, VisionFacts
 from app.ontology import OntologyRepository
 from app.services.relationship_engine import RelationshipEngine
 from app.services.rule_engine import RuleEngine
-from app.models import VisionFacts
 
 
 def _finding(
     risk_type: str = "hallway_cord",
     confidence: float = 0.8,
     severity: int = 3,
+    ontology_key: str | None = None,
+    ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None = None,
 ) -> RiskFinding:
     return RiskFinding(
         id="R1",
@@ -26,6 +29,8 @@ def _finding(
         basis_label_ja="",
         basis_summary_ja="",
         needs_human_confirmation=False,
+        ontology_key=ontology_key,
+        ontology_rule_kind=ontology_rule_kind,
     )
 
 
@@ -56,10 +61,63 @@ def test_rule_engine_marks_low_confidence_for_human_confirmation() -> None:
 
 
 def test_legacy_known_visible_risk_gets_rule_kind_for_visual_rendering() -> None:
-    findings, _ = RuleEngine().apply([_finding("hallway_cord")], "hallway")
+    findings, plan = RuleEngine().apply([_finding("hallway_cord")], "hallway")
 
     assert findings[0].ontology_key == "hallway_cord"
     assert findings[0].ontology_rule_kind == "visible_hazard"
+    assert [action.title_ja for action in plan.family_no_cost] == [
+        "コードを壁沿いに寄せる",
+        "使わないコードを抜いてしまう",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("ontology_key", "ontology_rule_kind", "room_type", "risk_type"),
+    [
+        ("bedside_light", None, "bedroom", "poor_lighting"),
+        (None, "visible_hazard", "hallway", "hallway_cord"),
+    ],
+)
+def test_partial_ontology_identity_is_rejected_without_risk_type_fallback(
+    ontology_key: str | None,
+    ontology_rule_kind: Literal["visible_hazard", "expected_feature"] | None,
+    room_type: str,
+    risk_type: str,
+) -> None:
+    finding = _finding(
+        risk_type,
+        confidence=0.9,
+        ontology_key=ontology_key,
+        ontology_rule_kind=ontology_rule_kind,
+    )
+
+    findings, plan = RuleEngine().apply([finding], room_type)
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+def test_ambiguous_legacy_risk_type_is_not_recovered_as_visible() -> None:
+    finding = _finding("poor_lighting", confidence=0.9)
+
+    findings, plan = RuleEngine().apply([finding], "bedroom")
+
+    assert findings == []
+    assert plan == ActionPlan()
+
+
+def test_complete_visible_identity_must_resolve_exactly_in_current_room() -> None:
+    finding = _finding(
+        "poor_lighting",
+        confidence=0.9,
+        ontology_key="bedside_light",
+        ontology_rule_kind="visible_hazard",
+    )
+
+    findings, plan = RuleEngine().apply([finding], "bedroom")
+
+    assert findings == []
+    assert plan == ActionPlan()
 
 
 def test_legacy_expected_feature_is_not_a_finding_or_action() -> None:
@@ -79,11 +137,20 @@ def test_explicit_non_visible_kind_is_rejected_before_ontology_lookup(
     rule_kind: str,
 ) -> None:
     engine = RuleEngine()
-    finding = _finding("toilet_missing_handrail", confidence=0.9).model_copy(
-        update={
-            "ontology_key": "has_handrail",
-            "ontology_rule_kind": rule_kind,
-        }
+    finding = (
+        _finding(
+            "toilet_missing_handrail",
+            confidence=0.9,
+            ontology_key="has_handrail",
+            ontology_rule_kind="expected_feature",
+        )
+        if rule_kind == "expected_feature"
+        else _finding("toilet_missing_handrail", confidence=0.9).model_copy(
+            update={
+                "ontology_key": "has_handrail",
+                "ontology_rule_kind": rule_kind,
+            }
+        )
     )
 
     def fail_on_lookup(*_args: object, **_kwargs: object) -> None:
