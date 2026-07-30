@@ -1437,6 +1437,7 @@ INDEX_HTML = """<!DOCTYPE html>
             vision: '写真に見える範囲を解析しています',
             organize: '結果を整理しています'
         };
+        class AnalysisUiError extends Error {}
         let analysisTipTimer = null;
         let longWaitTimer = null;
         let activeAnalysisController = null;
@@ -1591,7 +1592,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         function handleAnalysisEvent(event) {
             if (!event || typeof event !== 'object') {
-                throw new Error('分析結果を正しく受信できませんでした。');
+                throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
             }
             if (event.type === 'progress') {
                 if (event.stage === 'intake_complete') {
@@ -1609,7 +1610,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             if (event.type === 'error') {
                 stopWaitingExperience();
-                throw new Error(analysisErrorMessage(event.error));
+                throw new AnalysisUiError(analysisErrorMessage(event.error));
             }
             return false;
         }
@@ -1632,11 +1633,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 });
 
                 if (!response.ok) {
-                    throw new Error('分析サービスとの通信に失敗しました。');
+                    throw new AnalysisUiError('分析サービスとの通信に失敗しました。');
                 }
                 const contentType = response.headers.get('content-type') || '';
                 if (!contentType.includes('application/x-ndjson') || !response.body) {
-                    throw new Error('分析結果を正しく受信できませんでした。');
+                    throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
                 }
 
                 const reader = response.body.getReader();
@@ -1656,21 +1657,33 @@ INDEX_HTML = """<!DOCTYPE html>
                     }
                     for (const line of lines) {
                         if (!line.trim()) continue;
-                        const event = JSON.parse(line);
+                        let event;
+                        try {
+                            event = JSON.parse(line);
+                        } catch (_parseError) {
+                            throw new AnalysisUiError(
+                                '分析結果を正しく受信できませんでした。'
+                            );
+                        }
                         if (handleAnalysisEvent(event)) {
-                            await reader.cancel();
+                            try {
+                                await reader.cancel();
+                            } catch (_cancelError) {
+                                // The terminal result is already validated and rendered.
+                            }
                             return;
                         }
                     }
                     if (done) break;
                 }
-                throw new Error('分析結果を受信できませんでした。');
+                throw new AnalysisUiError('分析結果を受信できませんでした。');
             } catch (err) {
                 if (err && err.name === 'AbortError') return;
                 console.error('analysis_request_failed');
+                clearPreview();
                 showScreen('screen-home');
                 errorDiv.textContent = (
-                    err && err.message
+                    err instanceof AnalysisUiError
                         ? err.message
                         : '分析エラーが発生しました。'
                 );
@@ -2088,7 +2101,7 @@ async def _proxy_analysis_stream(
                 "backend_invalid_response",
                 "分析サービスから有効な応答を受け取れませんでした。",
             )
-    except httpx.RequestError as exc:
+    except Exception as exc:
         logger.warning(
             "backend_stream_failed",
             extra={"failure_type": type(exc).__name__},

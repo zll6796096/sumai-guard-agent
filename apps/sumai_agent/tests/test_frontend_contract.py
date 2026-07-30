@@ -198,3 +198,6 @@ def test_waiting_stream_contract_is_indeterminate_local_and_safe() -> None:
     assert "activeAnalysisController = new AbortController();" in html
     assert "const reader = response.body.getReader();" in html
     assert "new TextDecoder()" in html
+    assert "class AnalysisUiError extends Error" in html
+    assert "err instanceof AnalysisUiError" in html
+    assert "err && err.message" not in html

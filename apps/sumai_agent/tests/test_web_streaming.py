@@ -227,3 +227,60 @@ async def test_web_stream_sanitizes_upstream_client_rejection(
         "message": "画像または入力内容を確認してください。",
     }
     assert "private-validation-detail" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_web_stream_contains_unexpected_upstream_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    strict: bool,
+) -> None:
+    web_module = _load_web_module()
+    monkeypatch.setattr(
+        web_module,
+        "FRONTEND_REQUIRE_REAL_GEMINI",
+        strict,
+    )
+
+    class BrokenBackend:
+        def stream(self, *_: object, **__: object) -> None:
+            raise RuntimeError("provider-secret-body")
+
+    monkeypatch.setattr(
+        web_module,
+        "backend_client",
+        lambda: BrokenBackend(),
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=web_module.app),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/analyze/stream",
+            files={
+                "image": (
+                    "toilet.png",
+                    _png_bytes(),
+                    "image/png",
+                )
+            },
+            data={"room_hint": "toilet"},
+        )
+
+    event = json.loads(response.text)
+    if strict:
+        assert event == {
+            "type": "error",
+            "error": "gemini_unavailable",
+            "message": "解析サービスは現在利用できません。",
+        }
+    else:
+        assert event["type"] == "result"
+        assert event["payload"]["is_not_applicable"] is True
+        assert event["payload"]["findings"] == []
+        assert event["payload"]["action_plan"] == {
+            "family_no_cost": [],
+            "care_manager_purchase": [],
+            "contractor_construction": [],
+        }
+    assert "provider-secret-body" not in response.text

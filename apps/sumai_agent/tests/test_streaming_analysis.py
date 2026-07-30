@@ -12,6 +12,7 @@ from PIL import Image
 
 from app.main import app
 from app.models import AnalysisResponse, VisionFacts
+from app.services.analysis_stream import stream_analysis
 from app.services.orchestrator import AnalysisOrchestrator
 
 
@@ -149,6 +150,27 @@ async def test_coalesced_requests_receive_request_local_stage_events(
     assert vision.calls == 1
     assert owner_stages == ["intake_complete", "vision_complete"]
     assert follower_stages == ["intake_complete", "vision_complete"]
+
+
+@pytest.mark.asyncio
+async def test_stream_closes_its_request_local_upload(
+    upload_factory: Callable[[], UploadFile],
+) -> None:
+    upload = upload_factory()
+    events = [
+        json.loads(line)
+        async for line in stream_analysis(
+            AnalysisOrchestrator(
+                vision=DeterministicVision()  # type: ignore[arg-type]
+            ),
+            upload,
+            "toilet",
+            False,
+        )
+    ]
+
+    assert events[-1]["type"] == "result"
+    assert upload.file.closed is True
 
 
 def test_agent_stream_emits_progress_then_result(client: TestClient) -> None:

@@ -106,3 +106,4 @@ async def stream_analysis(
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        await upload.close()
