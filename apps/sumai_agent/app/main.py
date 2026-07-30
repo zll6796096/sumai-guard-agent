@@ -33,7 +33,8 @@ def _setup_logging() -> None:
                         "number_of_findings", "latency_ms", "fallback_reason",
                         "finding_count", "entity_count", "feature_count",
                         "reason", "raw_length", "index", "error",
-                        "original", "type", "stage_timings_ms", "cache_hit"):
+                        "original", "type", "stage_timings_ms", "cache_hit",
+                        "failure_type", "error_code", "status_code"):
                 value = getattr(record, key, None)
                 if value is not None:
                     log_entry[key] = value
@@ -135,7 +136,7 @@ async def analyze(
             },
         )
         return JSONResponse(content=content)
-    except GeminiUnavailableError as exc:
+    except GeminiUnavailableError:
         return JSONResponse(
             status_code=503,
             content={
@@ -144,10 +145,35 @@ async def analyze(
             }
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.warning(
+            "analyze_rejected",
+            extra={
+                "failure_type": type(exc).__name__,
+                "error_code": "invalid_upload",
+            },
+        )
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "invalid_upload",
+                "message": "画像または入力内容を確認してください。",
+            },
+        )
     except Exception as exc:
-        logger.error("analyze_error", extra={"error": str(exc)[:500]})
-        raise HTTPException(status_code=500, detail=f"分析中にエラーが発生しました: {exc}") from exc
+        logger.error(
+            "analyze_error",
+            extra={
+                "failure_type": type(exc).__name__,
+                "error_code": "analysis_failed",
+            },
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "analysis_failed",
+                "message": "分析を完了できませんでした。",
+            },
+        )
 
 
 @app.post("/analyze/stream")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 
@@ -12,6 +13,7 @@ from app.services.orchestrator import AnalysisOrchestrator
 
 
 _END = object()
+logger = logging.getLogger("sumai.analysis_stream")
 
 
 def _line(payload: dict[str, object]) -> bytes:
@@ -52,6 +54,17 @@ async def stream_analysis(
                 value
                 for key, value in timings.items()
                 if key != "total" and isinstance(value, int)
+            )
+            logger.info(
+                "analysis_complete",
+                extra={
+                    "analysis_id": response.analysis_id,
+                    "mode": response.mode,
+                    "model": response.model,
+                    "number_of_findings": len(response.findings),
+                    "stage_timings_ms": timings,
+                    "cache_hit": response._cache_hit,
+                },
             )
             await queue.put(
                 _line(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 from collections.abc import Callable
 
 import pytest
@@ -173,6 +174,118 @@ async def test_stream_closes_its_request_local_upload(
     assert upload.file.closed is True
 
 
+@pytest.mark.asyncio
+async def test_last_stream_disconnect_cancels_shared_vision_worker(
+    upload_factory: Callable[[], UploadFile],
+) -> None:
+    class CancellableVision(DeterministicVision):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def analyze(self, **_: object) -> tuple[VisionFacts, str]:
+            self.started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+
+    vision = CancellableVision()
+    stream = stream_analysis(
+        AnalysisOrchestrator(vision=vision),  # type: ignore[arg-type]
+        upload_factory(),
+        "toilet",
+        False,
+    )
+
+    intake = json.loads(await anext(stream))
+    assert intake == {"type": "progress", "stage": "intake_complete"}
+    await vision.started.wait()
+    await stream.aclose()
+
+    await asyncio.wait_for(vision.cancelled.wait(), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_owner_stream_disconnect_keeps_worker_for_follower(
+    upload_factory: Callable[[], UploadFile],
+) -> None:
+    class SharedVision(DeterministicVision):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.cancelled = asyncio.Event()
+
+        async def analyze(self, **kwargs: object) -> tuple[VisionFacts, str]:
+            self.started.set()
+            try:
+                await self.release.wait()
+            except asyncio.CancelledError:
+                self.cancelled.set()
+                raise
+            return await super().analyze(**kwargs)
+
+    vision = SharedVision()
+    orchestrator = AnalysisOrchestrator(vision=vision)  # type: ignore[arg-type]
+    owner = stream_analysis(
+        orchestrator, upload_factory(), "toilet", False
+    )
+    follower = stream_analysis(
+        orchestrator, upload_factory(), "toilet", False
+    )
+
+    assert json.loads(await anext(owner))["stage"] == "intake_complete"
+    await vision.started.wait()
+    assert json.loads(await anext(follower))["stage"] == "intake_complete"
+    await asyncio.sleep(0)
+    await owner.aclose()
+    assert vision.cancelled.is_set() is False
+
+    vision.release.set()
+    follower_events = [json.loads(line) async for line in follower]
+    assert follower_events[-1]["type"] == "result"
+    assert vision.cancelled.is_set() is False
+    assert vision.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_success_restores_safe_structured_completion_log(
+    upload_factory: Callable[[], UploadFile],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="sumai.analysis_stream")
+    events = [
+        json.loads(line)
+        async for line in stream_analysis(
+            AnalysisOrchestrator(
+                vision=DeterministicVision()  # type: ignore[arg-type]
+            ),
+            upload_factory(),
+            "toilet",
+            False,
+        )
+    ]
+
+    result = events[-1]["payload"]
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "sumai.analysis_stream"
+        and record.message == "analysis_complete"
+    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record.analysis_id == result["analysis_id"]
+    assert record.mode == result["mode"]
+    assert record.model == result["model"]
+    assert record.number_of_findings == len(result["findings"])
+    assert record.stage_timings_ms == result["stage_timings_ms"]
+    assert isinstance(record.cache_hit, bool)
+
+
 def test_agent_stream_emits_progress_then_result(client: TestClient) -> None:
     with client.stream(
         "POST",
@@ -290,3 +403,62 @@ def test_existing_synchronous_analyze_endpoint_remains_available(
 
     assert response.status_code == 200
     AnalysisResponse.model_validate(response.json())
+
+
+@pytest.mark.parametrize(
+    ("failure", "status_code", "expected"),
+    [
+        (
+            ValueError("private-invalid-upload-detail"),
+            400,
+            {
+                "error": "invalid_upload",
+                "message": "画像または入力内容を確認してください。",
+            },
+        ),
+        (
+            RuntimeError("private-provider-detail"),
+            500,
+            {
+                "error": "analysis_failed",
+                "message": "分析を完了できませんでした。",
+            },
+        ),
+    ],
+)
+def test_existing_synchronous_analyze_sanitizes_failures_and_logs(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: Exception,
+    status_code: int,
+    expected: dict[str, str],
+) -> None:
+    from app import main as main_module
+
+    async def fail_analysis(**_: object) -> None:
+        raise failure
+
+    monkeypatch.setattr(main_module.orchestrator, "analyze", fail_analysis)
+    caplog.set_level(logging.WARNING, logger="sumai.main")
+
+    response = client.post(
+        "/analyze",
+        files={"image": ("toilet.png", _png_bytes(), "image/png")},
+        data={"room_hint": "toilet", "mock": "false"},
+    )
+
+    assert response.status_code == status_code
+    assert response.json() == expected
+    captured = "\n".join(repr(record.__dict__) for record in caplog.records)
+    assert str(failure) not in response.text
+    assert str(failure) not in captured
+    assert type(failure).__name__ in captured
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "sumai.main"
+    ]
+    assert len(records) == 1
+    assert records[0].failure_type == type(failure).__name__
+    assert records[0].error_code == expected["error"]
