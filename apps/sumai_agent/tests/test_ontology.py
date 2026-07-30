@@ -7,7 +7,7 @@ from typing import Any, Callable
 import pytest
 import yaml
 
-from app.models import BoundingBox, MissingSafetyFeature, VisionResult
+from app.models import BoundingBox, RiskFinding, VisionResult
 from app.ontology import OntologyRepository
 from app.services.checklist_engine import ChecklistEngine
 from app.services.rule_engine import RuleEngine
@@ -192,8 +192,8 @@ def test_default_ontology_has_the_required_version_and_rooms() -> None:
 
     assert ontology.ontology_version == "1.0.0"
     assert ontology.version == "1.0.0"
-    assert ontology.schema_version == "2.0.0"
-    assert ontology.inference_config_version == "1.0.4"
+    assert ontology.schema_version == "2.1.0"
+    assert ontology.inference_config_version == "1.0.5"
     assert set(ontology.room_names) == {
         "toilet",
         "bathroom",
@@ -320,25 +320,32 @@ def test_engines_load_a_legacy_flat_room_mapping(tmp_path: Path) -> None:
     )
 
     checklist_engine = ChecklistEngine(checklists_path=legacy_path)
+    visible_finding = RiskFinding(
+        id="pending",
+        risk_type="cluttered_path",
+        label_ja="床の物・動線阻害",
+        description_ja="床の物が写真で確認されました。",
+        severity=3,
+        confidence=0.85,
+        bbox=BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6),
+        evidence_source_ids=["CAA_FALL_PREVENTION"],
+        evidence_ja="写真内の表示範囲に可視の根拠があります。",
+        basis_label_ja="消費者庁 転倒予防ポイントに基づく一般注意",
+        basis_summary_ja="床や動線上の物はつまずきにつながります。",
+        needs_human_confirmation=False,
+        ontology_key="has_floor_clutter",
+        ontology_rule_kind="visible_hazard",
+    )
     findings = checklist_engine.process(
         VisionResult(
             room_type="toilet",
             is_home_environment=True,
-            observations={"has_handrail": False},
-            visible_hazards=[],
-            missing_safety_features=[
-                MissingSafetyFeature(
-                    feature_key="has_handrail",
-                    confidence=0.85,
-                    bbox=BoundingBox(x=0.1, y=0.2, w=0.15, h=0.6),
-                    evidence_ja="手すりが確認できません。",
-                )
-            ],
+            visible_hazards=[visible_finding],
         )
     )
     normalized, actions = RuleEngine(checklists_path=legacy_path).apply(findings, "toilet")
 
-    assert normalized[0].risk_type == "toilet_missing_handrail"
+    assert normalized[0].risk_type == "cluttered_path"
     assert actions.family_no_cost
 
 

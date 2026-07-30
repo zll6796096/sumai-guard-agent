@@ -10,8 +10,13 @@ from fastapi import UploadFile
 from PIL import Image
 
 from app.config import Settings
-from app.models import ActionPlan, VisionFacts
-from app.services.orchestrator import AnalysisOrchestrator, ComputedAnalysis
+from app.models import ActionPlan, ConfirmationItem, VisionFacts
+from app.services.canonicalization import canonicalize_confirmation_items, semantic_hash
+from app.services.orchestrator import (
+    AnalysisOrchestrator,
+    ComputedAnalysis,
+    analysis_semantic_payload,
+)
 from app.services.result_memo import AsyncResultMemo
 
 
@@ -389,6 +394,65 @@ def test_fallback_is_not_cached_and_strict_failure_does_not_poison_key(monkeypat
     asyncio.run(run())
 
 
+def test_confirmation_items_participate_in_stable_semantic_identity() -> None:
+    first = ConfirmationItem(
+        id="pending",
+        feature_key="has_handrail",
+        label_ja="手すり",
+        description_ja="写真では確認できませんでした。",
+        confidence=0.91,
+        evidence_source_ids=["MHLW_WELFARE_HOUSING"],
+        basis_label_ja="写真で確認できる範囲",
+        basis_summary_ja="写真だけでは実際の有無を判断できません。",
+        needs_human_confirmation=True,
+    )
+    second = ConfirmationItem(
+        id="pending",
+        feature_key="has_emergency_call_button",
+        label_ja="緊急呼出ボタン",
+        description_ja="写真では確認できませんでした。",
+        confidence=0.82,
+        evidence_source_ids=[],
+        basis_label_ja="写真で確認できる範囲",
+        basis_summary_ja="写真だけでは実際の有無を判断できません。",
+        needs_human_confirmation=True,
+    )
+    forward = canonicalize_confirmation_items([first, second])
+    reverse = canonicalize_confirmation_items([second, first])
+    empty_hash = semantic_hash(
+        analysis_semantic_payload(
+            "toilet",
+            [],
+            ActionPlan(),
+            confirmation_items=[],
+        )
+    )
+    forward_hash = semantic_hash(
+        analysis_semantic_payload(
+            "toilet",
+            [],
+            ActionPlan(),
+            confirmation_items=forward,
+        )
+    )
+    reverse_hash = semantic_hash(
+        analysis_semantic_payload(
+            "toilet",
+            [],
+            ActionPlan(),
+            confirmation_items=reverse,
+        )
+    )
+
+    assert [(item.id, item.feature_key) for item in forward] == [
+        ("C1", "has_emergency_call_button"),
+        ("C2", "has_handrail"),
+    ]
+    assert forward == reverse
+    assert empty_hash != forward_hash
+    assert forward_hash == reverse_hash
+
+
 def test_computed_analysis_contains_only_structured_semantic_values() -> None:
     forbidden_fragments = ("image", "base64", "pixel", "digest", "result_key", "analysis_id")
     assert all(
@@ -401,6 +465,7 @@ def test_computed_analysis_contains_only_structured_semantic_values() -> None:
         response_room="genkan",
         overall_risk="low",
         findings=[],
+        confirmation_items=[],
         action_plan=ActionPlan(),
         reports={"risk_summary_markdown": "結果"},
         mode="mock",

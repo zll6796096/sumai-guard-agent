@@ -179,6 +179,12 @@ def validate_response_schema(payload: object) -> bool:
     findings = payload.get("findings")
     if not isinstance(findings, list) or not all(_valid_finding(item) for item in findings):
         return False
+    confirmation_items = payload.get("confirmation_items")
+    if (
+        not isinstance(confirmation_items, list)
+        or not all(_valid_confirmation_item(item) for item in confirmation_items)
+    ):
+        return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")
         if (
@@ -187,6 +193,7 @@ def validate_response_schema(payload: object) -> bool:
             or not isinstance(reason, str)
             or not reason.strip()
             or findings
+            or confirmation_items
         ):
             return False
         if payload.get("action_plan") != {
@@ -202,7 +209,14 @@ def validate_response_schema(payload: object) -> bool:
     ):
         return False
     finding_ids = [finding["id"] for finding in findings]
-    if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):
+    confirmation_ids = [item["id"] for item in confirmation_items]
+    confirmation_keys = [item["feature_key"] for item in confirmation_items]
+    if (
+        len(set(finding_ids)) != len(finding_ids)
+        or len(set(confirmation_ids)) != len(confirmation_ids)
+        or len(set(confirmation_keys)) != len(confirmation_keys)
+        or not _valid_action_plan(payload.get("action_plan"), set(finding_ids))
+    ):
         return False
     stages = payload.get("stage_timings_ms")
     return isinstance(stages, dict) and set(stages) == STAGE_TIMING_KEYS and all(
@@ -243,6 +257,42 @@ def _valid_finding(item: object) -> bool:
     return isinstance(item.get("evidence_source_ids"), list) and all(
         isinstance(source, str) and source for source in item["evidence_source_ids"]
     ) and isinstance(item.get("needs_human_confirmation"), bool)
+
+
+def _valid_confirmation_item(item: object) -> bool:
+    if not isinstance(item, dict) or set(item) != {
+        "id",
+        "feature_key",
+        "label_ja",
+        "description_ja",
+        "confidence",
+        "evidence_source_ids",
+        "basis_label_ja",
+        "basis_summary_ja",
+        "needs_human_confirmation",
+    }:
+        return False
+    text_fields = {
+        "id",
+        "feature_key",
+        "label_ja",
+        "description_ja",
+        "basis_label_ja",
+        "basis_summary_ja",
+    }
+    return (
+        all(
+            isinstance(item.get(field), str) and item[field].strip()
+            for field in text_fields
+        )
+        and _unit_number(item.get("confidence"))
+        and isinstance(item.get("evidence_source_ids"), list)
+        and all(
+            isinstance(source, str) and source
+            for source in item["evidence_source_ids"]
+        )
+        and item.get("needs_human_confirmation") is True
+    )
 
 
 def _unit_number(value: object) -> bool:

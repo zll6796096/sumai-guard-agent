@@ -4,6 +4,7 @@ from copy import deepcopy
 import importlib.util
 import os
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
@@ -179,6 +180,7 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
     return {
         "analysis_id": "opaque-id", "room_type": "hallway", "overall_risk_level": "medium",
         "findings": resolved_findings,
+        "confirmation_items": [],
         "action_plan": {
             "family_no_cost": [action] if resolved_findings else [],
             "care_manager_purchase": [], "contractor_construction": [],
@@ -190,8 +192,8 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "is_not_applicable": False, "model": "N/A",
         "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
-        "schema_version": "2.0.0", "ontology_version": "1.0.0",
-        "preprocess_version": "1.0.0", "inference_config_version": "1.0.0",
+        "schema_version": "2.1.0", "ontology_version": "1.0.0",
+        "preprocess_version": "1.0.0", "inference_config_version": "1.0.5",
         "stage_timings_ms": {
             "intake": 1, "memo_lookup": 0, "vision": 1, "ontology": 1,
             "render": 1, "report": 1, "serialize": 1, "total": 6,
@@ -215,6 +217,9 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["action_plan"] = {}
+    assert benchmark.validate_response_schema(malformed) is False
+    malformed = deepcopy(payload)
+    malformed.pop("confirmation_items")
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed.pop("not_applicable_reason_ja")
@@ -272,6 +277,10 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     with_action["action_plan"]["family_no_cost"] = _valid_payload()["action_plan"]["family_no_cost"]
     assert benchmark.validate_response_schema(with_action) is False
 
+    with_confirmation = deepcopy(payload)
+    with_confirmation["confirmation_items"] = [_valid_confirmation_item()]
+    assert benchmark.validate_response_schema(with_confirmation) is False
+
     without_reason = deepcopy(payload)
     without_reason["not_applicable_reason_ja"] = ""
     assert benchmark.validate_response_schema(without_reason) is False
@@ -283,6 +292,61 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     known_room = deepcopy(payload)
     known_room["room_type"] = "hallway"
     assert benchmark.validate_response_schema(known_room) is False
+
+
+def _valid_confirmation_item() -> dict[str, object]:
+    return {
+        "id": "C1",
+        "feature_key": "has_handrail",
+        "label_ja": "手すり",
+        "description_ja": "この写真では手すりを確認できませんでした。",
+        "confidence": 0.82,
+        "evidence_source_ids": ["MHLW_WELFARE_HOUSING"],
+        "basis_label_ja": "写真で確認できる範囲",
+        "basis_summary_ja": "写真だけでは実際の有無を判断できません。",
+        "needs_human_confirmation": True,
+    }
+
+
+def test_confirmation_only_applicable_response_is_schema_valid() -> None:
+    benchmark = _load_module()
+    payload = _valid_payload(findings=[])
+    payload.update({
+        "room_type": "toilet",
+        "overall_risk_level": "low",
+        "confirmation_items": [_valid_confirmation_item()],
+    })
+
+    assert benchmark.validate_response_schema(payload) is True
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda item: item.pop("feature_key"),
+        lambda item: item.update({"confidence": True}),
+        lambda item: item.update({"evidence_source_ids": [""]}),
+        lambda item: item.update({"needs_human_confirmation": False}),
+        lambda item: item.update({"bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}),
+        lambda item: item.update({"severity": 3}),
+        lambda item: item.update({"risk_type": "toilet_missing_handrail"}),
+        lambda item: item.update({"actions": []}),
+    ],
+)
+def test_confirmation_item_schema_is_strict(
+    mutate: Callable[[dict[str, object]], object],
+) -> None:
+    benchmark = _load_module()
+    payload = _valid_payload(findings=[])
+    payload.update({
+        "room_type": "toilet",
+        "overall_risk_level": "low",
+        "confirmation_items": [_valid_confirmation_item()],
+    })
+    confirmation_item = payload["confirmation_items"][0]  # type: ignore[index]
+    mutate(confirmation_item)
+
+    assert benchmark.validate_response_schema(payload) is False
 
 
 def test_applicable_response_cannot_carry_a_neutral_reason() -> None:

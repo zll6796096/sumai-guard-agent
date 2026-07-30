@@ -189,7 +189,7 @@ class AnalysisResponse(BaseModel):
     model: str = "N/A"
     result_key: str = ""
     semantic_hash: str = ""
-    schema_version: str = "2.0.0"
+    schema_version: str = "2.1.0"
     ontology_version: str = "1.0.0"
     preprocess_version: str = "1.0.0"
     inference_config_version: str = "1.0.0"

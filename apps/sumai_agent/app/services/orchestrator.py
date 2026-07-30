@@ -11,10 +11,19 @@ from fastapi import UploadFile
 from PIL import Image
 
 from app.config import settings
-from app.models import ActionPlan, AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
+from app.models import (
+    ActionPlan,
+    AnalysisResponse,
+    ConfirmationItem,
+    RiskFinding,
+    RiskLevel,
+    RoomType,
+    VisionFacts,
+)
 from app.ontology import OntologyRepository
 from app.services.canonicalization import (
     canonical_pixel_digest,
+    canonicalize_confirmation_items,
     canonicalize_findings,
     normalize_signed_zero,
     result_key,
@@ -57,6 +66,7 @@ class ComputedAnalysis:
     response_room: RoomType
     overall_risk: RiskLevel
     findings: list[RiskFinding]
+    confirmation_items: list[ConfirmationItem]
     action_plan: ActionPlan
     reports: dict[str, str]
     mode: str
@@ -137,6 +147,7 @@ class AnalysisOrchestrator:
                 else "auto"
             )
             findings: list[RiskFinding] = []
+            confirmation_items: list[ConfirmationItem] = []
             action_plan = ActionPlan()
             is_home_environment = vision_facts.environment == "home"
             is_not_applicable = (
@@ -148,9 +159,15 @@ class AnalysisOrchestrator:
                 response_room = "auto"
             not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
             if not is_not_applicable:
-                derived_findings = self.relationship_engine.derive(vision_facts)
+                derivation = self.relationship_engine.derive(vision_facts)
+                visible_findings = canonicalize_findings(
+                    derivation.visible_findings
+                )
+                confirmation_items = canonicalize_confirmation_items(
+                    derivation.confirmation_items
+                )
                 findings, action_plan = self.rule_engine.apply(
-                    canonicalize_findings(derived_findings), response_room
+                    visible_findings, response_room
                 )
             overall_risk = overall_risk_level(findings)
             model_name = "N/A" if mode == "mock" else configured_model
@@ -159,6 +176,7 @@ class AnalysisOrchestrator:
                     response_room,
                     findings,
                     action_plan,
+                    confirmation_items=confirmation_items,
                     is_home_environment=is_home_environment,
                     not_applicable_reason_ja=not_applicable_reason_ja,
                 )
@@ -183,6 +201,7 @@ class AnalysisOrchestrator:
                     response_room=response_room,
                     overall_risk=overall_risk,
                     findings=findings,
+                    confirmation_items=confirmation_items,
                     action_plan=action_plan,
                     reports=reports,
                     mode=mode,
@@ -232,6 +251,7 @@ class AnalysisOrchestrator:
             room_type=computed.response_room,
             overall_risk_level=computed.overall_risk,
             findings=computed.findings,
+            confirmation_items=computed.confirmation_items,
             action_plan=computed.action_plan,
             annotated_image_base64=annotated,
             improvement_image_base64=improvement,
@@ -272,6 +292,7 @@ def analysis_semantic_payload(
     findings: list[RiskFinding],
     action_plan: ActionPlan,
     *,
+    confirmation_items: list[ConfirmationItem] | None = None,
     is_home_environment: bool = True,
     not_applicable_reason_ja: str | None = None,
 ) -> dict[str, object]:
@@ -287,6 +308,10 @@ def analysis_semantic_payload(
         "findings": [
             finding.model_dump(mode="json", exclude={"display_bbox"})
             for finding in findings
+        ],
+        "confirmation_items": [
+            item.model_dump(mode="json")
+            for item in (confirmation_items or [])
         ],
         "action_plan": action_plan.model_dump(mode="json"),
     }

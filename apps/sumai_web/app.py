@@ -1774,13 +1774,13 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
     result_identity = {
         "execution_mode": "local_mock_abstention",
-        "inference_config_version": "1.0.0",
+        "inference_config_version": "1.0.5",
         "model": "N/A",
         "ontology_version": "1.0.0",
         "pixel_digest": pixel_digest,
         "preprocess_version": "1.0.0",
         "room_hint": room_hint,
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
     }
     result_key = hashlib.sha256(
         json.dumps(
@@ -1799,6 +1799,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
                     "contractor_construction": [],
                     "family_no_cost": [],
                 },
+                "confirmation_items": [],
                 "findings": [],
                 "is_home_environment": True,
                 "not_applicable_reason_ja": not_applicable_reason,
@@ -1824,6 +1825,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "is_not_applicable": True,
         "not_applicable_reason_ja": not_applicable_reason,
         "findings": [],
+        "confirmation_items": [],
         "action_plan": {
             "family_no_cost": [],
             "care_manager_purchase": [],
@@ -1839,10 +1841,10 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "model": "N/A",
         "result_key": result_key,
         "semantic_hash": semantic_hash,
-        "schema_version": "2.0.0",
+        "schema_version": "2.1.0",
         "ontology_version": "1.0.0",
         "preprocess_version": "1.0.0",
-        "inference_config_version": "1.0.0",
+        "inference_config_version": "1.0.5",
         "stage_timings_ms": {
             "intake": 0,
             "memo_lookup": 0,
