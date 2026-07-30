@@ -5,6 +5,7 @@ import logging
 import time
 import unicodedata
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from fastapi import UploadFile
@@ -39,6 +40,8 @@ from app.services.visual_renderer import VisualRenderer
 
 
 logger = logging.getLogger("sumai.orchestrator")
+
+ProgressCallback = Callable[[str], Awaitable[None]]
 
 STAGE_TIMING_KEYS = (
     "intake",
@@ -97,7 +100,13 @@ class AnalysisOrchestrator:
     async def aclose(self) -> None:
         await self.vision.aclose()
 
-    async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
+    async def analyze(
+        self,
+        upload: UploadFile,
+        room_hint: str = "auto",
+        mock: bool = False,
+        progress: ProgressCallback | None = None,
+    ) -> AnalysisResponse:
         analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
         stage_timings_ms = _empty_stage_timings()
         normalized_hint = normalize_room_hint(room_hint)
@@ -114,6 +123,7 @@ class AnalysisOrchestrator:
         raw_bytes = await upload.read()
         image, safe_png, pixel_digest = await asyncio.to_thread(_prepare_image, raw_bytes)
         stage_timings_ms["intake"] = elapsed_ms(intake_started)
+        await _emit_progress(progress, "intake_complete")
         execution_mode = execution_mode_for_request(force_mock=mock)
         configured_model = settings.gemini_model
         stable_result_key = result_key(
@@ -137,6 +147,7 @@ class AnalysisOrchestrator:
                 analysis_id=analysis_id,
             )
             stage_timings_ms["vision"] = elapsed_ms(vision_started)
+            await _emit_progress(progress, "vision_complete")
 
             ontology_started = time.monotonic()
             response_room: RoomType = (
@@ -220,6 +231,8 @@ class AnalysisOrchestrator:
         computed, memo_hit = await self.result_memo.get_or_compute(
             stable_result_key, compute_semantics
         )
+        if not factory_ran[0]:
+            await _emit_progress(progress, "vision_complete")
         memo_elapsed = elapsed_ms(memo_started)
         if factory_ran[0]:
             stage_timings_ms["memo_lookup"] = max(
@@ -271,6 +284,14 @@ class AnalysisOrchestrator:
         )
         response._cache_hit = memo_hit
         return response
+
+
+async def _emit_progress(
+    callback: ProgressCallback | None,
+    stage: str,
+) -> None:
+    if callback is not None:
+        await callback(stage)
 
 
 def execution_mode_for_request(*, force_mock: bool) -> str:

@@ -159,32 +159,39 @@ def test_result_memo_cleans_failed_and_cancelled_in_flight_work_without_cancelli
 
         started = asyncio.Event()
         release = asyncio.Event()
+        worker_cancelled = asyncio.Event()
 
         async def slow_factory() -> tuple[str, bool]:
             nonlocal calls
             calls += 1
             started.set()
-            await release.wait()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                worker_cancelled.set()
+                raise
             return "shared", True
 
         cancelled_waiter = asyncio.create_task(memo.get_or_compute("cancel", slow_factory))
         survivor = asyncio.create_task(memo.get_or_compute("cancel", slow_factory))
         await started.wait()
+        await asyncio.sleep(0)
         cancelled_waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
             await cancelled_waiter
         release.set()
         assert await survivor == ("shared", False)
+        assert worker_cancelled.is_set() is False
         assert calls == 5
 
     asyncio.run(run())
 
 
-def test_result_memo_observes_failure_after_its_only_waiter_cancels() -> None:
+def test_result_memo_cancels_worker_and_cleans_key_after_last_waiter_cancels() -> None:
     async def run() -> None:
         memo: AsyncResultMemo[str] = AsyncResultMemo(max_items=2, ttl_seconds=5)
         started = asyncio.Event()
-        release = asyncio.Event()
+        worker_cancelled = asyncio.Event()
         unhandled: list[dict[str, object]] = []
         loop = asyncio.get_running_loop()
         previous_handler = loop.get_exception_handler()
@@ -194,26 +201,30 @@ def test_result_memo_observes_failure_after_its_only_waiter_cancels() -> None:
         ) -> None:
             unhandled.append(context)
 
-        async def detached_failure() -> tuple[str, bool]:
+        async def cancellable_factory() -> tuple[str, bool]:
             started.set()
-            await release.wait()
-            raise RuntimeError("detached failure")
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                worker_cancelled.set()
+                raise
 
         async def retry() -> tuple[str, bool]:
             return "recovered", True
 
         loop.set_exception_handler(capture_unhandled)
         try:
-            waiter = asyncio.create_task(memo.get_or_compute("same", detached_failure))
+            waiter = asyncio.create_task(
+                memo.get_or_compute("same", cancellable_factory)
+            )
             await started.wait()
             waiter.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await waiter
-            release.set()
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
+            await asyncio.wait_for(worker_cancelled.wait(), timeout=1)
 
             assert unhandled == []
+            assert "same" not in memo._in_flight
             assert await memo.get_or_compute("same", retry) == ("recovered", False)
         finally:
             loop.set_exception_handler(previous_handler)
