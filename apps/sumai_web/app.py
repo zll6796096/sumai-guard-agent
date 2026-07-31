@@ -486,45 +486,76 @@ INDEX_HTML = """<!DOCTYPE html>
         }
 
         .analyzing-subtitle {
-            font-size: 0.95rem;
+            font-size: 1rem;
             font-weight: 700;
             color: var(--text-color);
-            margin-bottom: 16px;
+            margin-bottom: 12px;
+            line-height: 1.5;
         }
 
-        .steps-container-compact {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 6px;
-            background-color: var(--surface);
-            border: 1px solid var(--border-color);
-            border-radius: 20px;
-            padding: 8px 16px;
-            display: inline-flex;
+        .waiting-progress-track {
+            position: relative;
+            width: min(100%, 360px);
+            height: 8px;
+            margin: 0 auto 18px;
+            overflow: hidden;
+            border-radius: 999px;
+            background-color: var(--separator);
+        }
+
+        .waiting-progress-indicator {
+            display: block;
+            width: 42%;
+            height: 100%;
+            border-radius: inherit;
+            background-color: var(--secondary-color);
+            box-shadow: 0 0 10px rgba(0, 122, 255, 0.25);
+            animation: waiting-progress-sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+
+        @keyframes waiting-progress-sweep {
+            from { transform: translateX(-20%); }
+            to { transform: translateX(138%); }
+        }
+
+        .waiting-tip-card {
+            width: min(100%, 420px);
             margin: 0 auto;
+            padding: 14px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            background-color: var(--surface);
+            text-align: left;
         }
 
-        .step-compact {
-            font-size: 0.72rem;
-            font-weight: 500;
+        .waiting-tip-label {
+            display: block;
+            margin-bottom: 5px;
+            color: var(--secondary-color);
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .waiting-tip-text {
+            min-height: 3em;
+            margin: 0;
+            color: var(--text-color);
+            font-size: 0.9rem;
+            font-weight: 600;
+            line-height: 1.5;
+            transition: opacity 0.18s ease;
+        }
+
+        .waiting-long-note {
+            margin: 12px auto 0;
             color: var(--text-muted);
-            transition: all 0.3s ease;
+            font-size: 0.78rem;
+            line-height: 1.5;
         }
 
-        .step-compact.active {
-            color: var(--primary-color);
-            font-weight: 700;
-        }
-
-        .step-compact.completed {
-            color: var(--success-color);
-            font-weight: 700;
-        }
-
-        .step-arrow-compact {
-            font-size: 0.7rem;
-            color: var(--separator);
+        .waiting-long-note[hidden] {
+            display: none;
         }
 
         /* Screen: Result & Suggestions */
@@ -878,6 +909,11 @@ INDEX_HTML = """<!DOCTYPE html>
                 animation-duration: 0.01ms !important;
                 animation-iteration-count: 1 !important;
             }
+
+            .waiting-progress-indicator {
+                width: 68%;
+                transform: none;
+            }
         }
     </style>
 </head>
@@ -998,15 +1034,27 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div class="large-preview-wrapper">
                     <img id="result-large-preview" src="" alt="Selected Photo">
                 </div>
-                <div class="analyzing-status-box" role="status" aria-live="polite">
-                    <p class="analyzing-subtitle">AIが写真を確認しています…</p>
-                    <div class="steps-container-compact">
-                        <div class="step-compact active" id="step-c1">写真確認</div>
-                        <div class="step-arrow-compact">→</div>
-                        <div class="step-compact" id="step-c2">リスク判定</div>
-                        <div class="step-arrow-compact">→</div>
-                        <div class="step-compact" id="step-c3">改善案作成</div>
+                <div class="analyzing-status-box">
+                    <p id="waiting-status-text" class="analyzing-subtitle" role="status" aria-live="polite">
+                        写真を安全に準備しています…
+                    </p>
+                    <div
+                        id="waiting-progress-track"
+                        class="waiting-progress-track"
+                        role="progressbar"
+                        aria-label="写真確認の進行状況"
+                    >
+                        <span class="waiting-progress-indicator" aria-hidden="true"></span>
                     </div>
+                    <div class="waiting-tip-card">
+                        <span class="waiting-tip-label">待ち時間にできる安全確認</span>
+                        <p id="waiting-tip-text" class="waiting-tip-text">
+                            夜間に通る場所は、足元まで明るく見えるか確認してみましょう。
+                        </p>
+                    </div>
+                    <p id="waiting-long-note" class="waiting-long-note" hidden>
+                        写真によっては確認に少し時間がかかります。このまま画面を開いてお待ちください。
+                    </p>
                 </div>
             </div>
 
@@ -1268,8 +1316,8 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById('result-analyzing-container').style.display = 'block';
             document.getElementById('result-completed-container').style.display = 'none';
 
-            // Start step animations
-            startStepAnimation();
+            // Start browser-only waiting guidance. This does not add requests.
+            startWaitingExperience();
 
             // Run analysis immediately
             uploadAndAnalyze(selectedFile);
@@ -1277,6 +1325,7 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Clear preview / reset to home
         function clearPreview() {
+            stopWaitingExperience();
             selectedFile = null;
             cameraInput.value = '';
             libraryInput.value = '';
@@ -1284,37 +1333,68 @@ INDEX_HTML = """<!DOCTYPE html>
             errorDiv.style.display = 'none';
         }
 
-        // Simulated Step animations
-        let step1, step2;
-        function startStepAnimation() {
-            const steps = [
-                document.getElementById('step-c1'),
-                document.getElementById('step-c2'),
-                document.getElementById('step-c3')
-            ];
-            steps.forEach((step, idx) => {
-                step.className = 'step-compact';
-                if (idx === 0) step.classList.add('active');
-            });
+        const waitingTips = [
+            '夜間に通る場所は、足元まで明るく見えるか確認してみましょう。',
+            '廊下や出入口に、つまずきやすい物が置かれていないか見直しましょう。',
+            '浴室や洗面所の床は、濡れたままにしないことが大切です。',
+            'よく使う物は、無理に背伸びをしない高さに置くと安心です。'
+        ];
+        const reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let waitingPhaseTimer = null;
+        let waitingTipTimer = null;
+        let waitingLongNoteTimer = null;
+        let waitingTipIndex = 0;
 
-            clearStepAnimation();
-
-            step1 = setTimeout(() => {
-                steps[0].classList.add('completed');
-                steps[0].classList.remove('active');
-                steps[1].classList.add('active');
-            }, 1200);
-
-            step2 = setTimeout(() => {
-                steps[1].classList.add('completed');
-                steps[1].classList.remove('active');
-                steps[2].classList.add('active');
-            }, 2600);
+        function renderWaitingPhase(elapsedMs) {
+            const status = document.getElementById('waiting-status-text');
+            if (elapsedMs < 8000) {
+                status.textContent = '写真を安全に準備しています…';
+            } else if (elapsedMs < 20000) {
+                status.textContent = '写真に写っている注意点を確認しています…';
+            } else {
+                status.textContent = '確認結果をまとめています…';
+            }
         }
 
-        function clearStepAnimation() {
-            clearTimeout(step1);
-            clearTimeout(step2);
+        function startWaitingExperience() {
+            stopWaitingExperience();
+            waitingTipIndex = 0;
+
+            const tip = document.getElementById('waiting-tip-text');
+            const longNote = document.getElementById('waiting-long-note');
+            const track = document.getElementById('waiting-progress-track');
+            tip.textContent = waitingTips[waitingTipIndex];
+            longNote.hidden = true;
+            track.dataset.reducedMotion = String(reducedMotionQuery.matches);
+            renderWaitingPhase(0);
+
+            waitingPhaseTimer = setTimeout(() => {
+                renderWaitingPhase(8000);
+                waitingPhaseTimer = setTimeout(() => {
+                    renderWaitingPhase(20000);
+                    waitingPhaseTimer = null;
+                }, 12000);
+            }, 8000);
+
+            waitingTipTimer = setInterval(() => {
+                waitingTipIndex = (waitingTipIndex + 1) % waitingTips.length;
+                tip.textContent = waitingTips[waitingTipIndex];
+            }, 6000);
+
+            waitingLongNoteTimer = setTimeout(() => {
+                longNote.hidden = false;
+                waitingLongNoteTimer = null;
+            }, 24000);
+        }
+
+        function stopWaitingExperience() {
+            clearTimeout(waitingPhaseTimer);
+            clearInterval(waitingTipTimer);
+            clearTimeout(waitingLongNoteTimer);
+            waitingPhaseTimer = null;
+            waitingTipTimer = null;
+            waitingLongNoteTimer = null;
+            document.getElementById('waiting-long-note').hidden = true;
         }
 
         async function uploadAndAnalyze(file) {
@@ -1333,11 +1413,12 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
 
                 const data = await response.json();
+                stopWaitingExperience();
                 renderResults(data);
 
             } catch (err) {
+                stopWaitingExperience();
                 console.error(err);
-                clearStepAnimation();
                 showScreen('screen-home');
                 errorDiv.textContent = err.message || '分析エラーが発生しました。';
                 errorDiv.style.display = 'block';
@@ -1415,7 +1496,7 @@ INDEX_HTML = """<!DOCTYPE html>
             // Update Debug Panel
             updateDebugPanel(payload);
 
-            clearStepAnimation();
+            stopWaitingExperience();
             
             // Switch title and transition to completed layout inside Screen 2
             document.getElementById('screen2-title').textContent = "安全チェック結果";
