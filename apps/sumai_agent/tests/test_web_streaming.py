@@ -76,6 +76,7 @@ def _valid_toilet_payload() -> dict[str, object]:
     return AnalysisResponse(
         analysis_id="sumai_contract",
         room_type="toilet",
+        assessment_status="visible_risks_found",
         overall_risk_level="medium",
         findings=[
             RiskFinding(
@@ -121,7 +122,7 @@ def _valid_toilet_payload() -> dict[str, object]:
         model="N/A",
         result_key="result",
         semantic_hash="semantic",
-        schema_version="2.1.0",
+        schema_version="2.2.0",
         ontology_version="1.0.1",
         preprocess_version="1.0.0",
         inference_config_version="1.0.6",

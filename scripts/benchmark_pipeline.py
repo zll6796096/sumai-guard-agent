@@ -28,6 +28,12 @@ TRUSTED_REPO_ROOT_ID = (_trusted_root_stat.st_dev, _trusted_root_stat.st_ino)
 IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 ROOM_HINTS = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
 RISK_LEVELS = {"low", "medium", "high"}
+ASSESSMENT_STATUSES = {
+    "visible_risks_found",
+    "needs_on_site_confirmation",
+    "no_visible_risks_found",
+    "not_applicable",
+}
 ACTION_TIER_KEYS = {"family_no_cost", "care_manager_purchase", "contractor_construction"}
 ACTION_TIERS = {"FAMILY_NO_COST", "CARE_MANAGER_PURCHASE", "CONTRACTOR_CONSTRUCTION"}
 COST_LEVELS = {"ZERO", "LOW", "MEDIUM", "HIGH"}
@@ -365,6 +371,20 @@ def validate_response_schema(payload: object) -> bool:
     ):
         return False
     if payload.get("overall_risk_level") != _risk_level_for_findings(findings):
+        return False
+    expected_assessment_status = (
+        "not_applicable"
+        if payload["is_not_applicable"]
+        else "visible_risks_found"
+        if findings
+        else "needs_on_site_confirmation"
+        if confirmation_items
+        else "no_visible_risks_found"
+    )
+    if (
+        payload.get("assessment_status") not in ASSESSMENT_STATUSES
+        or payload.get("assessment_status") != expected_assessment_status
+    ):
         return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")

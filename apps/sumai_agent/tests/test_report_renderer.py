@@ -69,6 +69,9 @@ def test_confirmation_only_report_uses_plain_copy_outside_risks_and_actions() ->
     summary = reports["risk_summary_markdown"]
     confirmations = reports["confirmation_items_markdown"]
     assert "現時点で大きな赤枠リスクは検出されませんでした。" in summary
+    assert "写真内の可視リスクレベル: 低" in summary
+    assert "総合リスク" not in summary
+    assert "現地確認が必要な項目があります" in summary
     assert "手すり" not in summary
     assert "## 写真だけでは確認できない項目" in confirmations
     assert "手すり" in confirmations

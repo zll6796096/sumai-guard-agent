@@ -143,8 +143,10 @@
 
 ### 5.3 零风险、混合和判定不能
 
-- **只有确认事项**：`findings=[]`、风险数量 `0件`、总体风险 `低`、原图无框、
-  无改善图、行动计划为空；可单独显示中性现场确认事项。
+- **只有确认事项**：`findings=[]`、风险数量 `0件`、可见风险等级仍为 `低`，
+  但照片判定状态必须为 `needs_on_site_confirmation`，界面显示“现地确认が必要”；
+  原图无框、无改善图、行动计划为空；可单独显示中性现场确认事项。不得把
+  “当前照片未形成可见风险”呈现为住宅总体风险低。
 - **可见风险与确认事项并存**：数量、等级、图像和行动只计算可见风险；确认事项在
   独立中性区域显示。
 - **无风险也无确认事项**：显示“当前照片中未检测到有足够证据的可见风险”，并提醒
@@ -177,6 +179,16 @@ flowchart LR
 以兼容旧构造调用。响应 `schema_version` 升级，推理配置版本同步升级以失效旧
 `result_key` 缓存身份。
 
+在真实照片验证中补充 `assessment_status`，把“可见危险等级”和“证据是否完整”
+分开表达：
+
+- 有 `findings`：`visible_risks_found`；
+- 无 `findings` 但有 `confirmation_items`：`needs_on_site_confirmation`；
+- 两者都没有：`no_visible_risks_found`；
+- 不适用或判定保留：`not_applicable`。
+
+该状态完全由结构化结果确定性派生，Gemini 不能直接设置。
+
 `ComputedAnalysis`、语义载荷和 `semantic_hash` 包含确认事项；呈现坐标和图片字节
 仍不进入语义哈希。
 
@@ -191,7 +203,10 @@ flowchart LR
 ### 6.3 前端
 
 - 摘要标签从“确认项目”改为“可见风险”；
-- 数量只读取 `payload.findings.length`；
+- 可见注意箇所数量只读取 `payload.findings.length`；
+- 现场确认数量只读取 `payload.confirmation_items.length`；
+- 页面不得使用“总体风险低”概括确认事项尚未解决的结果；确认事项存在且没有
+  可见风险时，必须显示“现地確認が必要”；
 - 中性卡片只读取 `payload.confirmation_items`；
 - 没有可见风险时隐藏“次にできることを見る”；
 - 只有可见风险时才显示改善图；

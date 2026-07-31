@@ -52,7 +52,56 @@ def _analysis_response_payload(**overrides: object) -> dict[str, object]:
         "disclaimer_ja": "写真のみで最終判断しません。",
     }
     payload.update(overrides)
+    if "assessment_status" not in overrides:
+        payload["assessment_status"] = (
+            "not_applicable"
+            if payload.get("is_not_applicable") is True
+            else "visible_risks_found"
+            if payload.get("findings")
+            else "needs_on_site_confirmation"
+            if payload.get("confirmation_items")
+            else "no_visible_risks_found"
+        )
     return payload
+
+
+def test_confirmation_only_response_requires_needs_on_site_confirmation_status() -> None:
+    response = AnalysisResponse.model_validate(
+        _analysis_response_payload(
+            assessment_status="needs_on_site_confirmation",
+            confirmation_items=[_confirmation_payload()],
+        )
+    )
+
+    assert response.assessment_status == "needs_on_site_confirmation"
+
+    with pytest.raises(
+        ValidationError,
+        match="assessment_status_must_match_evidence_state",
+    ):
+        AnalysisResponse.model_validate(
+            _analysis_response_payload(
+                assessment_status="no_visible_risks_found",
+                confirmation_items=[_confirmation_payload()],
+            )
+        )
+
+
+def test_visible_finding_response_requires_visible_risks_found_status() -> None:
+    finding = _finding_payload(
+        ontology_key="hallway_cord",
+        ontology_rule_kind="visible_hazard",
+    )
+
+    response = AnalysisResponse.model_validate(
+        _analysis_response_payload(
+            assessment_status="visible_risks_found",
+            overall_risk_level="medium",
+            findings=[finding],
+        )
+    )
+
+    assert response.assessment_status == "visible_risks_found"
 
 
 def _finding_payload(

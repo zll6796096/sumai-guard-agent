@@ -20,6 +20,7 @@ from app.models import (
     RiskLevel,
     RoomType,
     VisionFacts,
+    assessment_status_for_evidence,
 )
 from app.ontology import OntologyRepository
 from app.services.canonicalization import (
@@ -261,6 +262,11 @@ class AnalysisOrchestrator:
         response = AnalysisResponse(
             analysis_id=analysis_id,
             room_type=computed.response_room,
+            assessment_status=assessment_status_for_evidence(
+                is_not_applicable=computed.is_not_applicable,
+                findings=computed.findings,
+                confirmation_items=computed.confirmation_items,
+            ),
             overall_risk_level=computed.overall_risk,
             findings=computed.findings,
             confirmation_items=computed.confirmation_items,

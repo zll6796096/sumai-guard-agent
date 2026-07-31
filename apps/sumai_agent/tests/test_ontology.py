@@ -192,7 +192,7 @@ def test_default_ontology_has_the_required_version_and_rooms() -> None:
 
     assert ontology.ontology_version == "1.0.1"
     assert ontology.version == "1.0.1"
-    assert ontology.schema_version == "2.1.0"
+    assert ontology.schema_version == "2.2.0"
     assert ontology.inference_config_version == "1.0.6"
     assert set(ontology.room_names) == {
         "toilet",
