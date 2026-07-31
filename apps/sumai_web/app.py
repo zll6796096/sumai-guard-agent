@@ -38,7 +38,7 @@ DISCLAIMER = (
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
 
-CURRENT_SCHEMA_VERSION = "2.1.0"
+CURRENT_SCHEMA_VERSION = "2.2.0"
 CURRENT_ONTOLOGY_VERSION = "1.0.1"
 CURRENT_PREPROCESS_VERSION = "1.0.0"
 CURRENT_INFERENCE_CONFIG_VERSION = "1.0.6"
@@ -188,6 +188,12 @@ class WireAnalysisResponse(BaseModel):
         "kitchen",
         "auto",
     ]
+    assessment_status: Literal[
+        "visible_risks_found",
+        "needs_on_site_confirmation",
+        "no_visible_risks_found",
+        "not_applicable",
+    ]
     overall_risk_level: Literal["low", "medium", "high"]
     findings: list[WireFinding]
     confirmation_items: list[WireConfirmationItem] = Field(
@@ -245,6 +251,7 @@ class WireAnalysisResponse(BaseModel):
         if self.is_not_applicable:
             if (
                 self.room_type != "auto"
+                or self.assessment_status != "not_applicable"
                 or self.overall_risk_level != "low"
                 or self.findings
                 or self.confirmation_items
@@ -305,6 +312,15 @@ class WireAnalysisResponse(BaseModel):
             )
         if self.overall_risk_level != expected_risk:
             raise ValueError("risk_level_mismatch")
+        expected_assessment = (
+            "visible_risks_found"
+            if self.findings
+            else "needs_on_site_confirmation"
+            if self.confirmation_items
+            else "no_visible_risks_found"
+        )
+        if self.assessment_status != expected_assessment:
+            raise ValueError("assessment_status_mismatch")
         finding_ids = {finding.id for finding in self.findings}
         if not finding_ids and actions:
             raise ValueError("zero_findings_require_empty_actions")
@@ -1008,8 +1024,9 @@ INDEX_HTML = """<!DOCTYPE html>
             border: 1px solid var(--border-color);
             border-radius: var(--card-radius);
             padding: 16px;
-            display: flex;
-            justify-content: space-around;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px 8px;
             margin-bottom: 16px;
             flex-shrink: 0;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
@@ -1041,6 +1058,43 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             align-items: center;
+        }
+
+        .assessment-item {
+            grid-column: 1 / -1;
+            border-top: 1px solid var(--border-color);
+            padding-top: 12px;
+        }
+
+        .assessment-label {
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            margin-right: 8px;
+        }
+
+        .assessment-badge {
+            border-radius: 999px;
+            font-size: 0.86rem;
+            font-weight: 750;
+            padding: 5px 11px;
+        }
+
+        .assessment-visible {
+            background-color: rgba(239, 68, 68, 0.11);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            color: var(--danger-color);
+        }
+
+        .assessment-confirm {
+            background-color: rgba(0, 122, 255, 0.10);
+            border: 1px solid rgba(0, 122, 255, 0.32);
+            color: var(--secondary-color);
+        }
+
+        .assessment-clear {
+            background-color: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.34);
+            color: var(--success-color);
         }
 
         .summary-label {
@@ -1521,12 +1575,18 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">可視リスク</span>
+                        <span class="summary-label">写真内の注意箇所</span>
                         <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
-                        <span class="summary-label">総合リスク</span>
-                        <span id="risk-badge" class="badge">--</span>
+                        <span class="summary-label">現地で要確認</span>
+                        <span id="confirmation-count" class="summary-value">--件</span>
+                    </div>
+                    <div class="summary-item assessment-item">
+                        <div>
+                            <span class="assessment-label">写真からの判定</span>
+                            <span id="assessment-badge" class="assessment-badge">--</span>
+                        </div>
                     </div>
                 </div>
 
@@ -2181,14 +2241,24 @@ INDEX_HTML = """<!DOCTYPE html>
 
             renderAnalysisModeBanner(payload);
 
-            // Set risk badge
-            const riskBadge = document.getElementById('risk-badge');
-            const overallRisk = payload.overall_risk_level || 'medium';
-            riskBadge.textContent = getRiskLabel(overallRisk);
-            riskBadge.className = 'badge badge-' + overallRisk;
-
-            // Set findings count
+            // Keep visible hazards and unresolved on-site checks as separate counts.
             document.getElementById('risk-count').textContent = count + '件';
+            document.getElementById('confirmation-count').textContent = confirmationItems.length + '件';
+            const assessmentBadge = document.getElementById('assessment-badge');
+            const assessmentStatus = payload.assessment_status;
+            if (assessmentStatus === 'visible_risks_found') {
+                assessmentBadge.textContent = `注意箇所あり（${getRiskLabel(payload.overall_risk_level)}）`;
+                assessmentBadge.className = 'assessment-badge assessment-visible';
+            } else if (assessmentStatus === 'needs_on_site_confirmation') {
+                assessmentBadge.textContent = '現地確認が必要';
+                assessmentBadge.className = 'assessment-badge assessment-confirm';
+            } else if (assessmentStatus === 'no_visible_risks_found') {
+                assessmentBadge.textContent = '写真内で検出なし';
+                assessmentBadge.className = 'assessment-badge assessment-clear';
+            } else {
+                assessmentBadge.textContent = '判定保留';
+                assessmentBadge.className = 'assessment-badge assessment-confirm';
+            }
 
             if (isNotApplicable) {
                 notAppMsg.textContent = payload.not_applicable_reason_ja || "この写真では確認結果を表示できません。";
@@ -2199,7 +2269,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 btnShowSuggestions.style.display = 'none';
             } else {
                 notAppContainer.style.display = 'none';
-                resultSummary.style.display = 'flex';
+                resultSummary.style.display = 'grid';
                 imagesList.style.display = 'flex';
                 btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none';
 
@@ -2830,7 +2900,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "pixel_digest": pixel_digest,
         "preprocess_version": "1.0.0",
         "room_hint": room_hint,
-        "schema_version": "2.1.0",
+        "schema_version": "2.2.0",
     }
     result_key = hashlib.sha256(
         json.dumps(
@@ -2869,6 +2939,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     return {
         "analysis_id": f"local_{uuid.uuid4().hex}",
         "room_type": "auto",
+        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "mode": "local_mock",
         "is_home_environment": True,
@@ -2895,7 +2966,7 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "model": "N/A",
         "result_key": result_key,
         "semantic_hash": semantic_hash,
-        "schema_version": "2.1.0",
+        "schema_version": "2.2.0",
         "ontology_version": "1.0.1",
         "preprocess_version": "1.0.0",
         "inference_config_version": "1.0.6",

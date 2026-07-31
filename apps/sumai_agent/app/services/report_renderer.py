@@ -66,7 +66,12 @@ class ReportRenderer:
         action_plan: ActionPlan,
     ) -> dict[str, str]:
         return {
-            "risk_summary_markdown": self.risk_summary(room_type, overall_risk_level, findings),
+            "risk_summary_markdown": self.risk_summary(
+                room_type,
+                overall_risk_level,
+                findings,
+                has_confirmation_items=bool(confirmation_items),
+            ),
             "confirmation_items_markdown": self.confirmations_markdown(
                 confirmation_items
             ),
@@ -89,16 +94,23 @@ class ReportRenderer:
         room_type: RoomType,
         overall_risk_level: RiskLevel,
         findings: list[RiskFinding],
+        *,
+        has_confirmation_items: bool = False,
     ) -> str:
         lines = [
             "## リスク概要",
             f"- 部屋: {ROOM_LABELS.get(room_type, room_type)}",
-            f"- 総合リスク: {RISK_LABELS[overall_risk_level]}",
+            f"- 写真内の可視リスクレベル: {RISK_LABELS[overall_risk_level]}",
             "- 写真で見える範囲だけを対象にしています。",
             "",
         ]
         if not findings:
-            lines.extend(["現時点で大きな赤枠リスクは検出されませんでした。", "ただし、写真外の状況は判断できません。"])
+            lines.append("現時点で大きな赤枠リスクは検出されませんでした。")
+            if has_confirmation_items:
+                lines.append(
+                    "ただし、写真だけでは判断できず、現地確認が必要な項目があります。"
+                )
+            lines.append("写真外の状況は判断できません。")
             return "\n".join(lines)
 
         for finding in findings:

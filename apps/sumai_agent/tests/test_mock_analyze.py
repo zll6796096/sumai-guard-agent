@@ -116,6 +116,7 @@ def test_analysis_response_defaults_to_current_public_identity() -> None:
     response = AnalysisResponse(
         analysis_id="sumai_test",
         room_type="toilet",
+        assessment_status="no_visible_risks_found",
         overall_risk_level="low",
         findings=[],
         action_plan=ActionPlan(),
@@ -129,7 +130,7 @@ def test_analysis_response_defaults_to_current_public_identity() -> None:
         disclaimer_ja="POC",
     )
 
-    assert response.schema_version == "2.1.0"
+    assert response.schema_version == "2.2.0"
     assert response.ontology_version == "1.0.1"
     assert response.inference_config_version == "1.0.6"
 
@@ -227,6 +228,7 @@ def test_analysis_response_enforces_the_public_applicability_invariant() -> None
     neutral.update({
         "is_not_applicable": True,
         "room_type": "auto",
+        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "findings": [],
         "confirmation_items": [],
@@ -331,6 +333,6 @@ def test_web_local_abstention_uses_current_schema_identity_and_empty_confirmatio
     assert payload["confirmation_items_markdown"].strip()
     assert "写真だけでは確認できない項目" in payload["confirmation_items_markdown"]
     assert "中性確認" not in payload["confirmation_items_markdown"]
-    assert payload["schema_version"] == "2.1.0"
+    assert payload["schema_version"] == "2.2.0"
     assert payload["ontology_version"] == "1.0.1"
     assert payload["inference_config_version"] == "1.0.6"

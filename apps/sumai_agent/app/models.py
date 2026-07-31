@@ -8,6 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 RoomType = Literal["genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"]
 RiskLevel = Literal["low", "medium", "high"]
+AssessmentStatus = Literal[
+    "visible_risks_found",
+    "needs_on_site_confirmation",
+    "no_visible_risks_found",
+    "not_applicable",
+]
 ActionTier = Literal[
     "FAMILY_NO_COST",
     "CARE_MANAGER_PURCHASE",
@@ -206,6 +212,21 @@ def _risk_level_for_findings(findings: list[RiskFinding]) -> RiskLevel:
     return "low"
 
 
+def assessment_status_for_evidence(
+    *,
+    is_not_applicable: bool,
+    findings: list[RiskFinding],
+    confirmation_items: list[ConfirmationItem],
+) -> AssessmentStatus:
+    if is_not_applicable:
+        return "not_applicable"
+    if findings:
+        return "visible_risks_found"
+    if confirmation_items:
+        return "needs_on_site_confirmation"
+    return "no_visible_risks_found"
+
+
 def _validate_action_plan(
     action_plan: ActionPlan,
     finding_ids: set[str],
@@ -263,6 +284,7 @@ class AnalysisResponse(BaseModel):
 
     analysis_id: str
     room_type: RoomType
+    assessment_status: AssessmentStatus
     overall_risk_level: RiskLevel
     findings: list[RiskFinding]
     confirmation_items: list[ConfirmationItem] = Field(default_factory=list)
@@ -282,7 +304,7 @@ class AnalysisResponse(BaseModel):
     model: str = "N/A"
     result_key: str = ""
     semantic_hash: str = ""
-    schema_version: str = "2.1.0"
+    schema_version: str = "2.2.0"
     ontology_version: str = "1.0.1"
     preprocess_version: str = "1.0.0"
     inference_config_version: str = "1.0.6"
@@ -352,6 +374,12 @@ class AnalysisResponse(BaseModel):
             raise ValueError("confirmation_feature_keys_must_be_unique")
         if self.overall_risk_level != _risk_level_for_findings(self.findings):
             raise ValueError("overall_risk_level_must_match_findings")
+        if self.assessment_status != assessment_status_for_evidence(
+            is_not_applicable=self.is_not_applicable,
+            findings=self.findings,
+            confirmation_items=self.confirmation_items,
+        ):
+            raise ValueError("assessment_status_must_match_evidence_state")
         actions = (
             self.action_plan.family_no_cost
             + self.action_plan.care_manager_purchase

@@ -41,14 +41,18 @@ def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> No
     assert "imagesList.style.display = 'none'" in html
     assert "confirmationNote.hidden = true" in html
     assert "btnShowSuggestions.style.display = 'none'" in html
-    assert "resultSummary.style.display = 'flex'" in html
+    assert "resultSummary.style.display = 'grid'" in html
     assert "document.getElementById('screen2-title').textContent = \"安全チェック結果\"" in html
 
 
 def test_visible_risks_and_confirmation_items_use_separate_payload_contracts() -> None:
     html = _index_html()
 
-    assert '<span class="summary-label">可視リスク</span>' in html
+    assert '<span class="summary-label">写真内の注意箇所</span>' in html
+    assert 'id="confirmation-count"' in html
+    assert '<span class="summary-label">現地で要確認</span>' in html
+    assert 'id="assessment-badge"' in html
+    assert '<span class="assessment-label">写真からの判定</span>' in html
     assert 'id="confirmation-items-note"' in html
     assert 'id="confirmation-items-title"' in html
     assert 'id="confirmation-items-body"' in html
@@ -61,6 +65,13 @@ def test_visible_risks_and_confirmation_items_use_separate_payload_contracts() -
     assert "const findings = Array.isArray(payload.findings) ? payload.findings : [];" in html
     assert "const count = findings.length;" in html
     assert "const hasVisibleFindings = findings.length > 0;" in html
+    assert "confirmationItems.length + '件'" in html
+    assert "payload.assessment_status" in html
+    assert "needs_on_site_confirmation" in html
+    assert "現地確認が必要" in html
+    assert "no_visible_risks_found" in html
+    assert "写真内で検出なし" in html
+    assert '<span class="summary-label">総合リスク</span>' not in html
     assert "confirmationNote.hidden = confirmationItems.length === 0;" in html
     assert "写真だけでは確認できない項目" in html
     assert "中性確認" not in html

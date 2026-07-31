@@ -224,6 +224,11 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
     resolved_findings = [finding] if findings is None else findings
     return {
         "analysis_id": "opaque-id", "room_type": "hallway",
+        "assessment_status": (
+            "visible_risks_found"
+            if resolved_findings
+            else "no_visible_risks_found"
+        ),
         "overall_risk_level": "medium" if resolved_findings else "low",
         "findings": resolved_findings,
         "confirmation_items": [],
@@ -239,7 +244,7 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "is_not_applicable": False, "model": "N/A",
         "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
-        "schema_version": "2.1.0", "ontology_version": "1.0.1",
+        "schema_version": "2.2.0", "ontology_version": "1.0.1",
         "preprocess_version": "1.0.0", "inference_config_version": "1.0.6",
         "stage_timings_ms": {
             "intake": 1, "memo_lookup": 0, "vision": 1, "ontology": 1,
@@ -457,6 +462,7 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     payload = _valid_payload(findings=[])
     payload["is_not_applicable"] = True
     payload["room_type"] = "auto"
+    payload["assessment_status"] = "not_applicable"
     payload["overall_risk_level"] = "low"
     payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
 
@@ -506,6 +512,7 @@ def test_confirmation_only_applicable_response_is_schema_valid() -> None:
     payload = _valid_payload(findings=[])
     payload.update({
         "room_type": "toilet",
+        "assessment_status": "needs_on_site_confirmation",
         "overall_risk_level": "low",
         "confirmation_items": [_valid_confirmation_item()],
     })
@@ -791,6 +798,7 @@ def test_not_applicable_empty_gold_response_is_schema_valid_but_not_risk_scored(
     not_applicable.update({
         "is_not_applicable": True,
         "room_type": "auto",
+        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })
@@ -821,6 +829,7 @@ def test_mixed_applicability_scores_only_applicable_responses_and_reports_covera
     not_applicable.update({
         "is_not_applicable": True,
         "room_type": "auto",
+        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })

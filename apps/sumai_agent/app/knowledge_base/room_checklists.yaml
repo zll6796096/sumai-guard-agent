@@ -1,5 +1,5 @@
 ontology_version: "1.0.1"
-schema_version: "2.1.0"
+schema_version: "2.2.0"
 inference_config_version: "1.0.6"
 relationships:
   - located_in
