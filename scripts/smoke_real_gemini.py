@@ -87,14 +87,13 @@ def validate_analysis_payload(
         f"payload.is_home_environment must be {expected_home!r}; got {is_home!r}",
     )
 
-    findings = payload.get("findings")
-    _require(
-        isinstance(findings, list),
-        f"payload.findings must be a list; got {type(findings).__name__}",
-    )
-    findings = cast(list[object], findings)
-
     if not expected_home:
+        findings = payload.get("findings")
+        _require(
+            isinstance(findings, list),
+            f"payload.findings must be a list; got {type(findings).__name__}",
+        )
+        findings = cast(list[object], findings)
         _require(
             len(findings) == 0,
             f"payload.findings must be empty for non-home image; got {len(findings)}",
@@ -111,13 +110,11 @@ def validate_analysis_payload(
             room_type in {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen"},
             f"payload.room_type must identify a supported home room; got {room_type!r}",
         )
-        if not findings:
-            risk_level = payload.get("overall_risk_level")
-            _require(
-                risk_level == "low",
-                "payload.overall_risk_level must be 'low' when no visible findings "
-                f"are present; got {risk_level!r}",
-            )
+        findings = payload.get("findings")
+        _require(
+            isinstance(findings, list) and len(findings) > 0,
+            "payload.findings must contain at least one finding for the reviewed home fixture",
+        )
 
     return analysis_id
 

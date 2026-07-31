@@ -4,17 +4,11 @@ This local POC presents cautious, photo-scoped safety candidates. It does not ma
 
 ## Evidence gate before policy
 
-Only `RelationshipEngine` may turn typed visual facts into output candidates. A visible hazard needs a clear entity and a configured full relationship triple (subject, predicate, target). The public `findings` contains only `visible_hazard` entries with localized evidence. A photo-scoped expected-feature non-detection needs `absent_with_full_coverage` plus an input coverage bbox, but it enters the separate neutral `confirmation_items` channel rather than `findings`. `cannot_determine` or partial coverage produces neither channel; a non-home image or unknown room produces the distinct not-applicable state.
-
-The provider-side bbox for an expected-feature non-detection is a coverage region: it records which relevant wall, floor, fixture, or transfer area was visible enough to check. It is not the location of a missing object and must never be presented as a danger location or installation position. A public confirmation item has no bbox, severity, risk level, or action. Only exact `visible_hazard` findings may receive red or improvement overlays, and those overlays stay on the provider evidence rather than a room-template position.
-
-`confirmation_items` never affects overall risk, finding count, risk level, overlays, action tiers, the improvement image, or suggestion navigation. It is cautious text for a human to confirm outside the photo pipeline, not evidence that a safety feature is absent.
+Only `RelationshipEngine` may turn typed visual facts into candidate findings. A visible hazard needs a clear entity and a configured full relationship triple (subject, predicate, target). A missing expected feature needs `absent_with_full_coverage` plus an evidence bbox; `cannot_determine`, partial coverage, a non-home image, or an unknown room produces no finding.
 
 Only `is_not_applicable=true` is a neutral not-applicable result. It is reserved for non-home, unknown-room, or explicit insufficient-evidence facts, and requires empty findings/actions plus a non-empty neutral reason. The web UI then hides its compatibility low-risk summary, images, and suggestion button.
 
 A known home room with `is_not_applicable=false` and ordinary empty findings is different: it means no obvious candidate was detected in the visible, validated scope. It keeps the ordinary `overall_risk_level=low` compatibility semantics and must not be reclassified as neutral not-applicable. It is also not proof that the home is safe or risk-free beyond the photo.
-
-No visible hazard means `overall_risk_level=low`, zero findings, empty action tiers, no improvement image, and no suggestions in the applicable UI. The sanitized clean photo remains as context. This describes only the validated visible scope and does not prove that the residence is safe.
 
 ## Confidence and known-rule gate
 
@@ -25,8 +19,8 @@ The public field remains named `confidence` for API compatibility, but it carrie
 - Confidence `< 0.45`: drop the candidate.
 - Known ontology rule and `0.45 <= confidence < 0.60`: keep it and set `needs_human_confirmation=true`.
 - Known ontology rule and `confidence >= 0.60`: keep it (while preserving any existing confirmation flag).
-
-Unknown risks are not accepted at any confidence.
+- Unknown rule with `confidence < 0.75`: drop it.
+- Unknown rule with `confidence >= 0.75`: use the conservative fallback policy only if it somehow reaches the rule engine. The facts/ontology pipeline should prevent this route for ordinary provider output.
 
 No provider score bypasses relationship validation, ontology scope, or tier policy. Gemini supplies facts only; it cannot set final severity, copy, or action routing.
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import io
 import json
 import logging
 import sys
@@ -9,11 +8,10 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.models import AnalysisResponse
-from app.services.analysis_stream import stream_analysis
 from app.services.orchestrator import AnalysisOrchestrator
 
 
@@ -33,8 +31,7 @@ def _setup_logging() -> None:
                         "number_of_findings", "latency_ms", "fallback_reason",
                         "finding_count", "entity_count", "feature_count",
                         "reason", "raw_length", "index", "error",
-                        "original", "type", "stage_timings_ms", "cache_hit",
-                        "failure_type", "error_code", "status_code"):
+                        "original", "type", "stage_timings_ms", "cache_hit"):
                 value = getattr(record, key, None)
                 if value is not None:
                     log_entry[key] = value
@@ -136,7 +133,7 @@ async def analyze(
             },
         )
         return JSONResponse(content=content)
-    except GeminiUnavailableError:
+    except GeminiUnavailableError as exc:
         return JSONResponse(
             status_code=503,
             content={
@@ -145,55 +142,7 @@ async def analyze(
             }
         )
     except ValueError as exc:
-        logger.warning(
-            "analyze_rejected",
-            extra={
-                "failure_type": type(exc).__name__,
-                "error_code": "invalid_upload",
-            },
-        )
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "invalid_upload",
-                "message": "画像または入力内容を確認してください。",
-            },
-        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.error(
-            "analyze_error",
-            extra={
-                "failure_type": type(exc).__name__,
-                "error_code": "analysis_failed",
-            },
-        )
-        return JSONResponse(
-            status_code=500,
-            content={
-                "error": "analysis_failed",
-                "message": "分析を完了できませんでした。",
-            },
-        )
-
-
-@app.post("/analyze/stream")
-async def analyze_stream(
-    image: UploadFile = File(...),
-    room_hint: str = Form("auto"),
-    mock: bool = Form(False),
-) -> StreamingResponse:
-    if image.content_type and not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="画像ファイルを指定してください。")
-    upload = UploadFile(
-        filename=image.filename,
-        file=io.BytesIO(await image.read()),
-        headers=image.headers,
-    )
-    return StreamingResponse(
-        stream_analysis(orchestrator, upload, room_hint, mock),
-        media_type="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
+        logger.error("analyze_error", extra={"error": str(exc)[:500]})
+        raise HTTPException(status_code=500, detail=f"分析中にエラーが発生しました: {exc}") from exc

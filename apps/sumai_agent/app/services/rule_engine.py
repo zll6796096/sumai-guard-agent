@@ -48,40 +48,6 @@ class RuleEngine:
         except KeyError:
             return None
 
-    def _find_unambiguous_legacy_visible_rule(
-        self, room_type: str, risk_type: str
-    ) -> tuple[OntologyRiskRule | None, bool]:
-        """Return a visible-only legacy rule and whether the risk is in ontology."""
-        room_data = self.ontology.room(room_type)
-        if room_data is None:
-            return None, False
-
-        visible_matches = [
-            item
-            for item in room_data["visible_hazards"]
-            if item["risk_type"] == risk_type
-        ]
-        expected_matches = [
-            item
-            for item in room_data["expected_features"]
-            if item["missing_risk_type"] == risk_type
-        ]
-        has_ontology_mapping = bool(visible_matches or expected_matches)
-        if len(visible_matches) != 1 or expected_matches:
-            return None, has_ontology_mapping
-
-        try:
-            return (
-                self.ontology.rule(
-                    room_type,
-                    visible_matches[0]["key"],
-                    "visible_hazard",
-                ),
-                True,
-            )
-        except KeyError:
-            return None, True
-
     def apply(
         self, findings: list[RiskFinding], room_type: str
     ) -> tuple[list[RiskFinding], ActionPlan]:
@@ -91,32 +57,12 @@ class RuleEngine:
         contractor: list[ActionItem] = []
         seen_actions: set[tuple[str, str, str]] = set()
 
-        filtered_findings: list[tuple[RiskFinding, OntologyRiskRule | None]] = []
+        filtered_findings = []
         for finding in findings:
-            has_ontology_key = bool(finding.ontology_key)
-            has_rule_kind = finding.ontology_rule_kind is not None
-            if has_ontology_key != has_rule_kind:
-                continue
-
-            if has_ontology_key:
-                if finding.ontology_rule_kind != "visible_hazard":
-                    continue
-                chk_item = self._find_checklist_item(room_type, finding)
-                if chk_item is None or chk_item.rule_kind != "visible_hazard":
-                    continue
-            else:
-                chk_item, has_ontology_mapping = (
-                    self._find_unambiguous_legacy_visible_rule(
-                        room_type, finding.risk_type
-                    )
-                )
-                if has_ontology_mapping and chk_item is None:
-                    continue
-
             if finding.confidence < 0.45:
                 continue
 
-            is_known = chk_item is not None
+            is_known = self._find_checklist_item(room_type, finding) is not None
 
             if 0.45 <= finding.confidence < 0.60:
                 if not is_known:
@@ -124,26 +70,34 @@ class RuleEngine:
                 finding = finding.model_copy(update={"needs_human_confirmation": True})
 
             if not is_known:
-                continue
+                if finding.confidence < 0.75:
+                    continue
 
-            filtered_findings.append((finding, chk_item))
+            filtered_findings.append(finding)
 
-        for index, (finding, chk_item) in enumerate(filtered_findings, start=1):
+        for index, finding in enumerate(filtered_findings, start=1):
+            chk_item = self._find_checklist_item(room_type, finding)
+            
             basis_label = finding.basis_label_ja
             basis_summary = finding.basis_summary_ja
-            if chk_item:
+            exact_rule_identity = bool(
+                finding.ontology_key and finding.ontology_rule_kind and chk_item
+            )
+            if chk_item and exact_rule_identity:
                 basis_label = chk_item.basis_label_ja
                 basis_summary = chk_item.basis_summary_ja
+            elif chk_item:
+                if not basis_label:
+                    basis_label = chk_item.basis_label_ja
+                if not basis_summary:
+                    basis_summary = chk_item.basis_summary_ja
 
             if not basis_label:
                 basis_label = "高齢者住宅安全チェックの一般原則"
             if not basis_summary:
                 basis_summary = "写真で見える範囲の一般的な転倒・つまずき予防の観点です。"
 
-            needs_confirm = (
-                finding.needs_human_confirmation
-                or finding.confidence < 0.60
-            )
+            needs_confirm = finding.needs_human_confirmation or finding.confidence < 0.60
             normalized = finding.model_copy(
                 update={
                     "id": f"R{index}",
@@ -152,24 +106,16 @@ class RuleEngine:
                     "needs_human_confirmation": needs_confirm,
                     **(
                         {
-                            # Preserve legacy risk_type-only callers while
-                            # restoring the semantic kind required downstream.
-                            "ontology_key": chk_item.key,
-                            "ontology_rule_kind": chk_item.rule_kind,
-                        }
-                        if chk_item
-                        else {}
-                    ),
-                    **(
-                        {
                             "risk_type": chk_item.risk_type,
                             "label_ja": chk_item.label_ja,
                             "severity": chk_item.severity,
                             "evidence_source_ids": list(
                                 chk_item.evidence_source_ids
                             ),
+                            "ontology_key": chk_item.key,
+                            "ontology_rule_kind": chk_item.rule_kind,
                         }
-                        if chk_item
+                        if chk_item and exact_rule_identity
                         else {}
                     ),
                 }
@@ -179,36 +125,19 @@ class RuleEngine:
             # Build action lists from checklist definition
             if chk_item:
                 desc_reason = normalized.description_ja.rstrip("。")
+                # Family actions
                 family_raw = [
-                    {
-                        "title_ja": act,
-                        "description_ja": (
-                            f"{normalized.label_ja}への対策として、{act}を行います。"
-                        ),
-                        "why_ja": f"{desc_reason}を防ぐためです。",
-                    }
+                    {"title_ja": act, "description_ja": f"{normalized.label_ja}への対策として、{act}を行います。", "why_ja": f"{desc_reason}を防ぐためです。"}
                     for act in chk_item.family_actions
                 ]
+                # Care Manager actions
                 care_raw = [
-                    {
-                        "title_ja": act,
-                        "description_ja": (
-                            f"専門職と連携し、{act}について相談・検討します。"
-                        ),
-                        "why_ja": f"{desc_reason}のリスクを軽減するためです。",
-                    }
+                    {"title_ja": act, "description_ja": f"専門職と連携し、{act}について相談・検討します。", "why_ja": f"{desc_reason}のリスクを軽減するためです。"}
                     for act in chk_item.care_manager_actions
                 ]
+                # Contractor actions
                 contractor_raw = [
-                    {
-                        "title_ja": act,
-                        "description_ja": (
-                            f"施工会社などの専門業者に依頼し、{act}の可否を確認します。"
-                        ),
-                        "why_ja": (
-                            "住宅改修により高齢者の自立支援と安全を確保するためです。"
-                        ),
-                    }
+                    {"title_ja": act, "description_ja": f"施工会社などの専門業者に依頼し、{act}の可否を確認します。", "why_ja": f"住宅改修により高齢者の自立支援と安全を確保するためです。"}
                     for act in chk_item.contractor_actions
                 ]
             else:

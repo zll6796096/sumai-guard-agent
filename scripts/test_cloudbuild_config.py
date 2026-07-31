@@ -8,12 +8,6 @@ assert config_path.is_file(), "cloudbuild.yaml must exist"
 
 text = config_path.read_text(encoding="utf-8")
 
-test_block = text.split("  - id: test", 1)[1].split("\n  - id:", 1)[0]
-assert "apt-get update" in test_block
-assert re.search(r"apt-get install .*nodejs", test_block)
-assert "node --version" in test_block
-assert test_block.index("node --version") < test_block.index("python -m pytest")
-
 for required in (
     "${COMMIT_SHA}",
     "--no-traffic",

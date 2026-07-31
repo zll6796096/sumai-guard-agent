@@ -1275,7 +1275,7 @@ git commit -m "perf: make vision and proxy calls asynchronous"
 - [ ] **Step 1: Write failing manifest and metric tests**
 
 Test that the example manifest contains only repository synthetic sample paths,
-no absolute local home-directory paths, and no `private` classification. Test the metric
+no absolute `/Users/` paths, and no `private` classification. Test the metric
 helper:
 
 ```python

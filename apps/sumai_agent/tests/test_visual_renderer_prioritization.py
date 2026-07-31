@@ -3,12 +3,12 @@ from __future__ import annotations
 import base64
 import io
 from PIL import Image
-import pytest
 
 from app.models import BoundingBox, RiskFinding
 from app.services.visual_renderer import (
     VisualRenderer,
     _select_visual_findings,
+    _get_mapped_bbox,
     _compute_iou,
     DANGER_LABELS,
     _improvement_label
@@ -23,10 +23,7 @@ def _make_finding(
     x: float,
     y: float,
     w: float,
-    h: float,
-    *,
-    rule_kind: str = "visible_hazard",
-    ontology_key: str | None = None,
+    h: float
 ) -> RiskFinding:
     return RiskFinding(
         id=id_val,
@@ -40,8 +37,6 @@ def _make_finding(
         basis_label_ja="テスト",
         basis_summary_ja="テスト",
         needs_human_confirmation=False,
-        ontology_key=ontology_key or risk_type,
-        ontology_rule_kind=rule_kind,
     )
 
 
@@ -90,87 +85,19 @@ def test_no_r_indices() -> None:
     # 4. Labels never include R1/R2/R3.
     for label in DANGER_LABELS.values():
         assert not any(f"R{i}" in label for i in range(1, 10))
-    for risk_type in ["genkan_step", "cluttered_path", "bathroom_slip"]:
+    for risk_type in ["genkan_step", "toilet_missing_handrail", "kitchen_slip"]:
         imp_lbl = _improvement_label(risk_type)
         assert not any(f"R{i}" in imp_lbl for i in range(1, 10))
 
 
-def test_renderer_maps_only_visible_ontology_risk_types() -> None:
-    from app.ontology import OntologyRepository
-    from app.services.visual_renderer import IMPROVEMENT_LABELS
-
-    ontology = OntologyRepository.load_default()
-    visible_risk_types = {
-        rule["risk_type"]
-        for room in ontology.room_names
-        for rule in (ontology.room(room) or {})["visible_hazards"]
-    }
-    expected_risk_types = {
-        rule["missing_risk_type"]
-        for room in ontology.room_names
-        for rule in (ontology.room(room) or {})["expected_features"]
-    }
-
-    assert set(DANGER_LABELS) <= visible_risk_types
-    assert set(IMPROVEMENT_LABELS) <= visible_risk_types
-    assert set(DANGER_LABELS).isdisjoint(expected_risk_types)
-    assert set(IMPROVEMENT_LABELS).isdisjoint(expected_risk_types)
-    assert DANGER_LABELS["loose_mat"] == "敷物"
-
-
-@pytest.mark.parametrize(
-    ("room_type", "ontology_key", "risk_type"),
-    [
-        ("toilet", "space_looks_narrow", "toilet_transfer_support"),
-        ("toilet", "looks_slippery_floor", "toilet_slip"),
-        ("kitchen", "kitchen_slip", "kitchen_slip"),
-        ("kitchen", "reachable_storage_issue", "kitchen_unreachable_storage"),
-    ],
-)
-def test_removed_non_visual_rules_cannot_be_selected_for_overlay(
-    room_type: str,
-    ontology_key: str,
-    risk_type: str,
-) -> None:
-    finding = _make_finding(
-        "F1",
-        risk_type,
-        5,
-        0.99,
-        0.1,
-        0.1,
-        0.3,
-        0.3,
-        ontology_key=ontology_key,
-    )
-
-    assert _select_visual_findings([finding], room_type) == []
-
-
-def test_expected_feature_findings_are_excluded_before_overlap_suppression() -> None:
-    coverage = (0.0, 0.0, 1.0, 0.8)
-    findings = [
-        _make_finding(
-            "F1",
-            "toilet_missing_handrail",
-            4,
-            1.0,
-            *coverage,
-            rule_kind="expected_feature",
-            ontology_key="has_handrail",
-        ),
-        _make_finding(
-            "F2",
-            "toilet_missing_emergency_call",
-            2,
-            1.0,
-            *coverage,
-            rule_kind="expected_feature",
-            ontology_key="has_emergency_call_button",
-        ),
-    ]
-
-    assert _select_visual_findings(findings, "toilet") == []
+def test_huge_bbox_is_normalized_for_improvement_callout_only() -> None:
+    # Improvement presentation may map a huge box into a smaller callout zone.
+    # Area = 0.8 * 0.9 = 0.72 (> 0.65)
+    finding = _make_finding("F1", "toilet_slip", 4, 0.8, 0.1, 0.05, 0.8, 0.9)
+    mapped = _get_mapped_bbox(finding, "toilet")
+    # Verify the mapped bbox area is much smaller
+    mapped_area = mapped.w * mapped.h
+    assert mapped_area <= 0.65
 
 
 def test_overlapping_deduplication() -> None:
@@ -184,17 +111,21 @@ def test_overlapping_deduplication() -> None:
     assert selected[0][0].id == "F1"
 
 
-def test_visible_hazard_selection_preserves_exact_evidence_bbox() -> None:
-    finding = _make_finding(
-        "F1",
-        "cluttered_path",
-        3,
-        0.9,
-        0.72,
-        0.12,
-        0.12,
-        0.10,
-        ontology_key="has_floor_clutter",
-    )
+def test_toilet_missing_handrail_maps_to_improvement_candidate_zone() -> None:
+    # Improvement presentation creates a handrail candidate zone.
+    finding = _make_finding("F1", "toilet_missing_handrail", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
+    mapped = _get_mapped_bbox(finding, "toilet")
+    # Area must not cover the full photo
+    assert mapped.w * mapped.h < 0.5
+    # Should map to one of the toilet side wall zones
+    assert mapped.x in [0.08, 0.70]
+    assert mapped.y == 0.42
 
-    assert _select_visual_findings([finding], "toilet") == [(finding, finding.bbox)]
+
+def test_toilet_missing_emergency_call_has_improvement_label() -> None:
+    # The improvement callout uses the consultation label.
+    finding = _make_finding("F1", "toilet_missing_emergency_call", 5, 0.9, 0.0, 0.0, 1.0, 1.0)
+    
+    # Check improvement label matches
+    label = _improvement_label(finding.risk_type)
+    assert label == "緊急呼出相談"

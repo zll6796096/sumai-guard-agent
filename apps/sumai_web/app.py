@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-import codecs
 import hashlib
 import io
 import json
@@ -9,16 +8,14 @@ import logging
 import math
 import os
 import uuid
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from dotenv import load_dotenv
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 load_dotenv()
@@ -37,323 +34,6 @@ DISCLAIMER = (
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
-
-CURRENT_SCHEMA_VERSION = "2.2.0"
-CURRENT_ONTOLOGY_VERSION = "1.0.1"
-CURRENT_PREPROCESS_VERSION = "1.0.0"
-CURRENT_INFERENCE_CONFIG_VERSION = "1.0.6"
-
-CURRENT_VISIBLE_FINDING_IDENTITIES = frozenset(
-    {
-        ("toilet", "has_floor_clutter", "cluttered_path"),
-        ("toilet", "has_loose_mat", "loose_mat"),
-        ("toilet", "lighting_poor", "poor_lighting"),
-        ("bathroom", "wet_floor", "bathroom_slip"),
-        ("bathroom", "bathtub_stepover", "bathtub_stepover"),
-        ("bathroom", "cluttered_floor", "cluttered_path"),
-        ("genkan", "genkan_step", "genkan_step"),
-        ("genkan", "loose_shoes", "cluttered_path"),
-        ("genkan", "poor_lighting", "poor_lighting"),
-        ("genkan", "cluttered_path", "cluttered_path"),
-        ("hallway", "hallway_cord", "hallway_cord"),
-        ("hallway", "cluttered_path", "cluttered_path"),
-        ("hallway", "loose_mat", "loose_mat"),
-        ("hallway", "poor_lighting", "poor_lighting"),
-        ("bedroom", "cluttered_path", "cluttered_path"),
-        ("bedroom", "loose_mat", "loose_mat"),
-        ("bedroom", "poor_lighting", "poor_lighting"),
-        ("kitchen", "loose_mat", "loose_mat"),
-        ("kitchen", "cluttered_path", "cluttered_path"),
-    }
-)
-CURRENT_EXPECTED_CONFIRMATION_IDENTITIES = frozenset(
-    {
-        ("toilet", "has_handrail"),
-        ("toilet", "has_emergency_call_button"),
-        ("bathroom", "has_handrail"),
-        ("bathroom", "has_non_slip_floor_or_mat"),
-        ("bathroom", "has_bath_transfer_support"),
-        ("bathroom", "has_emergency_call_button"),
-        ("bathroom", "has_shower_chair"),
-        ("genkan", "has_handrail_or_support"),
-        ("genkan", "step_visible_marking"),
-        ("hallway", "clear_path"),
-        ("hallway", "sufficient_lighting"),
-        ("bedroom", "clear_path_from_bed"),
-        ("bedroom", "bedside_light"),
-        ("bedroom", "stable_bedside_support"),
-        ("kitchen", "clear_floor"),
-        ("kitchen", "stable_working_path"),
-    }
-)
-CURRENT_FAMILY_FORBIDDEN_WORDS = (
-    "購入",
-    "レンタル",
-    "工事",
-    "施工",
-    "設置を依頼",
-    "専門",
-)
-
-
-class WireBoundingBox(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    x: float = Field(ge=0.0, le=1.0)
-    y: float = Field(ge=0.0, le=1.0)
-    w: float = Field(gt=0.0, le=1.0)
-    h: float = Field(gt=0.0, le=1.0)
-
-    @model_validator(mode="after")
-    def _fits_frame(self) -> "WireBoundingBox":
-        if self.x + self.w > 1.0 + 1e-9 or self.y + self.h > 1.0 + 1e-9:
-            raise ValueError("bbox_outside_frame")
-        return self
-
-
-class WireFinding(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    risk_type: str
-    label_ja: str
-    description_ja: str
-    severity: int = Field(ge=1, le=5)
-    confidence: float = Field(ge=0.0, le=1.0)
-    bbox: WireBoundingBox
-    display_bbox: WireBoundingBox | None = None
-    evidence_source_ids: list[str] = Field(default_factory=list)
-    evidence_ja: str
-    basis_label_ja: str
-    basis_summary_ja: str
-    needs_human_confirmation: bool
-    ontology_key: str | None = None
-    ontology_rule_kind: Literal[
-        "visible_hazard", "expected_feature"
-    ] | None = None
-
-
-class WireConfirmationItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    feature_key: str
-    label_ja: str
-    description_ja: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    evidence_source_ids: list[str] = Field(default_factory=list)
-    basis_label_ja: str
-    basis_summary_ja: str
-    needs_human_confirmation: Literal[True]
-
-
-class WireActionItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: str
-    risk_id: str
-    tier: Literal[
-        "FAMILY_NO_COST",
-        "CARE_MANAGER_PURCHASE",
-        "CONTRACTOR_CONSTRUCTION",
-    ]
-    title_ja: str
-    description_ja: str
-    why_ja: str
-    cost_level: Literal["ZERO", "LOW", "MEDIUM", "HIGH"]
-    requires_professional: bool
-    disclaimer_ja: str
-
-
-class WireActionPlan(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    family_no_cost: list[WireActionItem] = Field(default_factory=list)
-    care_manager_purchase: list[WireActionItem] = Field(default_factory=list)
-    contractor_construction: list[WireActionItem] = Field(default_factory=list)
-
-
-class WireAnalysisResponse(BaseModel):
-    """Web-side copy of the Agent's public AnalysisResponse wire contract."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    analysis_id: str
-    room_type: Literal[
-        "genkan",
-        "hallway",
-        "bathroom",
-        "toilet",
-        "bedroom",
-        "kitchen",
-        "auto",
-    ]
-    assessment_status: Literal[
-        "visible_risks_found",
-        "needs_on_site_confirmation",
-        "no_visible_risks_found",
-        "not_applicable",
-    ]
-    overall_risk_level: Literal["low", "medium", "high"]
-    findings: list[WireFinding]
-    confirmation_items: list[WireConfirmationItem] = Field(
-        default_factory=list
-    )
-    action_plan: WireActionPlan
-    annotated_image_base64: str
-    improvement_image_base64: str
-    risk_summary_markdown: str
-    confirmation_items_markdown: str = Field(min_length=1)
-    family_actions_markdown: str
-    care_manager_actions_markdown: str
-    contractor_actions_markdown: str
-    disclaimer_ja: str
-    mode: str = "mock"
-    is_home_environment: bool = True
-    is_not_applicable: bool = False
-    not_applicable_reason_ja: str | None = None
-    model: str = "N/A"
-    result_key: str = ""
-    semantic_hash: str = ""
-    schema_version: str = CURRENT_SCHEMA_VERSION
-    ontology_version: str = CURRENT_ONTOLOGY_VERSION
-    preprocess_version: str = CURRENT_PREPROCESS_VERSION
-    inference_config_version: str = CURRENT_INFERENCE_CONFIG_VERSION
-    stage_timings_ms: dict[str, int] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _public_invariants(self) -> "WireAnalysisResponse":
-        if (
-            self.schema_version != CURRENT_SCHEMA_VERSION
-            or self.ontology_version != CURRENT_ONTOLOGY_VERSION
-            or self.preprocess_version != CURRENT_PREPROCESS_VERSION
-            or self.inference_config_version
-            != CURRENT_INFERENCE_CONFIG_VERSION
-        ):
-            raise ValueError("response_contract_version_mismatch")
-        actions = (
-            self.action_plan.family_no_cost
-            + self.action_plan.care_manager_purchase
-            + self.action_plan.contractor_construction
-        )
-        action_ids = [action.id for action in actions]
-        if len(set(action_ids)) != len(action_ids):
-            raise ValueError("action_ids_must_be_unique")
-        for action in self.action_plan.family_no_cost:
-            action_text = " ".join(
-                (action.title_ja, action.description_ja, action.why_ja)
-            )
-            if any(
-                forbidden in action_text
-                for forbidden in CURRENT_FAMILY_FORBIDDEN_WORDS
-            ):
-                raise ValueError("family_action_contains_forbidden_word")
-        if self.is_not_applicable:
-            if (
-                self.room_type != "auto"
-                or self.assessment_status != "not_applicable"
-                or self.overall_risk_level != "low"
-                or self.findings
-                or self.confirmation_items
-                or actions
-                or not isinstance(self.not_applicable_reason_ja, str)
-                or not self.not_applicable_reason_ja.strip()
-            ):
-                raise ValueError("invalid_not_applicable_response")
-            return self
-
-        if (
-            not self.is_home_environment
-            or self.room_type == "auto"
-            or self.not_applicable_reason_ja is not None
-        ):
-            raise ValueError("invalid_applicable_response")
-        if any(
-            not finding.ontology_key
-            or finding.ontology_rule_kind != "visible_hazard"
-            for finding in self.findings
-        ):
-            raise ValueError("findings_must_be_visible_hazards")
-        if any(
-            (
-                self.room_type,
-                finding.ontology_key or "",
-                finding.risk_type,
-            )
-            not in CURRENT_VISIBLE_FINDING_IDENTITIES
-            for finding in self.findings
-        ):
-            raise ValueError("finding_identity_not_allowed_for_room")
-        if any(
-            (self.room_type, item.feature_key)
-            not in CURRENT_EXPECTED_CONFIRMATION_IDENTITIES
-            for item in self.confirmation_items
-        ):
-            raise ValueError("confirmation_identity_not_allowed_for_room")
-        if [finding.id for finding in self.findings] != [
-            f"R{index}" for index in range(1, len(self.findings) + 1)
-        ]:
-            raise ValueError("invalid_finding_ids")
-        if [item.id for item in self.confirmation_items] != [
-            f"C{index}"
-            for index in range(1, len(self.confirmation_items) + 1)
-        ]:
-            raise ValueError("invalid_confirmation_ids")
-        confirmation_features = [
-            item.feature_key for item in self.confirmation_items
-        ]
-        if len(set(confirmation_features)) != len(confirmation_features):
-            raise ValueError("confirmation_feature_keys_must_be_unique")
-        expected_risk = "low"
-        if self.findings:
-            maximum = max(finding.severity for finding in self.findings)
-            expected_risk = (
-                "high" if maximum >= 4 else "medium" if maximum >= 2 else "low"
-            )
-        if self.overall_risk_level != expected_risk:
-            raise ValueError("risk_level_mismatch")
-        expected_assessment = (
-            "visible_risks_found"
-            if self.findings
-            else "needs_on_site_confirmation"
-            if self.confirmation_items
-            else "no_visible_risks_found"
-        )
-        if self.assessment_status != expected_assessment:
-            raise ValueError("assessment_status_mismatch")
-        finding_ids = {finding.id for finding in self.findings}
-        if not finding_ids and actions:
-            raise ValueError("zero_findings_require_empty_actions")
-        policies = (
-            (
-                self.action_plan.family_no_cost,
-                "FAMILY_NO_COST",
-                "ZERO",
-                False,
-            ),
-            (
-                self.action_plan.care_manager_purchase,
-                "CARE_MANAGER_PURCHASE",
-                "LOW",
-                True,
-            ),
-            (
-                self.action_plan.contractor_construction,
-                "CONTRACTOR_CONSTRUCTION",
-                "HIGH",
-                True,
-            ),
-        )
-        for items, tier, cost, professional in policies:
-            if any(
-                item.risk_id not in finding_ids
-                or item.tier != tier
-                or item.cost_level != cost
-                or item.requires_professional is not professional
-                for item in items
-            ):
-                raise ValueError("action_plan_policy_mismatch")
-        return self
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -780,7 +460,7 @@ INDEX_HTML = """<!DOCTYPE html>
         /* Screen: Result & Analyzing */
         .large-preview-wrapper {
             width: 100%;
-            max-height: 46svh;
+            max-height: 52svh;
             border-radius: var(--card-radius);
             overflow: hidden;
             border: 1px solid var(--border-color);
@@ -789,191 +469,62 @@ INDEX_HTML = """<!DOCTYPE html>
             justify-content: center;
             align-items: center;
             margin-bottom: 16px;
-            position: relative;
         }
 
         .large-preview-wrapper img {
             width: 100%;
             height: auto;
-            max-height: 46svh;
+            max-height: 52svh;
             object-fit: contain;
             display: block;
             border-radius: 12px;
         }
 
-        .analysis-scan-overlay {
-            position: absolute;
-            inset: 0;
-            overflow: hidden;
-            pointer-events: none;
-            border-radius: inherit;
-        }
-
-        .analysis-scan-line {
-            position: absolute;
-            top: 8%;
-            left: 8%;
-            width: 84%;
-            height: 2px;
-            border-radius: 999px;
-            background-color: rgba(0, 122, 255, 0.72);
-            animation: analysis-scan 2.8s ease-in-out infinite;
-        }
-
-        @keyframes analysis-scan {
-            0%, 100% {
-                top: 8%;
-                opacity: 0.34;
-            }
-            50% {
-                top: 92%;
-                opacity: 0.78;
-            }
-        }
-
-        .analysis-activity {
-            position: relative;
-            width: 100%;
-            height: 4px;
-            margin: -2px 0 16px;
-            overflow: hidden;
-            border-radius: 999px;
-            background-color: rgba(0, 122, 255, 0.14);
-        }
-
-        .analysis-activity::after {
-            content: "";
-            position: absolute;
-            left: -34%;
-            width: 34%;
-            height: 100%;
-            border-radius: inherit;
-            background-color: var(--primary-color);
-            animation: analysis-activity 1.55s ease-in-out infinite;
-        }
-
-        @keyframes analysis-activity {
-            0% {
-                transform: translateX(0);
-            }
-            100% {
-                transform: translateX(394%);
-            }
-        }
-
         .analyzing-status-box {
-            text-align: left;
+            text-align: center;
+            margin-top: 12px;
         }
 
         .analyzing-subtitle {
             font-size: 0.95rem;
             font-weight: 700;
             color: var(--text-color);
-            margin-bottom: 12px;
+            margin-bottom: 16px;
         }
 
-        .analysis-stages {
-            list-style: none;
+        .steps-container-compact {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
             background-color: var(--surface);
             border: 1px solid var(--border-color);
-            border-radius: 16px;
-            padding: 8px 14px;
-            margin-bottom: 12px;
+            border-radius: 20px;
+            padding: 8px 16px;
+            display: inline-flex;
+            margin: 0 auto;
         }
 
-        .analysis-stage {
-            position: relative;
-            min-height: 38px;
-            padding: 9px 0 9px 32px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 0.84rem;
-            font-weight: 600;
+        .step-compact {
+            font-size: 0.72rem;
+            font-weight: 500;
             color: var(--text-muted);
-            transition: color 0.2s ease;
+            transition: all 0.3s ease;
         }
 
-        .analysis-stage:last-child {
-            border-bottom: 0;
-        }
-
-        .analysis-stage::before {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 4px;
-            width: 13px;
-            height: 13px;
-            border: 2px solid var(--separator);
-            border-radius: 50%;
-            transform: translateY(-50%);
-            background-color: var(--surface);
-        }
-
-        .analysis-stage.active {
+        .step-compact.active {
             color: var(--primary-color);
             font-weight: 700;
         }
 
-        .analysis-stage.active::before {
-            border-color: var(--primary-color);
-            animation: analysis-stage-pulse 1.8s ease-in-out infinite;
-        }
-
-        .analysis-stage.completed {
+        .step-compact.completed {
             color: var(--success-color);
             font-weight: 700;
         }
 
-        .analysis-stage.completed::before {
-            content: "✓";
-            display: grid;
-            place-items: center;
-            width: 17px;
-            height: 17px;
-            border: 0;
-            color: #FFFFFF;
-            background-color: var(--success-color);
-            font-size: 0.67rem;
-            line-height: 1;
-        }
-
-        @keyframes analysis-stage-pulse {
-            0%, 100% {
-                opacity: 0.45;
-            }
-            50% {
-                opacity: 1;
-            }
-        }
-
-        .analysis-tip-card {
-            border: 1px solid var(--border-color);
-            border-radius: 16px;
-            background-color: var(--surface);
-            padding: 13px 14px;
-        }
-
-        .analysis-tip-label {
-            display: block;
-            margin-bottom: 5px;
-            color: var(--text-muted);
-            font-size: 0.72rem;
-            font-weight: 700;
-        }
-
-        .analysis-tip-text {
-            min-height: 2.8em;
-            font-size: 0.84rem;
-            line-height: 1.55;
-            color: var(--text-color);
-        }
-
-        .analysis-long-wait {
-            margin-top: 10px;
-            color: var(--text-muted);
-            font-size: 0.78rem;
-            line-height: 1.5;
-            text-align: center;
+        .step-arrow-compact {
+            font-size: 0.7rem;
+            color: var(--separator);
         }
 
         /* Screen: Result & Suggestions */
@@ -1024,9 +575,8 @@ INDEX_HTML = """<!DOCTYPE html>
             border: 1px solid var(--border-color);
             border-radius: var(--card-radius);
             padding: 16px;
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 14px 8px;
+            display: flex;
+            justify-content: space-around;
             margin-bottom: 16px;
             flex-shrink: 0;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
@@ -1058,43 +608,6 @@ INDEX_HTML = """<!DOCTYPE html>
             display: flex;
             flex-direction: column;
             align-items: center;
-        }
-
-        .assessment-item {
-            grid-column: 1 / -1;
-            border-top: 1px solid var(--border-color);
-            padding-top: 12px;
-        }
-
-        .assessment-label {
-            color: var(--text-muted);
-            font-size: 0.78rem;
-            margin-right: 8px;
-        }
-
-        .assessment-badge {
-            border-radius: 999px;
-            font-size: 0.86rem;
-            font-weight: 750;
-            padding: 5px 11px;
-        }
-
-        .assessment-visible {
-            background-color: rgba(239, 68, 68, 0.11);
-            border: 1px solid rgba(239, 68, 68, 0.35);
-            color: var(--danger-color);
-        }
-
-        .assessment-confirm {
-            background-color: rgba(0, 122, 255, 0.10);
-            border: 1px solid rgba(0, 122, 255, 0.32);
-            color: var(--secondary-color);
-        }
-
-        .assessment-clear {
-            background-color: rgba(16, 185, 129, 0.12);
-            border: 1px solid rgba(16, 185, 129, 0.34);
-            color: var(--success-color);
         }
 
         .summary-label {
@@ -1139,28 +652,6 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-direction: column;
             gap: 16px;
             margin-bottom: 20px;
-        }
-
-        .confirmation-items-note {
-            background-color: rgba(0, 122, 255, 0.07);
-            border: 1px solid rgba(0, 122, 255, 0.24);
-            border-radius: 14px;
-            color: var(--text-color);
-            margin-bottom: 16px;
-            padding: 14px 16px;
-        }
-
-        .confirmation-items-note strong {
-            display: block;
-            font-size: 0.92rem;
-            margin-bottom: 5px;
-        }
-
-        .confirmation-items-note p {
-            color: var(--text-muted);
-            font-size: 0.82rem;
-            line-height: 1.55;
-            margin: 0;
         }
 
         .result-image-card {
@@ -1387,23 +878,6 @@ INDEX_HTML = """<!DOCTYPE html>
                 animation-duration: 0.01ms !important;
                 animation-iteration-count: 1 !important;
             }
-
-            .analysis-scan-line,
-            .analysis-activity::after,
-            .analysis-stage.active::before {
-                animation: none !important;
-                transform: none !important;
-            }
-
-            .analysis-scan-line {
-                top: 50%;
-                opacity: 0.42;
-            }
-
-            .analysis-activity::after {
-                left: 33%;
-                opacity: 0.58;
-            }
         }
     </style>
 </head>
@@ -1522,51 +996,17 @@ INDEX_HTML = """<!DOCTYPE html>
             <!-- 1. Analyzing State Container -->
             <div id="result-analyzing-container">
                 <div class="large-preview-wrapper">
-                    <img id="result-large-preview" src="" alt="安全確認のために選択した写真">
-                    <div class="analysis-scan-overlay" aria-hidden="true">
-                        <span class="analysis-scan-line"></span>
-                    </div>
+                    <img id="result-large-preview" src="" alt="Selected Photo">
                 </div>
-                <div
-                    class="analysis-activity"
-                    role="progressbar"
-                    aria-label="写真の安全確認を進めています"
-                ></div>
-                <div class="analyzing-status-box">
-                    <p
-                        id="analysis-stage-message"
-                        class="analyzing-subtitle"
-                        role="status"
-                        aria-live="polite"
-                    >写真を安全に処理しています</p>
-                    <ol class="analysis-stages" aria-label="解析の進行段階">
-                        <li
-                            class="analysis-stage active"
-                            id="analysis-stage-intake"
-                            aria-current="step"
-                        >写真を安全に処理</li>
-                        <li
-                            class="analysis-stage"
-                            id="analysis-stage-vision"
-                        >見える範囲を解析</li>
-                        <li
-                            class="analysis-stage"
-                            id="analysis-stage-organize"
-                        >結果を整理</li>
-                    </ol>
-                    <aside class="analysis-tip-card" aria-label="待ち時間の安全確認ヒント">
-                        <span class="analysis-tip-label">待ち時間にできること</span>
-                        <p id="analysis-tip" class="analysis-tip-text">
-                            床が濡れていたら、早めに拭きましょう。
-                        </p>
-                    </aside>
-                    <p
-                        id="analysis-long-wait"
-                        class="analysis-long-wait"
-                        role="status"
-                        aria-live="polite"
-                        hidden
-                    >通常より時間がかかっていますが、解析は続いています。</p>
+                <div class="analyzing-status-box" role="status" aria-live="polite">
+                    <p class="analyzing-subtitle">AIが写真を確認しています…</p>
+                    <div class="steps-container-compact">
+                        <div class="step-compact active" id="step-c1">写真確認</div>
+                        <div class="step-arrow-compact">→</div>
+                        <div class="step-compact" id="step-c2">リスク判定</div>
+                        <div class="step-arrow-compact">→</div>
+                        <div class="step-compact" id="step-c3">改善案作成</div>
+                    </div>
                 </div>
             </div>
 
@@ -1575,18 +1015,12 @@ INDEX_HTML = """<!DOCTYPE html>
                 <div id="analysis-mode-banner" class="analysis-mode-banner mode-warning" role="status"></div>
                 <div class="result-summary">
                     <div class="summary-item">
-                        <span class="summary-label">写真内の注意箇所</span>
+                        <span class="summary-label">注意が必要な箇所</span>
                         <span id="risk-count" class="summary-value">--件</span>
                     </div>
                     <div class="summary-item">
-                        <span class="summary-label">現地で要確認</span>
-                        <span id="confirmation-count" class="summary-value">--件</span>
-                    </div>
-                    <div class="summary-item assessment-item">
-                        <div>
-                            <span class="assessment-label">写真からの判定</span>
-                            <span id="assessment-badge" class="assessment-badge">--</span>
-                        </div>
+                        <span class="summary-label">総合リスク</span>
+                        <span id="risk-badge" class="badge">--</span>
                     </div>
                 </div>
 
@@ -1595,31 +1029,15 @@ INDEX_HTML = """<!DOCTYPE html>
                     <p id="not-applicable-message" style="color: var(--warning-color); font-weight: bold; font-size: 0.95rem;"></p>
                 </div>
 
-                <div
-                    id="confirmation-items-note"
-                    class="confirmation-items-note"
-                    role="note"
-                    hidden
-                >
-                    <strong id="confirmation-items-title">写真だけでは確認できない項目</strong>
-                    <div id="confirmation-items-body">
-                        <p>
-                            写真で確認できなかったことは、住宅内に存在しないことを意味しません。
-                            増設が必要かどうかや、設置位置もこの写真だけでは判断できません。
-                            誤解を避けるため、画像上に赤枠や設置候補を表示していません。
-                        </p>
-                    </div>
-                </div>
-
                 <!-- Stacked Images: Annotated first, Improvement second -->
                 <div class="result-images-list">
-                    <div id="result-current-image-card" class="result-image-card">
-                        <span id="result-current-image-title" class="image-card-title">現在の注意箇所</span>
+                    <div class="result-image-card">
+                        <span class="image-card-title">現在の注意箇所</span>
                         <div class="image-wrapper">
                             <img id="result-annotated-img" src="" alt="赤枠で注意箇所を示した現在の写真">
                         </div>
                     </div>
-                    <div id="result-improvement-image-card" class="result-image-card">
+                    <div class="result-image-card">
                         <span class="image-card-title">対策イメージ（施工図ではありません）</span>
                         <div class="image-wrapper">
                             <img id="result-improvement-img" src="" alt="注意箇所への一般的な対策イメージ">
@@ -1790,136 +1208,6 @@ INDEX_HTML = """<!DOCTYPE html>
         const btnBackHomes = document.querySelectorAll('.btn-back-home');
 
         let selectedFile = null;
-        const analysisTips = [
-            '床が濡れていたら、早めに拭きましょう。',
-            '通り道に物がないか、無理のない範囲で確認しましょう。',
-            '夜間に足元が見える明るさか、家族と確認しましょう。'
-        ];
-        const analysisStageMessages = {
-            intake: '写真を安全に処理しています',
-            vision: '写真に見える範囲を解析しています',
-            organize: '結果を整理しています'
-        };
-        /* ANALYSIS_STATE_MACHINES_START */
-        class AnalysisUiError extends Error {}
-
-        class AnalysisEventStateMachine {
-            constructor() {
-                this.progressStages = ['intake_complete', 'vision_complete'];
-                this.progressIndex = 0;
-                this.terminal = false;
-            }
-
-            accept(event) {
-                if (!event || typeof event !== 'object' || this.terminal) {
-                    throw new AnalysisUiError(
-                        '分析結果を正しく受信できませんでした。'
-                    );
-                }
-                if (event.type === 'progress') {
-                    if (event.stage !== this.progressStages[this.progressIndex]) {
-                        throw new AnalysisUiError(
-                            '分析結果を正しく受信できませんでした。'
-                        );
-                    }
-                    this.progressIndex += 1;
-                    return { type: 'progress', stage: event.stage };
-                }
-                if (event.type === 'result') {
-                    if (
-                        !event.payload
-                        || typeof event.payload !== 'object'
-                    ) {
-                        throw new AnalysisUiError(
-                            '分析結果を正しく受信できませんでした。'
-                        );
-                    }
-                    this.terminal = true;
-                    return { type: 'result', payload: event.payload };
-                }
-                if (event.type === 'error' && typeof event.error === 'string') {
-                    this.terminal = true;
-                    return { type: 'error', error: event.error };
-                }
-                throw new AnalysisUiError(
-                    '分析結果を正しく受信できませんでした。'
-                );
-            }
-        }
-
-        class AnalysisRequestSession {
-            constructor(controller) {
-                this.controller = controller;
-                this.reader = null;
-                this.readerCancelPromise = null;
-                this.cancelled = false;
-                this.succeeded = false;
-                this.eventState = new AnalysisEventStateMachine();
-            }
-
-            attachReader(reader) {
-                if (this.reader && this.reader !== reader) {
-                    throw new AnalysisUiError(
-                        '分析結果を正しく受信できませんでした。'
-                    );
-                }
-                this.reader = reader;
-                if (this.cancelled) {
-                    void this.cancelReader();
-                }
-            }
-
-            cancelReader() {
-                if (!this.reader) {
-                    return Promise.resolve();
-                }
-                if (!this.readerCancelPromise) {
-                    this.readerCancelPromise = Promise.resolve()
-                        .then(() => this.reader.cancel())
-                        .catch(() => {});
-                }
-                return this.readerCancelPromise;
-            }
-
-            async cancel() {
-                if (this.succeeded) return;
-                this.cancelled = true;
-                if (!this.controller.signal.aborted) {
-                    this.controller.abort();
-                }
-                await this.cancelReader();
-            }
-
-            async finishSuccess() {
-                if (this.controller.signal.aborted) {
-                    throw new DOMException('Analysis aborted', 'AbortError');
-                }
-                this.succeeded = true;
-                await this.cancelReader();
-            }
-        }
-
-        function analysisSessionCanMutateUi(session) {
-            return (
-                activeAnalysisSession === session
-                && !session.cancelled
-            );
-        }
-
-        async function dispatchAnalysisEventForSession(event, session) {
-            if (!analysisSessionCanMutateUi(session)) {
-                await session.cancel();
-                return { stale: true, terminal: false };
-            }
-            return {
-                stale: false,
-                terminal: handleAnalysisEvent(event, session.eventState)
-            };
-        }
-        /* ANALYSIS_STATE_MACHINES_END */
-        let analysisTipTimer = null;
-        let longWaitTimer = null;
-        let activeAnalysisSession = null;
 
         // Nav functions
         function showScreen(screenId) {
@@ -1980,6 +1268,9 @@ INDEX_HTML = """<!DOCTYPE html>
             document.getElementById('result-analyzing-container').style.display = 'block';
             document.getElementById('result-completed-container').style.display = 'none';
 
+            // Start step animations
+            startStepAnimation();
+
             // Run analysis immediately
             uploadAndAnalyze(selectedFile);
         }
@@ -1993,202 +1284,63 @@ INDEX_HTML = """<!DOCTYPE html>
             errorDiv.style.display = 'none';
         }
 
-        function renderAnalysisTip(tip) {
-            document.getElementById('analysis-tip').textContent = tip;
-        }
-
-        function setAnalysisStage(stage) {
-            const order = ['intake', 'vision', 'organize'];
-            const activeIndex = order.indexOf(stage);
-            if (activeIndex < 0) return;
-
-            order.forEach((name, index) => {
-                const step = document.getElementById(`analysis-stage-${name}`);
-                step.className = 'analysis-stage';
-                step.removeAttribute('aria-current');
-                if (index < activeIndex) {
-                    step.classList.add('completed');
-                } else if (index === activeIndex) {
-                    step.classList.add('active');
-                    step.setAttribute('aria-current', 'step');
-                }
+        // Simulated Step animations
+        let step1, step2;
+        function startStepAnimation() {
+            const steps = [
+                document.getElementById('step-c1'),
+                document.getElementById('step-c2'),
+                document.getElementById('step-c3')
+            ];
+            steps.forEach((step, idx) => {
+                step.className = 'step-compact';
+                if (idx === 0) step.classList.add('active');
             });
-            document.getElementById('analysis-stage-message').textContent = (
-                analysisStageMessages[stage]
-            );
+
+            clearStepAnimation();
+
+            step1 = setTimeout(() => {
+                steps[0].classList.add('completed');
+                steps[0].classList.remove('active');
+                steps[1].classList.add('active');
+            }, 1200);
+
+            step2 = setTimeout(() => {
+                steps[1].classList.add('completed');
+                steps[1].classList.remove('active');
+                steps[2].classList.add('active');
+            }, 2600);
         }
 
-        function completeAnalysisStages() {
-            ['intake', 'vision', 'organize'].forEach(name => {
-                const step = document.getElementById(`analysis-stage-${name}`);
-                step.className = 'analysis-stage completed';
-                step.removeAttribute('aria-current');
-            });
-            document.getElementById('analysis-stage-message').textContent = (
-                '結果の準備ができました'
-            );
-        }
-
-        function startWaitingExperience() {
-            stopWaitingExperience();
-            setAnalysisStage('intake');
-            let tipIndex = 0;
-            renderAnalysisTip(analysisTips[tipIndex]);
-            analysisTipTimer = window.setInterval(() => {
-                tipIndex = (tipIndex + 1) % analysisTips.length;
-                renderAnalysisTip(analysisTips[tipIndex]);
-            }, 5000);
-            longWaitTimer = window.setTimeout(() => {
-                document.getElementById('analysis-long-wait').hidden = false;
-            }, 20000);
-        }
-
-        function stopWaitingExperience() {
-            window.clearInterval(analysisTipTimer);
-            window.clearTimeout(longWaitTimer);
-            analysisTipTimer = null;
-            longWaitTimer = null;
-            document.getElementById('analysis-long-wait').hidden = true;
-        }
-
-        function cancelActiveAnalysis() {
-            const session = activeAnalysisSession;
-            if (session) {
-                if (activeAnalysisSession === session) {
-                    activeAnalysisSession = null;
-                }
-                void session.cancel();
-            }
-            stopWaitingExperience();
-        }
-
-        function analysisErrorMessage(errorCode) {
-            if (errorCode === 'gemini_unavailable') {
-                return '解析サービスは現在利用できません。時間をおいてもう一度お試しください。';
-            }
-            if (errorCode === 'invalid_upload') {
-                return '画像または入力内容を確認して、もう一度お試しください。';
-            }
-            return '分析を完了できませんでした。もう一度お試しください。';
-        }
-
-        function handleAnalysisEvent(event, eventState) {
-            const accepted = eventState.accept(event);
-            if (accepted.type === 'progress') {
-                if (accepted.stage === 'intake_complete') {
-                    setAnalysisStage('vision');
-                } else if (accepted.stage === 'vision_complete') {
-                    setAnalysisStage('organize');
-                }
-                return false;
-            }
-            if (accepted.type === 'result') {
-                completeAnalysisStages();
-                stopWaitingExperience();
-                renderResults(accepted.payload);
-                return true;
-            }
-            if (accepted.type === 'error') {
-                stopWaitingExperience();
-                throw new AnalysisUiError(analysisErrorMessage(accepted.error));
-            }
-            throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
+        function clearStepAnimation() {
+            clearTimeout(step1);
+            clearTimeout(step2);
         }
 
         async function uploadAndAnalyze(file) {
-            cancelActiveAnalysis();
-            const session = new AnalysisRequestSession(new AbortController());
-            activeAnalysisSession = session;
-            let reader = null;
-            startWaitingExperience();
             const formData = new FormData();
             formData.append('image', file);
             formData.append('room_hint', 'auto');
 
             try {
-                const response = await fetch('/analyze/stream', {
+                const response = await fetch('/analyze', {
                     method: 'POST',
-                    body: formData,
-                    headers: { 'Accept': 'application/x-ndjson' },
-                    signal: session.controller.signal
+                    body: formData
                 });
 
                 if (!response.ok) {
-                    throw new AnalysisUiError('分析サービスとの通信に失敗しました。');
-                }
-                const contentType = response.headers.get('content-type') || '';
-                if (!contentType.includes('application/x-ndjson') || !response.body) {
-                    throw new AnalysisUiError('分析結果を正しく受信できませんでした。');
+                    throw new Error('分析サービスとの通信に失敗しました。');
                 }
 
-                reader = response.body.getReader();
-                session.attachReader(reader);
-                const decoder = new TextDecoder();
-                let buffer = '';
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (!analysisSessionCanMutateUi(session)) {
-                        await session.cancel();
-                        return;
-                    }
-                    buffer += decoder.decode(
-                        value || new Uint8Array(),
-                        { stream: !done }
-                    );
-                    const lines = buffer.split('\\n');
-                    buffer = lines.pop() || '';
-                    if (done && buffer.trim()) {
-                        lines.push(buffer);
-                        buffer = '';
-                    }
-                    for (const line of lines) {
-                        if (!line.trim()) continue;
-                        if (!analysisSessionCanMutateUi(session)) {
-                            await session.cancel();
-                            return;
-                        }
-                        let event;
-                        try {
-                            event = JSON.parse(line);
-                        } catch (_parseError) {
-                            throw new AnalysisUiError(
-                                '分析結果を正しく受信できませんでした。'
-                            );
-                        }
-                        const eventOutcome = await dispatchAnalysisEventForSession(
-                            event,
-                            session
-                        );
-                        if (eventOutcome.stale) return;
-                        if (eventOutcome.terminal) {
-                            await session.finishSuccess();
-                            return;
-                        }
-                    }
-                    if (done) break;
-                }
-                throw new AnalysisUiError('分析結果を受信できませんでした。');
+                const data = await response.json();
+                renderResults(data);
+
             } catch (err) {
-                await session.cancel();
-                if (err && err.name === 'AbortError') return;
-                if (activeAnalysisSession !== session) return;
-                console.error('analysis_request_failed');
-                clearPreview();
+                console.error(err);
+                clearStepAnimation();
                 showScreen('screen-home');
-                errorDiv.textContent = (
-                    err instanceof AnalysisUiError
-                        ? err.message
-                        : '分析エラーが発生しました。'
-                );
+                errorDiv.textContent = err.message || '分析エラーが発生しました。';
                 errorDiv.style.display = 'block';
-            } finally {
-                if (!session.succeeded) {
-                    await session.cancel();
-                }
-                if (activeAnalysisSession === session) {
-                    activeAnalysisSession = null;
-                    stopWaitingExperience();
-                }
             }
         }
 
@@ -2198,104 +1350,47 @@ INDEX_HTML = """<!DOCTYPE html>
             return matches ? matches.length : 0;
         }
 
-        const SAFE_MARKDOWN_TAGS = new Set([
-            'H2', 'H3', 'P', 'UL', 'OL', 'LI', 'STRONG', 'EM', 'BR', 'CODE'
-        ]);
-
-        function renderSafeMarkdown(element, markdown) {
-            const template = document.createElement('template');
-            const parsedMarkdown = marked.parse(
-                typeof markdown === 'string' ? markdown : ''
-            );
-            template.innerHTML = parsedMarkdown;
-
-            const elements = [...template.content.querySelectorAll('*')];
-            for (const node of elements) {
-                if (!SAFE_MARKDOWN_TAGS.has(node.tagName)) {
-                    node.replaceWith(document.createTextNode(node.textContent || ''));
-                    continue;
-                }
-                for (const attribute of [...node.attributes]) {
-                    node.removeAttribute(attribute.name);
-                }
-            }
-
-            element.replaceChildren(template.content.cloneNode(true));
-        }
-
         function renderResults(payload) {
             const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
             const resultSummary = document.querySelector('.result-summary');
             const notAppContainer = document.getElementById('not-applicable-container');
             const notAppMsg = document.getElementById('not-applicable-message');
             const imagesList = document.querySelector('.result-images-list');
-            const confirmationNote = document.getElementById('confirmation-items-note');
-            const confirmationTitle = document.getElementById('confirmation-items-title');
-            const currentImageTitle = document.getElementById('result-current-image-title');
-            const currentImage = document.getElementById('result-annotated-img');
-            const improvementCard = document.getElementById('result-improvement-image-card');
-            const confirmationItems = Array.isArray(payload.confirmation_items) ? payload.confirmation_items : [];
-            const findings = Array.isArray(payload.findings) ? payload.findings : [];
-            const count = findings.length;
-            const hasVisibleFindings = findings.length > 0;
 
             renderAnalysisModeBanner(payload);
 
-            // Keep visible hazards and unresolved on-site checks as separate counts.
+            // Set risk badge
+            const riskBadge = document.getElementById('risk-badge');
+            const overallRisk = payload.overall_risk_level || 'medium';
+            riskBadge.textContent = getRiskLabel(overallRisk);
+            riskBadge.className = 'badge badge-' + overallRisk;
+
+            // Set findings count
+            const count = payload.findings ? payload.findings.length : 0;
             document.getElementById('risk-count').textContent = count + '件';
-            document.getElementById('confirmation-count').textContent = confirmationItems.length + '件';
-            const assessmentBadge = document.getElementById('assessment-badge');
-            const assessmentStatus = payload.assessment_status;
-            if (assessmentStatus === 'visible_risks_found') {
-                assessmentBadge.textContent = `注意箇所あり（${getRiskLabel(payload.overall_risk_level)}）`;
-                assessmentBadge.className = 'assessment-badge assessment-visible';
-            } else if (assessmentStatus === 'needs_on_site_confirmation') {
-                assessmentBadge.textContent = '現地確認が必要';
-                assessmentBadge.className = 'assessment-badge assessment-confirm';
-            } else if (assessmentStatus === 'no_visible_risks_found') {
-                assessmentBadge.textContent = '写真内で検出なし';
-                assessmentBadge.className = 'assessment-badge assessment-clear';
-            } else {
-                assessmentBadge.textContent = '判定保留';
-                assessmentBadge.className = 'assessment-badge assessment-confirm';
-            }
 
             if (isNotApplicable) {
                 notAppMsg.textContent = payload.not_applicable_reason_ja || "この写真では確認結果を表示できません。";
                 notAppContainer.style.display = 'block';
                 resultSummary.style.display = 'none';
                 imagesList.style.display = 'none';
-                confirmationNote.hidden = true;
                 btnShowSuggestions.style.display = 'none';
             } else {
                 notAppContainer.style.display = 'none';
-                resultSummary.style.display = 'grid';
+                resultSummary.style.display = 'flex';
                 imagesList.style.display = 'flex';
-                btnShowSuggestions.style.display = hasVisibleFindings ? '' : 'none';
-
-                confirmationNote.hidden = confirmationItems.length === 0;
-                confirmationTitle.textContent = (
-                    `写真だけでは確認できない項目：${confirmationItems.length}件`
-                );
-                renderSafeMarkdown(document.getElementById('confirmation-items-body'), payload.confirmation_items_markdown);
-                currentImageTitle.textContent = hasVisibleFindings
-                    ? '写真で確認できた注意箇所'
-                    : '確認した写真（位置を特定できる注意箇所はありません）';
-                currentImage.alt = hasVisibleFindings
-                    ? '赤枠で写真内の可視の注意箇所を示した写真'
-                    : '確認対象として使用した写真。位置を特定できる注意箇所の表示はありません';
-                improvementCard.hidden = !hasVisibleFindings;
-
+                btnShowSuggestions.style.display = '';
+                
                 // Set Images
-                currentImage.src = 'data:image/png;base64,' + payload.annotated_image_base64;
+                document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
                 document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
             }
 
-            // Parse Markdown in an inert template, then append only allowlisted nodes.
-            renderSafeMarkdown(document.getElementById('action-family-content'), payload.family_actions_markdown);
-            renderSafeMarkdown(document.getElementById('action-care-content'), payload.care_manager_actions_markdown);
-            renderSafeMarkdown(document.getElementById('action-contractor-content'), payload.contractor_actions_markdown);
-            renderSafeMarkdown(document.getElementById('risk-details-content'), payload.risk_summary_markdown);
+            // Render Markdown using marked.js
+            document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
+            document.getElementById('action-care-content').innerHTML = marked.parse(payload.care_manager_actions_markdown || '');
+            document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
+            document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
 
             // Set dynamic counts in headers
             const famCount = countItems(payload.family_actions_markdown);
@@ -2320,7 +1415,7 @@ INDEX_HTML = """<!DOCTYPE html>
             // Update Debug Panel
             updateDebugPanel(payload);
 
-            stopWaitingExperience();
+            clearStepAnimation();
             
             // Switch title and transition to completed layout inside Screen 2
             document.getElementById('screen2-title').textContent = "安全チェック結果";
@@ -2410,7 +1505,6 @@ INDEX_HTML = """<!DOCTYPE html>
 
         // Reset flow
         function resetApp() {
-            cancelActiveAnalysis();
             clearPreview();
             updateDebugPanel(null);
             showScreen('screen-home');
@@ -2418,12 +1512,6 @@ INDEX_HTML = """<!DOCTYPE html>
 
         btnBackHomes.forEach(btn => {
             btn.addEventListener('click', resetApp);
-        });
-        window.addEventListener('pagehide', cancelActiveAnalysis);
-        document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                cancelActiveAnalysis();
-            }
         });
     </script>
 </body>
@@ -2529,255 +1617,6 @@ def _safe_backend_client_error(status_code: int) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=content)
 
 
-def _ndjson_line(payload: dict[str, object]) -> bytes:
-    return (
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
-
-
-def _ndjson_error(error: str, message: str) -> bytes:
-    return _ndjson_line(
-        {
-            "type": "error",
-            "error": error,
-            "message": message,
-        }
-    )
-
-
-def _ndjson_result(payload: dict[str, Any]) -> bytes:
-    return _ndjson_line({"type": "result", "payload": payload})
-
-
-class _UpstreamStreamProtocolError(Exception):
-    """Internal marker whose text is never logged or returned."""
-
-
-_SAFE_UPSTREAM_ERRORS = {
-    "gemini_unavailable": "解析サービスは現在利用できません。",
-    "invalid_upload": "画像または入力内容を確認してください。",
-    "analysis_failed": "分析を完了できませんでした。",
-}
-_EXPECTED_PROGRESS = ("intake_complete", "vision_complete")
-
-
-def _safe_stream_failure(
-    image_bytes: bytes,
-    room_hint: str,
-    reason: str,
-) -> bytes:
-    if FRONTEND_REQUIRE_REAL_GEMINI:
-        return _ndjson_error(
-            "analysis_failed",
-            "分析を完了できませんでした。",
-        )
-    return _ndjson_result(
-        _build_local_mock(
-            image_bytes,
-            room_hint,
-            reason,
-        )
-    )
-
-
-def _validate_upstream_event(
-    event: object,
-    *,
-    progress_index: int,
-) -> tuple[bytes, int, bool]:
-    if not isinstance(event, dict):
-        raise _UpstreamStreamProtocolError()
-    event_type = event.get("type")
-    if event_type == "progress":
-        if (
-            progress_index >= len(_EXPECTED_PROGRESS)
-            or event.get("stage") != _EXPECTED_PROGRESS[progress_index]
-        ):
-            raise _UpstreamStreamProtocolError()
-        stage = _EXPECTED_PROGRESS[progress_index]
-        return (
-            _ndjson_line({"type": "progress", "stage": stage}),
-            progress_index + 1,
-            False,
-        )
-    if event_type == "error":
-        error_code = event.get("error")
-        if not isinstance(error_code, str):
-            raise _UpstreamStreamProtocolError()
-        safe_message = _SAFE_UPSTREAM_ERRORS.get(error_code)
-        if safe_message is None:
-            raise _UpstreamStreamProtocolError()
-        return (
-            _ndjson_error(error_code, safe_message),
-            progress_index,
-            True,
-        )
-    if event_type == "result":
-        if progress_index != len(_EXPECTED_PROGRESS):
-            raise _UpstreamStreamProtocolError()
-        try:
-            response = WireAnalysisResponse.model_validate(event.get("payload"))
-        except Exception as exc:
-            raise _UpstreamStreamProtocolError() from exc
-        return (
-            _ndjson_result(response.model_dump(mode="json")),
-            progress_index,
-            True,
-        )
-    raise _UpstreamStreamProtocolError()
-
-
-async def _validated_upstream_stream(
-    response: httpx.Response,
-) -> AsyncIterator[tuple[bytes, bool]]:
-    content_type = response.headers.get("content-type", "")
-    media_type = content_type.split(";", 1)[0].strip().lower()
-    if media_type != "application/x-ndjson":
-        raise _UpstreamStreamProtocolError()
-
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="strict")
-    buffer = ""
-    progress_index = 0
-    async for chunk in response.aiter_bytes():
-        if not chunk:
-            continue
-        try:
-            buffer += decoder.decode(chunk, final=False)
-        except UnicodeDecodeError as exc:
-            raise _UpstreamStreamProtocolError() from exc
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            if not line.strip():
-                continue
-            try:
-                event = json.loads(line)
-            except (json.JSONDecodeError, UnicodeError) as exc:
-                raise _UpstreamStreamProtocolError() from exc
-            encoded, progress_index, terminal = _validate_upstream_event(
-                event,
-                progress_index=progress_index,
-            )
-            if terminal:
-                try:
-                    await response.aclose()
-                except Exception:
-                    pass
-            yield encoded, terminal
-            if terminal:
-                return
-
-    try:
-        buffer += decoder.decode(b"", final=True)
-    except UnicodeDecodeError as exc:
-        raise _UpstreamStreamProtocolError() from exc
-    # A final non-newline-terminated fragment is not an NDJSON record and is
-    # intentionally discarded before the Web emits its own safe terminal.
-    if buffer:
-        raise _UpstreamStreamProtocolError()
-    raise _UpstreamStreamProtocolError()
-
-
-async def _proxy_analysis_stream(
-    image_bytes: bytes,
-    filename: str,
-    content_type: str,
-    room_hint: str,
-) -> AsyncIterator[bytes]:
-    """Forward one trusted Agent stream without polling or duplicate analysis."""
-    files = {"image": (filename, image_bytes, content_type)}
-    data = {
-        "room_hint": room_hint,
-        "mock": "true" if FRONTEND_MOCK else "false",
-    }
-    terminal_sent = False
-    try:
-        async with backend_client().stream(
-            "POST",
-            f"{SUMAI_AGENT_URL}/analyze/stream",
-            data=data,
-            files=files,
-        ) as response:
-            if response.status_code == 200:
-                async for line, terminal in _validated_upstream_stream(
-                    response
-                ):
-                    terminal_sent = terminal
-                    yield line
-                    if terminal_sent:
-                        return
-                raise _UpstreamStreamProtocolError()
-
-            if response.status_code in {400, 422}:
-                yield _ndjson_error(
-                    "invalid_upload",
-                    "画像または入力内容を確認してください。",
-                )
-                return
-
-            if 400 <= response.status_code < 500:
-                yield _ndjson_error(
-                    "backend_request_rejected",
-                    "分析リクエストを処理できませんでした。",
-                )
-                return
-
-            if (
-                FRONTEND_REQUIRE_REAL_GEMINI
-                or response.status_code == 503
-            ):
-                yield _ndjson_error(
-                    "gemini_unavailable",
-                    "解析サービスは現在利用できません。",
-                )
-                return
-
-            if 500 <= response.status_code < 600:
-                yield _ndjson_result(
-                    _build_local_mock(
-                        image_bytes,
-                        room_hint,
-                        "backend_http_error",
-                    )
-                )
-                return
-
-            yield _ndjson_error(
-                "backend_invalid_response",
-                "分析サービスから有効な応答を受け取れませんでした。",
-            )
-            terminal_sent = True
-    except _UpstreamStreamProtocolError as exc:
-        logger.warning(
-            "backend_stream_protocol_error",
-            extra={"failure_type": type(exc).__name__},
-        )
-        if not terminal_sent:
-            yield _safe_stream_failure(
-                image_bytes,
-                room_hint,
-                "backend_invalid_stream",
-            )
-    except Exception as exc:
-        logger.warning(
-            "backend_stream_failed",
-            extra={"failure_type": type(exc).__name__},
-        )
-        if not terminal_sent:
-            if FRONTEND_REQUIRE_REAL_GEMINI:
-                yield _ndjson_error(
-                    "gemini_unavailable",
-                    "解析サービスは現在利用できません。",
-                )
-            else:
-                yield _ndjson_result(
-                    _build_local_mock(
-                        image_bytes,
-                        room_hint,
-                        "backend_unreachable",
-                    )
-                )
-
-
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
@@ -2851,27 +1690,6 @@ async def analyze(
         return JSONResponse(content=payload)
 
 
-@app.post("/analyze/stream")
-async def analyze_stream(
-    image: UploadFile = File(...),
-    room_hint: str = Form("auto"),
-) -> StreamingResponse:
-    image_bytes = await image.read()
-    return StreamingResponse(
-        _proxy_analysis_stream(
-            image_bytes,
-            image.filename or "photo.png",
-            image.content_type or "image/png",
-            room_hint,
-        ),
-        media_type="application/x-ndjson",
-        headers={
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-        },
-    )
-
-
 @app.get("/ready")
 def ready() -> dict[str, str]:
     return {"status": "ok"}
@@ -2894,13 +1712,13 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     pixel_digest = hashlib.sha256(pixel_payload).hexdigest()
     result_identity = {
         "execution_mode": "local_mock_abstention",
-        "inference_config_version": "1.0.6",
+        "inference_config_version": "1.0.0",
         "model": "N/A",
-        "ontology_version": "1.0.1",
+        "ontology_version": "1.0.0",
         "pixel_digest": pixel_digest,
         "preprocess_version": "1.0.0",
         "room_hint": room_hint,
-        "schema_version": "2.2.0",
+        "schema_version": "2.0.0",
     }
     result_key = hashlib.sha256(
         json.dumps(
@@ -2919,7 +1737,6 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
                     "contractor_construction": [],
                     "family_no_cost": [],
                 },
-                "confirmation_items": [],
                 "findings": [],
                 "is_home_environment": True,
                 "not_applicable_reason_ja": not_applicable_reason,
@@ -2939,14 +1756,12 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
     return {
         "analysis_id": f"local_{uuid.uuid4().hex}",
         "room_type": "auto",
-        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "mode": "local_mock",
         "is_home_environment": True,
         "is_not_applicable": True,
         "not_applicable_reason_ja": not_applicable_reason,
         "findings": [],
-        "confirmation_items": [],
         "action_plan": {
             "family_no_cost": [],
             "care_manager_purchase": [],
@@ -2955,10 +1770,6 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "annotated_image_base64": image_base64,
         "improvement_image_base64": image_base64,
         "risk_summary_markdown": neutral_report,
-        "confirmation_items_markdown": (
-            "## 写真だけでは確認できない項目\n\n"
-            "判定保留中のため、項目は表示していません。"
-        ),
         "family_actions_markdown": empty_actions,
         "care_manager_actions_markdown": empty_actions,
         "contractor_actions_markdown": empty_actions,
@@ -2966,10 +1777,10 @@ def _build_local_mock(image_bytes: bytes, room_hint: str, reason: str) -> dict[s
         "model": "N/A",
         "result_key": result_key,
         "semantic_hash": semantic_hash,
-        "schema_version": "2.2.0",
-        "ontology_version": "1.0.1",
+        "schema_version": "2.0.0",
+        "ontology_version": "1.0.0",
         "preprocess_version": "1.0.0",
-        "inference_config_version": "1.0.6",
+        "inference_config_version": "1.0.0",
         "stage_timings_ms": {
             "intake": 0,
             "memo_lookup": 0,
