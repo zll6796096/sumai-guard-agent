@@ -41,3 +41,38 @@ def test_not_applicable_result_hides_risk_summary_images_and_suggestions() -> No
     assert "resultSummary.style.display = 'flex'" in html
     assert "btnShowSuggestions.style.display = ''" in html
     assert "document.getElementById('screen2-title').textContent = \"安全チェック結果\"" in html
+
+
+def test_waiting_experience_is_local_indeterminate_and_accessible() -> None:
+    html = _index_html()
+
+    assert 'id="waiting-progress-track"' in html
+    assert 'class="waiting-progress-indicator"' in html
+    assert 'role="progressbar"' in html
+    assert 'aria-label="写真確認の進行状況"' in html
+    assert "aria-valuenow" not in html
+    assert "from { transform: translateX(-20%); }" in html
+    assert "to { transform: translateX(138%); }" in html
+    assert 'id="waiting-status-text"' in html
+    assert 'id="waiting-tip-text"' in html
+    assert 'id="waiting-long-note"' in html
+    assert "startWaitingExperience" in html
+    assert "renderWaitingPhase" in html
+    assert "stopWaitingExperience" in html
+    assert "window.matchMedia('(prefers-reduced-motion: reduce)')" in html
+
+    assert html.count("fetch('/analyze'") == 1
+    assert "EventSource" not in html
+    assert "WebSocket" not in html
+    assert "/analyze/stream" not in html
+
+
+def test_waiting_experience_stops_on_success_failure_and_home_reset() -> None:
+    html = _index_html()
+
+    assert "clearTimeout(waitingPhaseTimer)" in html
+    assert "clearInterval(waitingTipTimer)" in html
+    assert "clearTimeout(waitingLongNoteTimer)" in html
+    assert "stopWaitingExperience();\n                renderResults(data);" in html
+    assert "catch (err) {\n                stopWaitingExperience();" in html
+    assert "function clearPreview() {\n            stopWaitingExperience();" in html
