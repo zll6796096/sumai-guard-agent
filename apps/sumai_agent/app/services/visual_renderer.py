@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import io
-from functools import lru_cache
+import math
 from pathlib import Path
 from typing import Any
 
@@ -14,60 +14,116 @@ RED = (220, 38, 38)
 WHITE = (255, 255, 255)
 GREEN = (22, 163, 74)
 PURPLE = (147, 51, 234)
+BLUE = (14, 116, 144)
+YELLOW = (245, 158, 11)
 BLACK = (17, 24, 39)
 WATERMARK = "コミュニケーション用イメージ｜施工図ではありません"
 
+# Visual zone coordinates: (x, y, w, h) relative
+VISUAL_ZONES = {
+    "toilet": {
+        "toilet_missing_handrail": {"left": (0.08, 0.42, 0.17, 0.36), "right": (0.70, 0.42, 0.22, 0.36)},
+        "toilet_transfer_support": {"left": (0.08, 0.42, 0.17, 0.36), "right": (0.70, 0.42, 0.22, 0.36)},
+        "toilet_missing_emergency_call": (0.68, 0.30, 0.25, 0.28),
+        "toilet_slip": (0.18, 0.68, 0.64, 0.24),
+        "looks_slippery_floor": (0.18, 0.68, 0.64, 0.24),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.22),
+    },
+    "bathroom": {
+        "bathroom_missing_handrail": {"left": (0.10, 0.30, 0.18, 0.50), "right": (0.72, 0.30, 0.18, 0.50)},
+        "bathroom_missing_non_slip": (0.20, 0.70, 0.60, 0.25),
+        "bathroom_slip": (0.20, 0.70, 0.60, 0.25),
+        "bathroom_missing_emergency_call": (0.70, 0.35, 0.20, 0.30),
+        "bathtub_stepover": (0.30, 0.50, 0.40, 0.25),
+    },
+    "hallway": {
+        "hallway_cord": (0.10, 0.75, 0.80, 0.15),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.25),
+        "poor_lighting": (0.30, 0.10, 0.40, 0.20),
+    },
+    "genkan": {
+        "genkan_step": (0.15, 0.60, 0.70, 0.20),
+        "large_step": (0.15, 0.60, 0.70, 0.20),
+        "genkan_missing_support": (0.08, 0.30, 0.15, 0.50),
+        "loose_shoes": (0.20, 0.65, 0.60, 0.25),
+        "cluttered_path": (0.20, 0.65, 0.60, 0.25),
+    },
+    "bedroom": {
+        "clear_path_from_bed": (0.20, 0.70, 0.60, 0.22),
+        "cluttered_path": (0.20, 0.70, 0.60, 0.22),
+        "loose_mat": (0.25, 0.72, 0.50, 0.20),
+        "poor_lighting": (0.70, 0.20, 0.20, 0.30),
+    },
+    "kitchen": {
+        "kitchen_slip": (0.20, 0.75, 0.60, 0.20),
+        "cluttered_path": (0.25, 0.70, 0.50, 0.25),
+        "reachable_storage_issue": (0.15, 0.15, 0.70, 0.25),
+    }
+}
+
+ROOM_ANCHORS = {
+    "toilet": (0.25, 0.65, 0.50, 0.25),
+    "bathroom": (0.30, 0.60, 0.40, 0.30),
+    "hallway": (0.25, 0.70, 0.50, 0.25),
+    "genkan": (0.20, 0.60, 0.60, 0.30),
+    "bedroom": (0.25, 0.65, 0.50, 0.25),
+    "kitchen": (0.25, 0.70, 0.50, 0.25),
+}
+
 DANGER_LABELS = {
-    "bathroom_slip": "水濡れ",
-    "loose_mat": "敷物",
+    "toilet_missing_handrail": "支え不足",
+    "toilet_transfer_support": "支え不足",
+    "bathroom_missing_handrail": "支え不足",
+    "genkan_missing_support": "支え不足",
+    "bedroom_missing_support": "支え不足",
+    "stairs": "支え不足",
+    "missing_handrail": "支え不足",
+    
+    "toilet_missing_emergency_call": "連絡手段",
+    "bathroom_missing_emergency_call": "連絡手段",
+    
+    "toilet_slip": "滑り",
+    "bathroom_slip": "滑り",
+    "bathroom_missing_non_slip": "滑り",
+    "kitchen_slip": "滑り",
+    "looks_slippery_floor": "滑り",
+    "loose_mat": "滑り",
+    
     "genkan_step": "段差",
+    "large_step": "段差",
+    "genkan_invisible_step": "段差",
     "bathtub_stepover": "段差",
+    
     "hallway_cord": "コード",
-    "cluttered_path": "障害物",
-}
-
-IMPROVEMENT_LABELS = {
-    "genkan_step": "段差対策",
-    "hallway_cord": "コード整理",
-    "cluttered_path": "片付け",
-    "loose_mat": "敷物固定",
-    "bathroom_slip": "水分除去",
-    "bathtub_stepover": "またぎ対策",
 }
 
 
-@lru_cache(maxsize=1)
-def _visible_finding_identities() -> frozenset[tuple[str, str, str]]:
-    from app.ontology import OntologyRepository
+def _get_mapped_bbox(finding: RiskFinding, room_type: str | None) -> BoundingBox:
+    # Rendering may map or expand a local presentation box, never the evidence box.
+    display_bbox = finding.display_bbox or finding.bbox
+    if room_type and room_type in VISUAL_ZONES:
+        mapped = VISUAL_ZONES[room_type].get(finding.risk_type)
+        if mapped:
+            if isinstance(mapped, dict):
+                center_x = display_bbox.x + display_bbox.w / 2
+                zone_coords = mapped["right"] if center_x > 0.5 else mapped["left"]
+            else:
+                zone_coords = mapped
+            x, y, w, h = zone_coords
+            return BoundingBox(x=x, y=y, w=w, h=h)
 
-    ontology = OntologyRepository.load_default()
-    return frozenset(
-        (room, str(rule["key"]), str(rule["risk_type"]))
-        for room in ontology.room_names
-        for rule in (ontology.room(room) or {})["visible_hazards"]
-    )
+    # Check if original is huge (>65%)
+    orig_area = display_bbox.w * display_bbox.h
+    if orig_area > 0.65:
+        anchor = None
+        if room_type and room_type in ROOM_ANCHORS:
+            anchor = ROOM_ANCHORS[room_type]
+        if not anchor:
+            anchor = (0.25, 0.65, 0.50, 0.25)
+        x, y, w, h = anchor
+        return BoundingBox(x=x, y=y, w=w, h=h)
 
-
-def _matches_visible_ontology(
-    finding: RiskFinding,
-    room_type: str | None,
-) -> bool:
-    if (
-        finding.ontology_rule_kind != "visible_hazard"
-        or not finding.ontology_key
-    ):
-        return False
-    identities = _visible_finding_identities()
-    if room_type is not None:
-        return (
-            room_type,
-            finding.ontology_key,
-            finding.risk_type,
-        ) in identities
-    return any(
-        ontology_key == finding.ontology_key and risk_type == finding.risk_type
-        for _, ontology_key, risk_type in identities
-    )
+    return display_bbox
 
 
 def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
@@ -91,14 +147,9 @@ def _compute_iou(b1: BoundingBox, b2: BoundingBox) -> float:
 def _select_visual_findings(
     findings: list[RiskFinding], room_type: str | None, max_items: int = 3
 ) -> list[tuple[RiskFinding, BoundingBox]]:
-    # Only a clear, localized visible hazard has an image location. An expected
-    # feature bbox is the region checked for absence, not a missing object or an
-    # installation position, so it must never enter visual overlap suppression.
-    candidates = [
-        (finding, finding.bbox)
-        for finding in findings
-        if _matches_visible_ontology(finding, room_type)
-    ]
+    # Danger annotations are evidence, so selection and overlap suppression use
+    # provider evidence coordinates. Presentation mapping is improvement-only.
+    candidates = [(finding, finding.bbox) for finding in findings]
 
     # Sort by severity desc, then confidence desc
     candidates.sort(key=lambda item: (-item[0].severity, -item[0].confidence))
@@ -127,12 +178,12 @@ class VisualRenderer:
             return self.render_not_applicable(image)
 
         selected_findings = _select_visual_findings(findings, room_type, max_items=3)
-        if not selected_findings:
-            return self.render_not_applicable(image)
         annotated = self._annotated_image(image, selected_findings)
-        # Improvement callouts stay on the same visible evidence. The renderer
-        # never invents a room-template location for a product or construction.
-        improvement = self._improvement_image(image, selected_findings)
+        improvement_findings = [
+            (finding, _get_mapped_bbox(finding, room_type))
+            for finding, _ in selected_findings
+        ]
+        improvement = self._improvement_image(image, improvement_findings)
         return _to_base64_png(annotated), _to_base64_png(improvement)
 
     def render_not_applicable(self, image: Image.Image) -> tuple[str, str]:
@@ -293,8 +344,86 @@ class VisualRenderer:
         return output
 
 
+def _bbox_pixels(finding: RiskFinding, width: int, height: int) -> tuple[int, int, int, int]:
+    display_bbox = finding.display_bbox or finding.bbox
+    x1 = int(display_bbox.x * width)
+    y1 = int(display_bbox.y * height)
+    x2 = int((display_bbox.x + display_bbox.w) * width)
+    y2 = int((display_bbox.y + display_bbox.h) * height)
+    return (
+        max(0, min(width - 1, x1)),
+        max(0, min(height - 1, y1)),
+        max(1, min(width, x2)),
+        max(1, min(height, y2)),
+    )
+
+
 def _improvement_label(risk_type: str) -> str:
-    return IMPROVEMENT_LABELS.get(risk_type, "改善案")
+    labels = {
+        "genkan_step": "段差対策",
+        "large_step": "段差対策",
+        "stairs": "手すり候補",
+        "hallway_cord": "コード整理",
+        "cluttered_path": "片付け",
+        "loose_mat": "マット固定",
+        "bathroom_slip": "滑り止め",
+        "bathtub_stepover": "またぎ対策",
+        "toilet_transfer": "手すり候補",
+        "missing_handrail": "手すり候補",
+        "poor_lighting": "照明追加",
+        "kitchen_slip": "滑り止め",
+        # New checklist types
+        "toilet_missing_handrail": "手すり候補",
+        "toilet_missing_emergency_call": "緊急呼出相談",
+        "toilet_transfer_support": "手すり候補",
+        "toilet_slip": "滑り止め",
+        "bathroom_missing_handrail": "手すり候補",
+        "bathroom_missing_non_slip": "滑り止め",
+        "bathroom_missing_transfer_support": "手すり候補",
+        "bathroom_missing_emergency_call": "緊急呼出相談",
+        "bathroom_no_shower_chair": "動線確保",
+        "genkan_missing_support": "手すり候補",
+        "genkan_invisible_step": "段差対策",
+        "hallway_narrow_path": "動線確保",
+        "bedroom_blocked_path": "動線確保",
+        "bedroom_missing_support": "手すり候補",
+        "kitchen_cluttered_floor": "片付け",
+        "kitchen_narrow_path": "動線確保",
+        "kitchen_unreachable_storage": "収納見直し",
+    }
+    return labels.get(risk_type, "改善案")
+
+
+def _improvement_color(risk_type: str) -> tuple[int, int, int]:
+    if risk_type in {
+        "bathroom_slip", "kitchen_slip", "toilet_slip",
+        "bathroom_missing_non_slip", "loose_mat"
+    }:
+        return BLUE
+    if risk_type in {"poor_lighting", "toilet_missing_emergency_call", "bathroom_missing_emergency_call"}:
+        return YELLOW
+    return GREEN
+
+
+def _draw_arrow(
+    draw: ImageDraw.ImageDraw,
+    start: tuple[int, int],
+    end: tuple[int, int],
+    fill: tuple[int, int, int, int],
+    width: int,
+) -> None:
+    draw.line((start, end), fill=fill, width=width)
+    angle = math.atan2(end[1] - start[1], end[0] - start[0])
+    length = max(10, width * 3)
+    left = (
+        int(end[0] - length * math.cos(angle - math.pi / 6)),
+        int(end[1] - length * math.sin(angle - math.pi / 6)),
+    )
+    right = (
+        int(end[0] - length * math.cos(angle + math.pi / 6)),
+        int(end[1] - length * math.sin(angle + math.pi / 6)),
+    )
+    draw.polygon((end, left, right), fill=fill)
 
 
 def _load_font(size: int, bold: bool = False) -> ImageFont.ImageFont:

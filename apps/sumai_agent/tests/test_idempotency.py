@@ -10,13 +10,8 @@ from fastapi import UploadFile
 from PIL import Image
 
 from app.config import Settings
-from app.models import ActionPlan, ConfirmationItem, VisionFacts
-from app.services.canonicalization import canonicalize_confirmation_items, semantic_hash
-from app.services.orchestrator import (
-    AnalysisOrchestrator,
-    ComputedAnalysis,
-    analysis_semantic_payload,
-)
+from app.models import ActionPlan, VisionFacts
+from app.services.orchestrator import AnalysisOrchestrator, ComputedAnalysis
 from app.services.result_memo import AsyncResultMemo
 
 
@@ -159,39 +154,32 @@ def test_result_memo_cleans_failed_and_cancelled_in_flight_work_without_cancelli
 
         started = asyncio.Event()
         release = asyncio.Event()
-        worker_cancelled = asyncio.Event()
 
         async def slow_factory() -> tuple[str, bool]:
             nonlocal calls
             calls += 1
             started.set()
-            try:
-                await release.wait()
-            except asyncio.CancelledError:
-                worker_cancelled.set()
-                raise
+            await release.wait()
             return "shared", True
 
         cancelled_waiter = asyncio.create_task(memo.get_or_compute("cancel", slow_factory))
         survivor = asyncio.create_task(memo.get_or_compute("cancel", slow_factory))
         await started.wait()
-        await asyncio.sleep(0)
         cancelled_waiter.cancel()
         with pytest.raises(asyncio.CancelledError):
             await cancelled_waiter
         release.set()
         assert await survivor == ("shared", False)
-        assert worker_cancelled.is_set() is False
         assert calls == 5
 
     asyncio.run(run())
 
 
-def test_result_memo_cancels_worker_and_cleans_key_after_last_waiter_cancels() -> None:
+def test_result_memo_observes_failure_after_its_only_waiter_cancels() -> None:
     async def run() -> None:
         memo: AsyncResultMemo[str] = AsyncResultMemo(max_items=2, ttl_seconds=5)
         started = asyncio.Event()
-        worker_cancelled = asyncio.Event()
+        release = asyncio.Event()
         unhandled: list[dict[str, object]] = []
         loop = asyncio.get_running_loop()
         previous_handler = loop.get_exception_handler()
@@ -201,30 +189,26 @@ def test_result_memo_cancels_worker_and_cleans_key_after_last_waiter_cancels() -
         ) -> None:
             unhandled.append(context)
 
-        async def cancellable_factory() -> tuple[str, bool]:
+        async def detached_failure() -> tuple[str, bool]:
             started.set()
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                worker_cancelled.set()
-                raise
+            await release.wait()
+            raise RuntimeError("detached failure")
 
         async def retry() -> tuple[str, bool]:
             return "recovered", True
 
         loop.set_exception_handler(capture_unhandled)
         try:
-            waiter = asyncio.create_task(
-                memo.get_or_compute("same", cancellable_factory)
-            )
+            waiter = asyncio.create_task(memo.get_or_compute("same", detached_failure))
             await started.wait()
             waiter.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await waiter
-            await asyncio.wait_for(worker_cancelled.wait(), timeout=1)
+            release.set()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
 
             assert unhandled == []
-            assert "same" not in memo._in_flight
             assert await memo.get_or_compute("same", retry) == ("recovered", False)
         finally:
             loop.set_exception_handler(previous_handler)
@@ -405,65 +389,6 @@ def test_fallback_is_not_cached_and_strict_failure_does_not_poison_key(monkeypat
     asyncio.run(run())
 
 
-def test_confirmation_items_participate_in_stable_semantic_identity() -> None:
-    first = ConfirmationItem(
-        id="pending",
-        feature_key="has_handrail",
-        label_ja="手すり",
-        description_ja="写真では確認できませんでした。",
-        confidence=0.91,
-        evidence_source_ids=["MHLW_WELFARE_HOUSING"],
-        basis_label_ja="写真で確認できる範囲",
-        basis_summary_ja="写真だけでは実際の有無を判断できません。",
-        needs_human_confirmation=True,
-    )
-    second = ConfirmationItem(
-        id="pending",
-        feature_key="has_emergency_call_button",
-        label_ja="緊急呼出ボタン",
-        description_ja="写真では確認できませんでした。",
-        confidence=0.82,
-        evidence_source_ids=[],
-        basis_label_ja="写真で確認できる範囲",
-        basis_summary_ja="写真だけでは実際の有無を判断できません。",
-        needs_human_confirmation=True,
-    )
-    forward = canonicalize_confirmation_items([first, second])
-    reverse = canonicalize_confirmation_items([second, first])
-    empty_hash = semantic_hash(
-        analysis_semantic_payload(
-            "toilet",
-            [],
-            ActionPlan(),
-            confirmation_items=[],
-        )
-    )
-    forward_hash = semantic_hash(
-        analysis_semantic_payload(
-            "toilet",
-            [],
-            ActionPlan(),
-            confirmation_items=forward,
-        )
-    )
-    reverse_hash = semantic_hash(
-        analysis_semantic_payload(
-            "toilet",
-            [],
-            ActionPlan(),
-            confirmation_items=reverse,
-        )
-    )
-
-    assert [(item.id, item.feature_key) for item in forward] == [
-        ("C1", "has_emergency_call_button"),
-        ("C2", "has_handrail"),
-    ]
-    assert forward == reverse
-    assert empty_hash != forward_hash
-    assert forward_hash == reverse_hash
-
-
 def test_computed_analysis_contains_only_structured_semantic_values() -> None:
     forbidden_fragments = ("image", "base64", "pixel", "digest", "result_key", "analysis_id")
     assert all(
@@ -476,7 +401,6 @@ def test_computed_analysis_contains_only_structured_semantic_values() -> None:
         response_room="genkan",
         overall_risk="low",
         findings=[],
-        confirmation_items=[],
         action_plan=ActionPlan(),
         reports={"risk_summary_markdown": "結果"},
         mode="mock",

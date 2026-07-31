@@ -15,7 +15,7 @@ flowchart LR
     Canon --> Rules["deterministic RuleEngine and action tiers"]
     Rules --> Memo["process-local semantic TTL/LRU memo"]
     Memo --> Render["per-request render and report"]
-    Render --> Response["JSON or NDJSON response"]
+    Render --> Response["JSON response"]
     Response --> Web
 ```
 
@@ -35,21 +35,19 @@ For a known home room, `is_not_applicable=false` with ordinary empty findings in
 
 Gemini is limited to `VisionFacts`: environment, room type, visible regions, visible entities, feature observations, and relationships. The provider is not asked for severity, Japanese labels, action tiers, recommendations, reports, or final risk decisions.
 
-`findings` and `confirmation_items` are separate output channels. `RelationshipEngine` accepts a visible hazard into `findings` only when it has a complete, valid triple:
+`RelationshipEngine` accepts a visible hazard only when it has a complete, valid triple:
 
 `subject entity ref` + `ontology predicate` + `target visible region/entity`.
 
-The subject must be clear and the predicate/target must be configured for that ontology key. An expected feature may become a neutral `confirmation_items` entry only when its state is `absent_with_full_coverage` and the input facts contain an in-bounds coverage bbox. The public confirmation item deliberately carries no bbox, severity, risk level, or action. `cannot_determine` produces neither a finding nor a confirmation item. This avoids treating cropped, obscured, or ambiguous areas as absent or hazardous.
+The subject must be clear and the predicate/target must be configured for that ontology key. An expected feature becomes a missing-feature finding only when its state is `absent_with_full_coverage` and it has an in-bounds evidence bbox. `cannot_determine` produces no finding. This avoids treating cropped, obscured, or ambiguous areas as absent.
 
 The bathroom safety correction is explicit: the expected feature is `has_shower_chair`; a negative observation is not represented as a fictional `no_shower` feature. Non-home, uncertain, unknown-room, or explicit not-applicable facts produce neutral not-applicable output, not a low-risk or no-risk claim.
 
-Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`. Only `visible_hazard` identities enter `RiskFinding` and `RuleEngine`; expected-feature non-detections remain neutral confirmation items. Duplicate `risk_type` values therefore cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for unambiguous visible-hazard callers, not the relationship path.
+Actual relationship inference preserves exact rule identity as `(room, ontology_key, rule_kind)`, where `rule_kind` distinguishes a visible hazard from a missing expected feature. `RiskFinding` carries that identity into `RuleEngine`, so duplicate `risk_type` values cannot silently select another rule's label, basis, or actions. The older risk-type-only lookup remains a compatibility fallback for legacy callers, not the relationship path.
 
 The public `confidence` field remains for API compatibility and deterministic thresholding. Its provider-originated value is an uncalibrated model detection score, not a calibrated probability that the finding is correct. Ordinary reports therefore label it `モデル検出スコア（未校正）`, not confidence.
 
-The public evidence bbox on a `RiskFinding` has positive width and height, stays inside the normalized image frame, and always represents a localized `visible_hazard`. A provider-side expected-feature bbox is only a coverage region used to decide whether a cautious neutral confirmation is supportable; it is not exposed on `ConfirmationItem`, is not the location of a missing object, and is not an installation position.
-
-Accordingly, only `visible_hazard` findings receive image overlays. Red boxes and improvement callouts both remain on the same provider evidence bbox. The renderer contains no visual-zone or room-template relocation and never invents a handrail, call-button, product, or construction location. When a result contains only confirmation items, both image payloads remain the sanitized unannotated photo; the web UI shows one clean context photo, hides the improvement card and suggestion navigation, and keeps the ordinary applicable low-risk state. Legacy `ChecklistEngine` input has no neutral confirmation return channel, so it ignores `observations` and `missing_safety_features`; only `visible_hazards` can pass the shared `RuleEngine` gate.
+The public evidence bbox has positive width and height and must remain inside the normalized image frame. Danger selection, overlap suppression, annotated red boxes, canonical semantics, and benchmark validation all use that evidence bbox. Legacy boolean observations without an explicit `MissingSafetyFeature` or `visible_hazards` bbox cannot create a visual finding. Presentation mapping through visual zones or room anchors is improvement-image-only and cannot relocate evidence.
 
 Canonicalization clears render-only `display_bbox` before sorting, winner selection, and semantic output. IoU deduplication at `IoU >= 0.5` first matches exact `(ontology_rule_kind, ontology_key)` identity. A `risk_type` fallback is used only when both findings are legacy findings without exact identity, so distinct ontology rules sharing one risk type retain their separate evidence and actions.
 
@@ -57,7 +55,7 @@ Canonicalization clears render-only `display_bbox` before sorting, winner select
 
 `apps/sumai_agent/app/knowledge_base/room_checklists.yaml` is the versioned, room-scoped source of truth. `OntologyRepository` validates its strict schema and exposes:
 
-- ontology `1.0.1`, schema `2.1.0`, and inference config `1.0.6`;
+- `ontology_version`, `schema_version`, and `inference_config_version`;
 - allowed relationship predicates and per-observation targets;
 - rooms, visible hazards, and expected features;
 - a source registry plus basis-to-source mapping; and
@@ -77,9 +75,9 @@ Each HTTP request receives a random `analysis_id` for correlation only. It is in
 
 `result_key` identifies computation inputs: sanitized pixel digest, normalized room hint, preprocess version, ontology version, `schema_version`, configured model, inference configuration version, and the execution policy (for example configured mock, strict Gemini, or Gemini with fallback). It does not contain raw image bytes.
 
-`semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, confirmation items, and action plan. In other words, `semantic_hash` includes `confirmation_items`. It excludes generated images, timings, execution mode, and render-only `display_bbox`; it includes the fixed not-applicable semantics described above. Findings and confirmation items are canonicalized before policy output so ordering, display mapping, and signed zero do not change the semantic result.
+`semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, and action plan. It excludes generated images, timings, execution mode, and render-only `display_bbox`; it includes the fixed not-applicable semantics described above. Findings are canonicalized before policy output so ordering, display mapping, and signed zero do not change the semantic result.
 
-The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Each in-flight key tracks its shared worker and waiter count: one owner disconnect does not cancel work while a follower still waits, but when the last waiter disconnects the worker is cancelled and the in-flight key is removed. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
+The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
 
 Every completed result also shows the always-visible `analysis-mode-banner`, independent of the optional debug panel. It distinguishes `gemini`, `mock`, `local_mock`, and `gemini_fallback(...)`; mock and fallback wording explicitly says they are not Gemini analysis. Unknown modes receive a warning rather than an inferred provenance label.
 
@@ -89,32 +87,13 @@ Backend 400/422 input errors retain their HTTP status and return a fixed Japanes
 
 Pillow decode/sanitization and rendering run through `asyncio.to_thread`; Gemini uses a lazily created reusable async client. The web proxy likewise reuses an async `httpx` client. FastAPI lifespan shutdown closes both clients.
 
-The browser waiting flow sends one `POST /analyze/stream` request to the Web service, and the Web service sends one upstream `POST /analyze/stream` request to the Agent. The Agent returns a single NDJSON response while preserving the synchronous `/analyze` endpoint for existing callers. The stream has only these event kinds:
-
-- `progress` with `intake_complete` after in-memory image decoding, orientation normalization, EXIF stripping, and sanitized PNG creation;
-- `progress` with `vision_complete` after provider or deterministic mock analysis has returned, or when equivalent semantic work is ready for cache hits and coalesced followers;
-- one terminal `result` containing the ordinary validated `AnalysisResponse`; or
-- one terminal `error` with a fixed Japanese message and no provider detail.
-
-The Web does not blindly relay an upstream 200 response. It requires the NDJSON media type, incrementally decodes strict UTF-8, buffers until newline, parses JSON, and re-encodes only validated complete NDJSON lines. Progress must be monotonic (`intake_complete` then `vision_complete`), error codes are allowlisted and their messages are replaced with Web-owned safe copy, and a result must satisfy the public `AnalysisResponse` wire contract. That Web-side contract is pinned to the current schema, ontology, preprocess, and inference versions and to explicit room-scoped visible-finding and confirmation identities, action-tier rules, unique IDs/features, and family-tier forbidden wording. Contract tests compare those constants with the Agent ontology so version drift fails locally.
-
-The first validated terminal closes the upstream response. Invalid UTF-8/JSON, wrong media type, a partial final line, missing terminal, duplicate or out-of-order progress, an unknown error, or an invalid result causes one independent safe terminal: strict mode emits a fixed error and non-strict mode emits the existing neutral abstention. Already validated progress lines may precede that terminal, but an unvalidated fragment is discarded and a second terminal is never appended.
-
-When the Web creates a neutral non-strict fallback before any Agent stage is available, it sends one validated `result` without fabricating progress. The browser accepts a valid result at any stage, completes the presentation, renders the neutral abstention, and still rejects duplicate or out-of-order progress and every event after a terminal.
-
-The progress callback is request-local. The semantic memo may reuse or coalesce computation, but cache hits and coalesced followers still receive both truthful readiness events for their own stream. Neither the callback nor streaming changes visible-risk derivation, rule policy, rendering, or the number of Gemini calls.
-
-The waiting presentation consumes that single NDJSON response incrementally. Its scan line, indeterminate bar, 20-second long-wait notice, and three rotating tips are static browser data and local timers; they do not make network requests. Selecting a new photo, receiving a result or error, returning home, leaving the page, or making the document hidden clears the timers and cancels both the response reader and applicable `AbortController`. Request identity guards prevent an older request's cleanup from cancelling or clearing a newer request. Every malformed JSON/error/bad-status/bad-media/render-failure/EOF path performs the same cleanup. `prefers-reduced-motion` keeps the state readable while disabling scan, bar, and active-stage movement.
-
-Both Agent endpoints use fixed client-facing failures. In particular, synchronous `/analyze` no longer serializes `ValueError` or unexpected exception text; it returns fixed Japanese JSON and logs only a safe error code and exception type. Stream completion restores the same safe structured `analysis_complete` fields and stage timings as the synchronous path, without logging result bodies or provider details.
-
 The agent timeout defaults to 120 seconds. The local web proxy adds a 30-second margin, yielding a default 150-second read budget. These are local POC settings, not a production SLO.
 
 `stage_timings_ms` contains `intake`, `memo_lookup`, `vision`, `ontology`, `render`, `report`, `serialize`, and `total`. `total` is the sum of instrumented application stages after Pydantic dumping; it is **not HTTP end-to-end** latency. Starlette JSON encoding, socket time, and network time are excluded.
 
 ## Benchmark interpretation
 
-The benchmark fixtures are synthetic and repeats are bounded to at most 50. In mock mode, P/R/F1 = 1 only checks that the deterministic pipeline matches those fixtures; it is **not recognition evidence** and must not be presented as visual-recognition accuracy. A real-mode benchmark requires strict status, a reviewed real-photo gold set, and reviewed labels before any accuracy claim. Actual-photo browser verification remains required before claiming that overlays, zero-risk applicable UI, confirmation-only presentation, or recognition behavior work on real homes.
+The benchmark fixtures are synthetic and repeats are bounded to at most 50. In mock mode, P/R/F1 = 1 only checks that the deterministic pipeline matches those fixtures; it is **not recognition evidence** and must not be presented as visual-recognition accuracy. A real-mode benchmark requires strict status, a reviewed real-photo gold set, and reviewed labels before any accuracy claim.
 
 Benchmark output separates schema validity from scoring applicability. `schema_valid_count` includes every schema-valid response. Schema-valid `is_not_applicable=true` results are abstentions, so they do not enter risk P/R/F1, including when the gold risk set is empty. `scored_applicable_response_count` and `scored_applicable_response_coverage` report scored applicable responses, with coverage using the repeated `request_count` as its denominator; `abstained_not_applicable_response_count` reports the excluded valid abstentions. When no applicable response was scored, risk metrics are unavailable with a reason rather than reporting an empty-set accuracy.
 

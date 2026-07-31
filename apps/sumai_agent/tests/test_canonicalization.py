@@ -5,21 +5,15 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
-from app.models import (
-    ActionPlan,
-    BoundingBox,
-    ConfirmationItem,
-    RiskFinding,
-    VisionFacts,
-)
+from app.models import ActionPlan, BoundingBox, RiskFinding, VisionFacts
 from app.ontology import OntologyRepository
-from app.services import canonicalization, orchestrator
 from app.services.canonicalization import (
     canonical_pixel_digest,
     canonicalize_findings,
     result_key,
     semantic_hash,
 )
+from app.services import orchestrator
 from app.services.orchestrator import analysis_semantic_payload
 from app.services.rule_engine import RuleEngine
 from app.services.relationship_engine import RelationshipEngine
@@ -45,26 +39,6 @@ def _finding(
         basis_label_ja="根拠",
         basis_summary_ja="根拠の要約です。",
         needs_human_confirmation=False,
-    )
-
-
-def _confirmation(
-    *,
-    feature_key: str,
-    confidence: float,
-    label: str,
-    description: str = "写真だけでは確認できません。",
-) -> ConfirmationItem:
-    return ConfirmationItem(
-        id="pending",
-        feature_key=feature_key,
-        label_ja=label,
-        description_ja=description,
-        confidence=confidence,
-        evidence_source_ids=["source-1"],
-        basis_label_ja="確認根拠",
-        basis_summary_ja="現地で確認する項目です。",
-        needs_human_confirmation=True,
     )
 
 
@@ -115,96 +89,6 @@ def test_result_key_uses_unambiguous_canonical_encoding() -> None:
 
     assert first != second
     assert first == result_key(model="model|i", inference_config_version="c", **common)
-
-
-def test_canonicalize_confirmation_items_is_order_independent_and_non_mutating() -> None:
-    call_button = _confirmation(
-        feature_key="has_emergency_call_button",
-        confidence=0.8,
-        label="緊急通報ボタン",
-    )
-    handrail = _confirmation(
-        feature_key="has_handrail",
-        confidence=0.9,
-        label="手すり",
-    )
-    duplicate_handrail = handrail.model_copy(
-        update={"id": "duplicate", "confidence": 0.7, "label_ja": "補助手すり"}
-    )
-    original = [
-        item.model_dump(mode="json")
-        for item in (call_button, handrail, duplicate_handrail)
-    ]
-
-    forward = canonicalization.canonicalize_confirmation_items(
-        [handrail, duplicate_handrail, call_button]
-    )
-    reverse = canonicalization.canonicalize_confirmation_items(
-        [call_button, duplicate_handrail, handrail]
-    )
-
-    assert [item.model_dump(mode="json") for item in forward] == [
-        item.model_dump(mode="json") for item in reverse
-    ]
-    assert [item.id for item in forward] == ["C1", "C2"]
-    assert [item.feature_key for item in forward] == [
-        "has_emergency_call_button",
-        "has_handrail",
-    ]
-    assert [item.label_ja for item in forward] == ["緊急通報ボタン", "手すり"]
-    assert [
-        item.model_dump(mode="json")
-        for item in (call_button, handrail, duplicate_handrail)
-    ] == original
-    assert all(
-        canonical is not source
-        for canonical, source in zip(forward, (call_button, handrail), strict=True)
-    )
-
-
-def test_canonicalize_confirmation_items_uses_full_dump_tiebreak_and_signed_zero() -> None:
-    lexical_winner = _confirmation(
-        feature_key="has_handrail",
-        confidence=0.8,
-        label="手すり",
-        description="A",
-    )
-    lexical_loser = lexical_winner.model_copy(
-        update={"id": "other", "description_ja": "B"}
-    )
-    negative_zero = _confirmation(
-        feature_key="has_emergency_call_button",
-        confidence=-0.0,
-        label="緊急通報ボタン",
-    )
-    positive_zero = negative_zero.model_copy(
-        update={"id": "positive", "confidence": 0.0}
-    )
-    original = [
-        item.model_dump(mode="json")
-        for item in (lexical_winner, lexical_loser, negative_zero, positive_zero)
-    ]
-
-    forward = canonicalization.canonicalize_confirmation_items(
-        [lexical_loser, positive_zero, lexical_winner, negative_zero]
-    )
-    reverse = canonicalization.canonicalize_confirmation_items(
-        [negative_zero, lexical_winner, positive_zero, lexical_loser]
-    )
-
-    assert [item.model_dump(mode="json") for item in forward] == [
-        item.model_dump(mode="json") for item in reverse
-    ]
-    assert [item.description_ja for item in forward] == [
-        "写真だけでは確認できません。",
-        "A",
-    ]
-    assert forward[0].confidence == 0.0
-    assert str(forward[0].confidence) == "0.0"
-    assert [
-        item.model_dump(mode="json")
-        for item in (lexical_winner, lexical_loser, negative_zero, positive_zero)
-    ] == original
 
 
 def test_canonicalize_findings_deduplicates_same_class_high_iou_deterministically() -> None:
@@ -295,7 +179,7 @@ def test_exact_ontology_identities_with_same_risk_and_bbox_are_not_deduplicated(
         }
     )
 
-    derived = RelationshipEngine(ontology).derive(facts).visible_findings
+    derived = RelationshipEngine(ontology).derive(facts)
     canonical = canonicalize_findings(derived)
     reversed_canonical = canonicalize_findings(list(reversed(derived)))
     findings, plan = RuleEngine(ontology=ontology).apply(canonical, "genkan")

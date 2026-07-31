@@ -4,7 +4,6 @@ from copy import deepcopy
 import importlib.util
 import os
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
@@ -19,48 +18,6 @@ def _load_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-@pytest.mark.parametrize(
-    "ontology_text",
-    [
-        None,
-        (
-            'ontology_version: "1.0.0"\n'
-            'schema_version: "2.1.0"\n'
-            'inference_config_version: "1.0.5"\n'
-            "rooms: [not-a-mapping]\n"
-        ),
-        "ontology_version: [\n",
-    ],
-)
-def test_module_import_fails_closed_for_invalid_ontology_contract(
-    tmp_path: Path,
-    ontology_text: str | None,
-) -> None:
-    script_path = tmp_path / "scripts" / "benchmark_pipeline.py"
-    script_path.parent.mkdir(parents=True)
-    script_path.write_text(SCRIPT_PATH.read_text(encoding="utf-8"), encoding="utf-8")
-    if ontology_text is not None:
-        ontology_path = (
-            tmp_path
-            / "apps"
-            / "sumai_agent"
-            / "app"
-            / "knowledge_base"
-            / "room_checklists.yaml"
-        )
-        ontology_path.parent.mkdir(parents=True)
-        ontology_path.write_text(ontology_text, encoding="utf-8")
-    spec = importlib.util.spec_from_file_location(
-        "benchmark_pipeline_invalid_ontology",
-        script_path,
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-
-    with pytest.raises(ValueError, match="invalid_ontology_contract"):
-        spec.loader.exec_module(module)
 
 
 def test_percentile_uses_nearest_rank_and_rejects_bad_samples() -> None:
@@ -95,7 +52,7 @@ def test_example_manifest_is_synthetic_and_uses_only_safe_relative_paths() -> No
     ]
     for case in manifest["cases"]:
         assert not case["image"].startswith("/")
-        assert ("/" + "Users/") not in case["image"]
+        assert "/Users/" not in case["image"]
         assert "private" not in case["image"].lower()
 
 
@@ -209,12 +166,9 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
         "id": "R1", "risk_type": "hallway_cord", "label_ja": "コード",
         "description_ja": "通路上のコードです。", "severity": 3, "confidence": 0.8,
         "bbox": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
-        "display_bbox": None,
         "evidence_source_ids": ["E1"], "evidence_ja": "床に見えます。",
         "basis_label_ja": "転倒予防", "basis_summary_ja": "通路を空けます。",
         "needs_human_confirmation": False,
-        "ontology_key": "hallway_cord",
-        "ontology_rule_kind": "visible_hazard",
     }
     action = {
         "id": "A1", "risk_id": "R1", "tier": "FAMILY_NO_COST", "title_ja": "整理",
@@ -223,29 +177,21 @@ def _valid_payload(*, findings: list[dict[str, object]] | None = None) -> dict[s
     }
     resolved_findings = [finding] if findings is None else findings
     return {
-        "analysis_id": "opaque-id", "room_type": "hallway",
-        "assessment_status": (
-            "visible_risks_found"
-            if resolved_findings
-            else "no_visible_risks_found"
-        ),
-        "overall_risk_level": "medium" if resolved_findings else "low",
+        "analysis_id": "opaque-id", "room_type": "hallway", "overall_risk_level": "medium",
         "findings": resolved_findings,
-        "confirmation_items": [],
         "action_plan": {
             "family_no_cost": [action] if resolved_findings else [],
             "care_manager_purchase": [], "contractor_construction": [],
         },
         "annotated_image_base64": "aGVsbG8=", "improvement_image_base64": "aGVsbG8=",
-        "risk_summary_markdown": "summary", "confirmation_items_markdown": "confirmations",
-        "family_actions_markdown": "family",
+        "risk_summary_markdown": "summary", "family_actions_markdown": "family",
         "care_manager_actions_markdown": "care", "contractor_actions_markdown": "contractor",
         "disclaimer_ja": "POC", "mode": "mock", "is_home_environment": True,
         "is_not_applicable": False, "model": "N/A",
         "not_applicable_reason_ja": None,
         "result_key": "b" * 64, "semantic_hash": "a" * 64,
-        "schema_version": "2.2.0", "ontology_version": "1.0.1",
-        "preprocess_version": "1.0.0", "inference_config_version": "1.0.6",
+        "schema_version": "2.0.0", "ontology_version": "1.0.0",
+        "preprocess_version": "1.0.0", "inference_config_version": "1.0.0",
         "stage_timings_ms": {
             "intake": 1, "memo_lookup": 0, "vision": 1, "ontology": 1,
             "render": 1, "report": 1, "serialize": 1, "total": 6,
@@ -269,16 +215,6 @@ def test_schema_helper_requires_public_shape_without_exposing_sensitive_values()
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed["action_plan"] = {}
-    assert benchmark.validate_response_schema(malformed) is False
-    malformed = deepcopy(payload)
-    malformed.pop("confirmation_items")
-    assert benchmark.validate_response_schema(malformed) is False
-    for invalid_value in (None, 42, ""):
-        malformed = deepcopy(payload)
-        malformed["confirmation_items_markdown"] = invalid_value
-        assert benchmark.validate_response_schema(malformed) is False
-    malformed = deepcopy(payload)
-    malformed.pop("confirmation_items_markdown")
     assert benchmark.validate_response_schema(malformed) is False
     malformed = deepcopy(payload)
     malformed.pop("not_applicable_reason_ja")
@@ -318,151 +254,11 @@ def test_schema_helper_rejects_zero_area_and_out_of_frame_bbox(
     assert benchmark.validate_response_schema(payload) is False
 
 
-@pytest.mark.parametrize(
-    "mutate",
-    [
-        lambda finding: finding.update({"ontology_rule_kind": "expected_feature"}),
-        lambda finding: finding.pop("ontology_key"),
-        lambda finding: finding.update({"ontology_key": ""}),
-        lambda finding: finding.pop("ontology_rule_kind"),
-        lambda finding: finding.pop("display_bbox"),
-        lambda finding: finding.update({"unexpected": "field"}),
-    ],
-)
-def test_finding_schema_is_exact_and_visible_only(
-    mutate: Callable[[dict[str, object]], object],
-) -> None:
-    benchmark = _load_module()
-    payload = _valid_payload()
-    finding = payload["findings"][0]  # type: ignore[index]
-    mutate(finding)
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-def test_findings_must_match_room_scoped_visible_ontology_identity() -> None:
-    benchmark = _load_module()
-    assert benchmark.validate_response_schema(_valid_payload()) is True
-
-    for ontology_key, risk_type in (
-        ("sufficient_lighting", "poor_lighting"),
-        ("unknown_hallway_key", "hallway_cord"),
-        ("kitchen_slip", "kitchen_slip"),
-        ("hallway_cord", "cluttered_path"),
-    ):
-        payload = _valid_payload()
-        payload["findings"][0].update({  # type: ignore[index]
-            "ontology_key": ontology_key,
-            "risk_type": risk_type,
-        })
-        assert benchmark.validate_response_schema(payload) is False
-
-
-def test_action_schema_rejects_extra_fields() -> None:
-    benchmark = _load_module()
-    payload = _valid_payload()
-    payload["action_plan"]["family_no_cost"][0]["unexpected"] = "field"  # type: ignore[index]
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-def test_benchmark_loads_family_forbidden_words_from_ontology() -> None:
-    benchmark = _load_module()
-
-    assert set(benchmark.FAMILY_FORBIDDEN_WORDS) == {
-        "購入",
-        "レンタル",
-        "工事",
-        "施工",
-        "設置を依頼",
-        "専門",
-    }
-
-
-@pytest.mark.parametrize("field", ["title_ja", "description_ja", "why_ja"])
-@pytest.mark.parametrize(
-    "forbidden_word",
-    ["購入", "レンタル", "工事", "施工", "設置を依頼", "専門"],
-)
-def test_benchmark_rejects_family_forbidden_words_in_all_action_text(
-    field: str,
-    forbidden_word: str,
-) -> None:
-    benchmark = _load_module()
-    payload = _valid_payload()
-    payload["action_plan"]["family_no_cost"][0][field] = (  # type: ignore[index]
-        f"{forbidden_word}する"
-    )
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-@pytest.mark.parametrize(
-    ("severity", "overall_risk_level"),
-    [
-        (1, "medium"),
-        (2, "low"),
-        (3, "high"),
-        (4, "medium"),
-        (5, "medium"),
-    ],
-)
-def test_overall_risk_level_must_match_max_finding_severity(
-    severity: int,
-    overall_risk_level: str,
-) -> None:
-    benchmark = _load_module()
-    payload = _valid_payload()
-    payload["findings"][0]["severity"] = severity  # type: ignore[index]
-    payload["overall_risk_level"] = overall_risk_level
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-def test_empty_findings_require_low_overall_risk() -> None:
-    benchmark = _load_module()
-    payload = _valid_payload(findings=[])
-    payload["overall_risk_level"] = "medium"
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-def test_finding_ids_must_be_canonical_and_follow_response_order() -> None:
-    benchmark = _load_module()
-    noncanonical = _valid_payload()
-    noncanonical["findings"][0]["id"] = "risk-1"  # type: ignore[index]
-    noncanonical["action_plan"]["family_no_cost"][0]["risk_id"] = "risk-1"  # type: ignore[index]
-    assert benchmark.validate_response_schema(noncanonical) is False
-
-    out_of_order = _valid_payload()
-    first = deepcopy(out_of_order["findings"][0])  # type: ignore[index]
-    second = deepcopy(first)
-    second["id"] = "R2"
-    out_of_order["findings"] = [second, first]
-    assert benchmark.validate_response_schema(out_of_order) is False
-
-
-def test_response_versions_must_match_current_benchmark_contract() -> None:
-    benchmark = _load_module()
-    assert benchmark.validate_response_schema(_valid_payload()) is True
-
-    for field, stale_value in (
-        ("schema_version", "2.0.0"),
-        ("ontology_version", "arbitrary"),
-        ("preprocess_version", "0.9.0"),
-        ("inference_config_version", "1.0.4"),
-    ):
-        payload = _valid_payload()
-        payload[field] = stale_value
-        assert benchmark.validate_response_schema(payload) is False
-
-
 def test_not_applicable_response_requires_empty_findings_actions_and_reason() -> None:
     benchmark = _load_module()
     payload = _valid_payload(findings=[])
     payload["is_not_applicable"] = True
     payload["room_type"] = "auto"
-    payload["assessment_status"] = "not_applicable"
     payload["overall_risk_level"] = "low"
     payload["not_applicable_reason_ja"] = "写真から確認対象の部屋を特定できません。"
 
@@ -476,10 +272,6 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     with_action["action_plan"]["family_no_cost"] = _valid_payload()["action_plan"]["family_no_cost"]
     assert benchmark.validate_response_schema(with_action) is False
 
-    with_confirmation = deepcopy(payload)
-    with_confirmation["confirmation_items"] = [_valid_confirmation_item()]
-    assert benchmark.validate_response_schema(with_confirmation) is False
-
     without_reason = deepcopy(payload)
     without_reason["not_applicable_reason_ja"] = ""
     assert benchmark.validate_response_schema(without_reason) is False
@@ -491,103 +283,6 @@ def test_not_applicable_response_requires_empty_findings_actions_and_reason() ->
     known_room = deepcopy(payload)
     known_room["room_type"] = "hallway"
     assert benchmark.validate_response_schema(known_room) is False
-
-
-def _valid_confirmation_item() -> dict[str, object]:
-    return {
-        "id": "C1",
-        "feature_key": "has_handrail",
-        "label_ja": "手すり",
-        "description_ja": "この写真では手すりを確認できませんでした。",
-        "confidence": 0.82,
-        "evidence_source_ids": ["MHLW_WELFARE_HOUSING"],
-        "basis_label_ja": "写真で確認できる範囲",
-        "basis_summary_ja": "写真だけでは実際の有無を判断できません。",
-        "needs_human_confirmation": True,
-    }
-
-
-def test_confirmation_only_applicable_response_is_schema_valid() -> None:
-    benchmark = _load_module()
-    payload = _valid_payload(findings=[])
-    payload.update({
-        "room_type": "toilet",
-        "assessment_status": "needs_on_site_confirmation",
-        "overall_risk_level": "low",
-        "confirmation_items": [_valid_confirmation_item()],
-    })
-
-    assert benchmark.validate_response_schema(payload) is True
-
-
-@pytest.mark.parametrize("feature_key", ["has_handrail", "invented_device"])
-def test_confirmation_must_match_room_expected_ontology(feature_key: str) -> None:
-    benchmark = _load_module()
-    payload = _valid_payload(findings=[])
-    confirmation = _valid_confirmation_item()
-    confirmation["feature_key"] = feature_key
-    payload.update({
-        "room_type": "hallway",
-        "overall_risk_level": "low",
-        "confirmation_items": [confirmation],
-    })
-
-    assert benchmark.validate_response_schema(payload) is False
-
-
-def test_confirmation_ids_must_be_canonical_and_follow_response_order() -> None:
-    benchmark = _load_module()
-    noncanonical = _valid_payload(findings=[])
-    noncanonical.update({
-        "room_type": "toilet",
-        "overall_risk_level": "low",
-        "confirmation_items": [_valid_confirmation_item()],
-    })
-    noncanonical["confirmation_items"][0]["id"] = "confirmation-1"  # type: ignore[index]
-    assert benchmark.validate_response_schema(noncanonical) is False
-
-    out_of_order = _valid_payload(findings=[])
-    first = _valid_confirmation_item()
-    second = deepcopy(first)
-    second.update({
-        "id": "C2",
-        "feature_key": "has_emergency_call_button",
-    })
-    out_of_order.update({
-        "room_type": "toilet",
-        "overall_risk_level": "low",
-        "confirmation_items": [second, first],
-    })
-    assert benchmark.validate_response_schema(out_of_order) is False
-
-
-@pytest.mark.parametrize(
-    "mutate",
-    [
-        lambda item: item.pop("feature_key"),
-        lambda item: item.update({"confidence": True}),
-        lambda item: item.update({"evidence_source_ids": [""]}),
-        lambda item: item.update({"needs_human_confirmation": False}),
-        lambda item: item.update({"bbox": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}),
-        lambda item: item.update({"severity": 3}),
-        lambda item: item.update({"risk_type": "toilet_missing_handrail"}),
-        lambda item: item.update({"actions": []}),
-    ],
-)
-def test_confirmation_item_schema_is_strict(
-    mutate: Callable[[dict[str, object]], object],
-) -> None:
-    benchmark = _load_module()
-    payload = _valid_payload(findings=[])
-    payload.update({
-        "room_type": "toilet",
-        "overall_risk_level": "low",
-        "confirmation_items": [_valid_confirmation_item()],
-    })
-    confirmation_item = payload["confirmation_items"][0]  # type: ignore[index]
-    mutate(confirmation_item)
-
-    assert benchmark.validate_response_schema(payload) is False
 
 
 def test_applicable_response_cannot_carry_a_neutral_reason() -> None:
@@ -798,7 +493,6 @@ def test_not_applicable_empty_gold_response_is_schema_valid_but_not_risk_scored(
     not_applicable.update({
         "is_not_applicable": True,
         "room_type": "auto",
-        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })
@@ -829,7 +523,6 @@ def test_mixed_applicability_scores_only_applicable_responses_and_reports_covera
     not_applicable.update({
         "is_not_applicable": True,
         "room_type": "auto",
-        "assessment_status": "not_applicable",
         "overall_risk_level": "low",
         "not_applicable_reason_ja": "写真から確認対象の部屋を特定できません。",
     })

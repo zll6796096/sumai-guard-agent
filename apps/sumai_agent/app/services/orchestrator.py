@@ -5,33 +5,23 @@ import logging
 import time
 import unicodedata
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from fastapi import UploadFile
 from PIL import Image
 
 from app.config import settings
-from app.models import (
-    ActionPlan,
-    AnalysisResponse,
-    ConfirmationItem,
-    RiskFinding,
-    RiskLevel,
-    RoomType,
-    VisionFacts,
-    assessment_status_for_evidence,
-)
+from app.models import ActionPlan, AnalysisResponse, RiskFinding, RiskLevel, RoomType, VisionFacts
 from app.ontology import OntologyRepository
 from app.services.canonicalization import (
     canonical_pixel_digest,
-    canonicalize_confirmation_items,
     canonicalize_findings,
     normalize_signed_zero,
     result_key,
     semantic_hash,
 )
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
+from app.services.checklist_engine import ChecklistEngine
 from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
 from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
@@ -41,8 +31,6 @@ from app.services.visual_renderer import VisualRenderer
 
 
 logger = logging.getLogger("sumai.orchestrator")
-
-ProgressCallback = Callable[[str], Awaitable[None]]
 
 STAGE_TIMING_KEYS = (
     "intake",
@@ -69,7 +57,6 @@ class ComputedAnalysis:
     response_room: RoomType
     overall_risk: RiskLevel
     findings: list[RiskFinding]
-    confirmation_items: list[ConfirmationItem]
     action_plan: ActionPlan
     reports: dict[str, str]
     mode: str
@@ -89,6 +76,7 @@ class AnalysisOrchestrator:
     ) -> None:
         self.vision = vision or GeminiVisionService()
         self.ontology = OntologyRepository.load_default()
+        self.checklist_engine = ChecklistEngine(ontology=self.ontology)
         self.relationship_engine = RelationshipEngine(self.ontology)
         self.rule_engine = RuleEngine(ontology=self.ontology)
         self.visual_renderer = VisualRenderer()
@@ -101,13 +89,7 @@ class AnalysisOrchestrator:
     async def aclose(self) -> None:
         await self.vision.aclose()
 
-    async def analyze(
-        self,
-        upload: UploadFile,
-        room_hint: str = "auto",
-        mock: bool = False,
-        progress: ProgressCallback | None = None,
-    ) -> AnalysisResponse:
+    async def analyze(self, upload: UploadFile, room_hint: str = "auto", mock: bool = False) -> AnalysisResponse:
         analysis_id = f"sumai_{uuid.uuid4().hex[:12]}"
         stage_timings_ms = _empty_stage_timings()
         normalized_hint = normalize_room_hint(room_hint)
@@ -124,7 +106,6 @@ class AnalysisOrchestrator:
         raw_bytes = await upload.read()
         image, safe_png, pixel_digest = await asyncio.to_thread(_prepare_image, raw_bytes)
         stage_timings_ms["intake"] = elapsed_ms(intake_started)
-        await _emit_progress(progress, "intake_complete")
         execution_mode = execution_mode_for_request(force_mock=mock)
         configured_model = settings.gemini_model
         stable_result_key = result_key(
@@ -148,7 +129,6 @@ class AnalysisOrchestrator:
                 analysis_id=analysis_id,
             )
             stage_timings_ms["vision"] = elapsed_ms(vision_started)
-            await _emit_progress(progress, "vision_complete")
 
             ontology_started = time.monotonic()
             response_room: RoomType = (
@@ -157,7 +137,6 @@ class AnalysisOrchestrator:
                 else "auto"
             )
             findings: list[RiskFinding] = []
-            confirmation_items: list[ConfirmationItem] = []
             action_plan = ActionPlan()
             is_home_environment = vision_facts.environment == "home"
             is_not_applicable = (
@@ -169,15 +148,9 @@ class AnalysisOrchestrator:
                 response_room = "auto"
             not_applicable_reason_ja = _not_applicable_reason(vision_facts, response_room)
             if not is_not_applicable:
-                derivation = self.relationship_engine.derive(vision_facts)
-                visible_findings = canonicalize_findings(
-                    derivation.visible_findings
-                )
-                confirmation_items = canonicalize_confirmation_items(
-                    derivation.confirmation_items
-                )
+                derived_findings = self.relationship_engine.derive(vision_facts)
                 findings, action_plan = self.rule_engine.apply(
-                    visible_findings, response_room
+                    canonicalize_findings(derived_findings), response_room
                 )
             overall_risk = overall_risk_level(findings)
             model_name = "N/A" if mode == "mock" else configured_model
@@ -186,7 +159,6 @@ class AnalysisOrchestrator:
                     response_room,
                     findings,
                     action_plan,
-                    confirmation_items=confirmation_items,
                     is_home_environment=is_home_environment,
                     not_applicable_reason_ja=not_applicable_reason_ja,
                 )
@@ -203,7 +175,6 @@ class AnalysisOrchestrator:
                     room_type=response_room,
                     overall_risk_level=overall_risk,
                     findings=findings,
-                    confirmation_items=confirmation_items,
                     action_plan=action_plan,
                 )
             stage_timings_ms["report"] = elapsed_ms(report_started)
@@ -212,7 +183,6 @@ class AnalysisOrchestrator:
                     response_room=response_room,
                     overall_risk=overall_risk,
                     findings=findings,
-                    confirmation_items=confirmation_items,
                     action_plan=action_plan,
                     reports=reports,
                     mode=mode,
@@ -232,8 +202,6 @@ class AnalysisOrchestrator:
         computed, memo_hit = await self.result_memo.get_or_compute(
             stable_result_key, compute_semantics
         )
-        if not factory_ran[0]:
-            await _emit_progress(progress, "vision_complete")
         memo_elapsed = elapsed_ms(memo_started)
         if factory_ran[0]:
             stage_timings_ms["memo_lookup"] = max(
@@ -262,14 +230,8 @@ class AnalysisOrchestrator:
         response = AnalysisResponse(
             analysis_id=analysis_id,
             room_type=computed.response_room,
-            assessment_status=assessment_status_for_evidence(
-                is_not_applicable=computed.is_not_applicable,
-                findings=computed.findings,
-                confirmation_items=computed.confirmation_items,
-            ),
             overall_risk_level=computed.overall_risk,
             findings=computed.findings,
-            confirmation_items=computed.confirmation_items,
             action_plan=computed.action_plan,
             annotated_image_base64=annotated,
             improvement_image_base64=improvement,
@@ -292,14 +254,6 @@ class AnalysisOrchestrator:
         return response
 
 
-async def _emit_progress(
-    callback: ProgressCallback | None,
-    stage: str,
-) -> None:
-    if callback is not None:
-        await callback(stage)
-
-
 def execution_mode_for_request(*, force_mock: bool) -> str:
     """Describe execution policy before provider work, for deterministic request identity."""
     if settings.require_real_gemini:
@@ -318,7 +272,6 @@ def analysis_semantic_payload(
     findings: list[RiskFinding],
     action_plan: ActionPlan,
     *,
-    confirmation_items: list[ConfirmationItem] | None = None,
     is_home_environment: bool = True,
     not_applicable_reason_ja: str | None = None,
 ) -> dict[str, object]:
@@ -334,10 +287,6 @@ def analysis_semantic_payload(
         "findings": [
             finding.model_dump(mode="json", exclude={"display_bbox"})
             for finding in findings
-        ],
-        "confirmation_items": [
-            item.model_dump(mode="json")
-            for item in (confirmation_items or [])
         ],
         "action_plan": action_plan.model_dump(mode="json"),
     }

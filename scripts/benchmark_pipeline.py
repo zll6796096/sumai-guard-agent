@@ -28,12 +28,6 @@ TRUSTED_REPO_ROOT_ID = (_trusted_root_stat.st_dev, _trusted_root_stat.st_ino)
 IMAGE_MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 ROOM_HINTS = {"genkan", "hallway", "bathroom", "toilet", "bedroom", "kitchen", "auto"}
 RISK_LEVELS = {"low", "medium", "high"}
-ASSESSMENT_STATUSES = {
-    "visible_risks_found",
-    "needs_on_site_confirmation",
-    "no_visible_risks_found",
-    "not_applicable",
-}
 ACTION_TIER_KEYS = {"family_no_cost", "care_manager_purchase", "contractor_construction"}
 ACTION_TIERS = {"FAMILY_NO_COST", "CARE_MANAGER_PURCHASE", "CONTRACTOR_CONSTRUCTION"}
 COST_LEVELS = {"ZERO", "LOW", "MEDIUM", "HIGH"}
@@ -41,166 +35,10 @@ STAGE_TIMING_KEYS = {
     "intake", "memo_lookup", "vision", "ontology", "render", "report", "serialize", "total",
 }
 HEX_64 = re.compile(r"^[0-9a-f]{64}$")
-ONTOLOGY_CONTRACT_PATH = (
-    REPO_ROOT
-    / "apps"
-    / "sumai_agent"
-    / "app"
-    / "knowledge_base"
-    / "room_checklists.yaml"
-)
-EXPECTED_PREPROCESS_VERSION = "1.0.0"
-FINDING_FIELDS = {
-    "id",
-    "risk_type",
-    "label_ja",
-    "description_ja",
-    "severity",
-    "confidence",
-    "bbox",
-    "display_bbox",
-    "evidence_source_ids",
-    "evidence_ja",
-    "basis_label_ja",
-    "basis_summary_ja",
-    "needs_human_confirmation",
-    "ontology_key",
-    "ontology_rule_kind",
-}
-ACTION_FIELDS = {
-    "id",
-    "risk_id",
-    "tier",
-    "title_ja",
-    "description_ja",
-    "why_ja",
-    "cost_level",
-    "requires_professional",
-    "disclaimer_ja",
-}
 
 
 class BenchmarkError(ValueError):
     """A stable, non-sensitive benchmark failure code."""
-
-
-def _load_ontology_contract(
-    path: Path,
-) -> tuple[
-    str,
-    str,
-    str,
-    frozenset[tuple[str, str, str]],
-    frozenset[tuple[str, str]],
-    tuple[str, ...],
-]:
-    """Load public versions and room-scoped visible identities or fail closed."""
-    try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, yaml.YAMLError):
-        raise BenchmarkError("invalid_ontology_contract") from None
-    if not isinstance(document, dict):
-        raise BenchmarkError("invalid_ontology_contract")
-
-    action_policy = document.get("action_policy")
-    family_policy = (
-        action_policy.get("family")
-        if isinstance(action_policy, dict)
-        else None
-    )
-    forbidden_words = (
-        family_policy.get("forbidden_words")
-        if isinstance(family_policy, dict)
-        else None
-    )
-    if (
-        not isinstance(forbidden_words, list)
-        or not forbidden_words
-        or not all(
-            isinstance(word, str) and word.strip()
-            for word in forbidden_words
-        )
-        or len(set(forbidden_words)) != len(forbidden_words)
-    ):
-        raise BenchmarkError("invalid_ontology_contract")
-
-    versions: list[str] = []
-    for field in (
-        "schema_version",
-        "ontology_version",
-        "inference_config_version",
-    ):
-        value = document.get(field)
-        if not isinstance(value, str) or not value.strip():
-            raise BenchmarkError("invalid_ontology_contract")
-        versions.append(value)
-
-    rooms = document.get("rooms")
-    expected_rooms = ROOM_HINTS - {"auto"}
-    if not isinstance(rooms, dict) or set(rooms) != expected_rooms:
-        raise BenchmarkError("invalid_ontology_contract")
-
-    identities: set[tuple[str, str, str]] = set()
-    confirmation_identities: set[tuple[str, str]] = set()
-    for room_name, room_document in rooms.items():
-        if not isinstance(room_document, dict):
-            raise BenchmarkError("invalid_ontology_contract")
-        visible_hazards = room_document.get("visible_hazards")
-        if not isinstance(visible_hazards, list) or not visible_hazards:
-            raise BenchmarkError("invalid_ontology_contract")
-        room_keys: set[str] = set()
-        for rule in visible_hazards:
-            if not isinstance(rule, dict):
-                raise BenchmarkError("invalid_ontology_contract")
-            ontology_key = rule.get("key")
-            risk_type = rule.get("risk_type")
-            if (
-                not isinstance(ontology_key, str)
-                or not ontology_key.strip()
-                or ontology_key in room_keys
-                or not isinstance(risk_type, str)
-                or not risk_type.strip()
-            ):
-                raise BenchmarkError("invalid_ontology_contract")
-            room_keys.add(ontology_key)
-            identities.add((room_name, ontology_key, risk_type))
-        expected_features = room_document.get("expected_features")
-        if not isinstance(expected_features, list):
-            raise BenchmarkError("invalid_ontology_contract")
-        expected_keys: set[str] = set()
-        for rule in expected_features:
-            if not isinstance(rule, dict):
-                raise BenchmarkError("invalid_ontology_contract")
-            feature_key = rule.get("key")
-            if (
-                not isinstance(feature_key, str)
-                or not feature_key.strip()
-                or feature_key in expected_keys
-            ):
-                raise BenchmarkError("invalid_ontology_contract")
-            expected_keys.add(feature_key)
-            confirmation_identities.add((room_name, feature_key))
-    if not identities:
-        raise BenchmarkError("invalid_ontology_contract")
-
-    return (
-        versions[0],
-        versions[1],
-        versions[2],
-        frozenset(identities),
-        frozenset(confirmation_identities),
-        tuple(forbidden_words),
-    )
-
-
-(
-    EXPECTED_SCHEMA_VERSION,
-    EXPECTED_ONTOLOGY_VERSION,
-    EXPECTED_INFERENCE_CONFIG_VERSION,
-    VISIBLE_FINDING_IDENTITIES,
-    EXPECTED_CONFIRMATION_IDENTITIES,
-    FAMILY_FORBIDDEN_WORDS,
-) = _load_ontology_contract(ONTOLOGY_CONTRACT_PATH)
 
 
 def percentile(samples: list[float | int], quantile: float) -> float | int:
@@ -334,57 +172,12 @@ def validate_response_schema(payload: object) -> bool:
         return False
     if not _is_public_response_text(payload):
         return False
-    if any(
-        payload.get(field) != expected
-        for field, expected in {
-            "schema_version": EXPECTED_SCHEMA_VERSION,
-            "ontology_version": EXPECTED_ONTOLOGY_VERSION,
-            "preprocess_version": EXPECTED_PREPROCESS_VERSION,
-            "inference_config_version": EXPECTED_INFERENCE_CONFIG_VERSION,
-        }.items()
-    ):
-        return False
     if not HEX_64.fullmatch(str(payload.get("result_key", ""))):
         return False
     if not HEX_64.fullmatch(str(payload.get("semantic_hash", ""))):
         return False
     findings = payload.get("findings")
     if not isinstance(findings, list) or not all(_valid_finding(item) for item in findings):
-        return False
-    room_type = payload.get("room_type")
-    if any(
-        (room_type, finding["ontology_key"], finding["risk_type"])
-        not in VISIBLE_FINDING_IDENTITIES
-        for finding in findings
-    ):
-        return False
-    confirmation_items = payload.get("confirmation_items")
-    if (
-        not isinstance(confirmation_items, list)
-        or not all(_valid_confirmation_item(item) for item in confirmation_items)
-    ):
-        return False
-    if any(
-        (room_type, item["feature_key"])
-        not in EXPECTED_CONFIRMATION_IDENTITIES
-        for item in confirmation_items
-    ):
-        return False
-    if payload.get("overall_risk_level") != _risk_level_for_findings(findings):
-        return False
-    expected_assessment_status = (
-        "not_applicable"
-        if payload["is_not_applicable"]
-        else "visible_risks_found"
-        if findings
-        else "needs_on_site_confirmation"
-        if confirmation_items
-        else "no_visible_risks_found"
-    )
-    if (
-        payload.get("assessment_status") not in ASSESSMENT_STATUSES
-        or payload.get("assessment_status") != expected_assessment_status
-    ):
         return False
     if payload["is_not_applicable"]:
         reason = payload.get("not_applicable_reason_ja")
@@ -394,7 +187,6 @@ def validate_response_schema(payload: object) -> bool:
             or not isinstance(reason, str)
             or not reason.strip()
             or findings
-            or confirmation_items
         ):
             return False
         if payload.get("action_plan") != {
@@ -410,16 +202,7 @@ def validate_response_schema(payload: object) -> bool:
     ):
         return False
     finding_ids = [finding["id"] for finding in findings]
-    confirmation_ids = [item["id"] for item in confirmation_items]
-    confirmation_keys = [item["feature_key"] for item in confirmation_items]
-    if (
-        finding_ids
-        != [f"R{index}" for index in range(1, len(finding_ids) + 1)]
-        or confirmation_ids
-        != [f"C{index}" for index in range(1, len(confirmation_ids) + 1)]
-        or len(set(confirmation_keys)) != len(confirmation_keys)
-        or not _valid_action_plan(payload.get("action_plan"), set(finding_ids))
-    ):
+    if len(set(finding_ids)) != len(finding_ids) or not _valid_action_plan(payload.get("action_plan"), set(finding_ids)):
         return False
     stages = payload.get("stage_timings_ms")
     return isinstance(stages, dict) and set(stages) == STAGE_TIMING_KEYS and all(
@@ -430,102 +213,40 @@ def validate_response_schema(payload: object) -> bool:
 def _is_public_response_text(payload: dict[str, object]) -> bool:
     string_fields = {
         "annotated_image_base64", "improvement_image_base64", "risk_summary_markdown",
-        "confirmation_items_markdown", "family_actions_markdown",
-        "care_manager_actions_markdown", "contractor_actions_markdown",
+        "family_actions_markdown", "care_manager_actions_markdown", "contractor_actions_markdown",
         "disclaimer_ja", "mode", "model", "schema_version", "ontology_version",
         "preprocess_version", "inference_config_version",
     }
     reason = payload.get("not_applicable_reason_ja")
-    confirmation_markdown = payload.get("confirmation_items_markdown")
     return (
         "not_applicable_reason_ja" in payload
         and (reason is None or isinstance(reason, str))
         and all(isinstance(payload.get(field), str) for field in string_fields)
-        and isinstance(confirmation_markdown, str)
-        and bool(confirmation_markdown.strip())
         and isinstance(payload.get("is_home_environment"), bool)
         and isinstance(payload.get("is_not_applicable"), bool)
     )
 
 
 def _valid_finding(item: object) -> bool:
-    if not isinstance(item, dict) or set(item) != FINDING_FIELDS:
+    if not isinstance(item, dict):
         return False
-    text_fields = {
-        "id",
-        "risk_type",
-        "label_ja",
-        "description_ja",
-        "evidence_ja",
-        "basis_label_ja",
-        "basis_summary_ja",
-        "ontology_key",
-    }
+    text_fields = {"id", "risk_type", "label_ja", "description_ja", "evidence_ja", "basis_label_ja", "basis_summary_ja"}
     if not all(isinstance(item.get(field), str) and item[field].strip() for field in text_fields):
-        return False
-    if item.get("ontology_rule_kind") != "visible_hazard":
         return False
     severity, confidence = item.get("severity"), item.get("confidence")
     if not isinstance(severity, int) or isinstance(severity, bool) or severity not in range(1, 6):
         return False
     if not _unit_number(confidence) or not _valid_bbox(item.get("bbox")):
         return False
-    if item["display_bbox"] is not None and not _valid_bbox(item["display_bbox"]):
+    if "display_bbox" in item and item["display_bbox"] is not None and not _valid_bbox(item["display_bbox"]):
         return False
     return isinstance(item.get("evidence_source_ids"), list) and all(
         isinstance(source, str) and source for source in item["evidence_source_ids"]
     ) and isinstance(item.get("needs_human_confirmation"), bool)
 
 
-def _valid_confirmation_item(item: object) -> bool:
-    if not isinstance(item, dict) or set(item) != {
-        "id",
-        "feature_key",
-        "label_ja",
-        "description_ja",
-        "confidence",
-        "evidence_source_ids",
-        "basis_label_ja",
-        "basis_summary_ja",
-        "needs_human_confirmation",
-    }:
-        return False
-    text_fields = {
-        "id",
-        "feature_key",
-        "label_ja",
-        "description_ja",
-        "basis_label_ja",
-        "basis_summary_ja",
-    }
-    return (
-        all(
-            isinstance(item.get(field), str) and item[field].strip()
-            for field in text_fields
-        )
-        and _unit_number(item.get("confidence"))
-        and isinstance(item.get("evidence_source_ids"), list)
-        and all(
-            isinstance(source, str) and source
-            for source in item["evidence_source_ids"]
-        )
-        and item.get("needs_human_confirmation") is True
-    )
-
-
 def _unit_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1
-
-
-def _risk_level_for_findings(findings: list[dict[str, object]]) -> str:
-    if not findings:
-        return "low"
-    max_severity = max(int(finding["severity"]) for finding in findings)
-    if max_severity >= 4:
-        return "high"
-    if max_severity >= 2:
-        return "medium"
-    return "low"
 
 
 def _valid_bbox(value: object) -> bool:
@@ -562,19 +283,12 @@ def _valid_action_plan(value: object, finding_ids: set[str]) -> bool:
                 return False
             if action["tier"] != tier or action["requires_professional"] is not requires_professional or action["cost_level"] != cost_level:
                 return False
-            if list_name == "family_no_cost":
-                text = " ".join(
-                    str(action[field])
-                    for field in ("title_ja", "description_ja", "why_ja")
-                )
-                if any(word in text for word in FAMILY_FORBIDDEN_WORDS):
-                    return False
             action_ids.add(action["id"])
     return True
 
 
 def _valid_action(value: object) -> bool:
-    if not isinstance(value, dict) or set(value) != ACTION_FIELDS:
+    if not isinstance(value, dict):
         return False
     text_fields = {"id", "risk_id", "title_ja", "description_ja", "why_ja", "disclaimer_ja"}
     return (

@@ -256,9 +256,7 @@ Environment and coverage rules:
    missing or out-of-frame region.
    Use evidence_bbox for present or absent_with_full_coverage and null for cannot_determine.
    Never use the entire image as evidence_bbox.
-   For an absent feature, evidence_bbox is a coverage region, not the location of a missing object.
-   Never treat it as a recommended installation position. Bound only the relevant visible wall,
-   floor, fixture, or transfer region.
+   Bound only the relevant visible wall, floor, fixture, or transfer region.
 5. Relationships must use supplied ontology predicates. Their subject must be the ref of an emitted entity.
    The object must be another emitted entity ref or a named visible region.
    Allowed visible regions: {", ".join(_FACTS_VISIBLE_REGIONS)}. Do not invent objects or relationships.
@@ -327,13 +325,20 @@ def _has_actionable_local_evidence(facts: VisionFacts) -> bool:
         ):
             return True
 
-    return False
+    expected_features = {
+        item["key"]
+        for item in room["expected_features"]
+    }
+    return any(
+        feature.feature_key in expected_features
+        and feature.state == "absent_with_full_coverage"
+        and feature.evidence_bbox is not None
+        and not _is_full_frame_bbox(feature.evidence_bbox)
+        for feature in facts.feature_observations
+    )
 
 
-def _validate_targeted_facts(
-    facts: VisionFacts,
-    target_room: str,
-) -> VisionFacts:
+def _validate_targeted_facts(facts: VisionFacts, target_room: str) -> None:
     room = ONTOLOGY.room(target_room)
     if (
         room is None
@@ -358,23 +363,22 @@ def _validate_targeted_facts(
         item["key"]
         for item in room["expected_features"]
     }
-    valid_features = []
+    observed_feature_keys = {
+        feature.feature_key
+        for feature in facts.feature_observations
+    }
+    if observed_feature_keys != expected_feature_keys:
+        _raise_facts_error("targeted_feature_set_incomplete")
+
     for feature in facts.feature_observations:
-        if feature.feature_key not in expected_feature_keys:
-            continue
         if feature.state == "cannot_determine":
             if feature.evidence_bbox is not None:
-                continue
+                _raise_facts_error("targeted_uncertain_feature_has_bbox")
         elif (
             feature.evidence_bbox is None
             or _is_full_frame_bbox(feature.evidence_bbox)
         ):
-            continue
-        valid_features.append(feature)
-    return facts.model_copy(
-        update={"feature_observations": valid_features},
-        deep=True,
-    )
+            _raise_facts_error("targeted_feature_lacks_local_bbox")
 
 
 def _targeted_followup_abstention() -> VisionFacts:
@@ -663,10 +667,11 @@ class GeminiVisionService:
                         image_png,
                         first_result.room_type,
                     )
-                return _validate_targeted_facts(
+                _validate_targeted_facts(
                     targeted_result,
                     first_result.room_type,
                 )
+                return targeted_result
             except TargetedFollowupError:
                 raise
             except Exception as exc:
@@ -716,7 +721,7 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
         "bathroom": "wet_floor",
         "toilet": "has_floor_clutter",
         "bedroom": "cluttered_path",
-        "kitchen": "cluttered_path",
+        "kitchen": "kitchen_slip",
     }
     relationship_by_room = {
         "genkan": ("located_in", "floor"),
@@ -724,7 +729,7 @@ def mock_vision_facts(room_hint: RoomType) -> VisionFacts:
         "bathroom": ("located_in", "floor"),
         "toilet": ("obstructs", "walking_path"),
         "bedroom": ("obstructs", "walking_path"),
-        "kitchen": ("obstructs", "walking_path"),
+        "kitchen": ("located_in", "floor"),
     }
     feature_by_room = {
         "genkan": "has_handrail_or_support",
@@ -794,6 +799,7 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
             "has_handrail": False,
             "has_emergency_call_button": False,
             "has_floor_clutter": True,
+            "looks_slippery_floor": True,
         },
         "bedroom": {
             "clear_path_from_bed": False,
@@ -803,7 +809,7 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
         },
         "kitchen": {
             "clear_floor": False,
-            "has_floor_clutter": True,
+            "kitchen_slip": True,
             "has_loose_mat": True,
         }
     }
@@ -875,13 +881,13 @@ def mock_vision_result(room_hint: RoomType) -> VisionResult:
         ],
         "kitchen": [
             {
-                "risk_type": "cluttered_path",
-                "label_ja": "キッチン床の物",
-                "description_ja": "調理動線上の物が、つまずきの原因になります。",
+                "risk_type": "kitchen_slip",
+                "label_ja": "キッチン床の滑り",
+                "description_ja": "水や油が落ちやすい床で滑るリスクがあります。",
                 "severity": 3,
-                "confidence": 0.82,
+                "confidence": 0.74,
                 "bbox": {"x": 0.16, "y": 0.58, "w": 0.58, "h": 0.28},
-                "evidence_ja": "調理動線上に局所的な床置きの物が見えます。",
+                "evidence_ja": "調理動線の床面が見えます。",
             }
         ]
     }
