@@ -24,9 +24,28 @@ def test_copy_keeps_the_product_safety_first() -> None:
     html = _home_html()
     assert "写真1枚で、親の家を安全チェック" in html
     assert "安全チェック結果" in html
-    assert "次にできること" in html
+    assert "安全のための対策を見る" in html
+    assert "安全のためにできること" in html
+    assert "次にできることを見る" not in html
     assert "診断結果" not in html
     assert "点検・修繕提案" not in html
+
+
+def test_pdf_download_control_is_accessible_and_text_only() -> None:
+    html = _home_html()
+    assert 'id="btn-download-pdf"' in html
+    assert "この内容をPDFで保存" in html
+    assert 'id="pdf-download-error"' in html
+    assert 'role="alert"' in html
+    assert 'aria-live="assertive"' in html
+    assert "latestReportPayload" in html
+    assert "family_actions_markdown: payload.family_actions_markdown" in html
+    assert "care_manager_actions_markdown: payload.care_manager_actions_markdown" in html
+    assert "contractor_actions_markdown: payload.contractor_actions_markdown" in html
+    assert "risk_summary_markdown: payload.risk_summary_markdown" in html
+    assert "annotated_image_base64:" not in html
+    assert "improvement_image_base64:" not in html
+    assert "fetch('/suggestions.pdf'" in html
 
 
 def test_viewport_keeps_browser_zoom_available() -> None:

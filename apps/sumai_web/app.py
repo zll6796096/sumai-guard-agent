@@ -608,6 +608,12 @@ INDEX_HTML = """<!DOCTYPE html>
             transform: scale(0.98);
         }
 
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+            transform: none;
+        }
+
         .btn-primary {
             background-color: var(--primary-color);
             color: white;
@@ -931,6 +937,15 @@ INDEX_HTML = """<!DOCTYPE html>
                 rgba(245, 245, 247, 0.98) 24px
             );
             padding-top: 28px;
+        }
+
+        .download-error {
+            margin: 0 0 10px;
+            color: var(--danger-color);
+            font-size: 0.9rem;
+            font-weight: 600;
+            line-height: 1.5;
+            text-align: left;
         }
 
         /* Screen 3: Action Suggestions */
@@ -1299,7 +1314,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
 
                 <div class="result-actions">
-                    <button id="btn-show-suggestions" class="btn btn-primary">次にできることを見る</button>
+                    <button id="btn-show-suggestions" class="btn btn-primary">安全のための対策を見る</button>
                     <button class="btn btn-outline btn-back-home">ホームに戻る</button>
                 </div>
             </div>
@@ -1314,11 +1329,11 @@ INDEX_HTML = """<!DOCTYPE html>
                     </svg>
                     戻る
                 </button>
-                <span class="nav-title">次にできること</span>
+                <span class="nav-title">安全のためにできること</span>
                 <div style="width: 60px;"></div>
             </div>
 
-            <h1 class="section-title" data-screen-title tabindex="-1">次にできること</h1>
+            <h1 class="section-title" data-screen-title tabindex="-1">安全のためにできること</h1>
             <p class="section-subtitle">
                 安全のため、家族で今日できることから順に確認してください。
             </p>
@@ -1434,6 +1449,16 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
 
             <div class="suggestions-actions">
+                <button id="btn-download-pdf" class="btn btn-secondary" type="button" disabled>
+                    この内容をPDFで保存
+                </button>
+                <p
+                    id="pdf-download-error"
+                    class="download-error"
+                    role="alert"
+                    aria-live="assertive"
+                    hidden
+                ></p>
                 <button class="btn btn-outline btn-back-home">ホームに戻る</button>
             </div>
         </div>
@@ -1448,9 +1473,20 @@ INDEX_HTML = """<!DOCTYPE html>
 
         const btnShowSuggestions = document.getElementById('btn-show-suggestions');
         const btnBackToResult = document.getElementById('btn-back-to-result');
+        const pdfDownloadButton = document.getElementById('btn-download-pdf');
+        const pdfDownloadError = document.getElementById('pdf-download-error');
         const btnBackHomes = document.querySelectorAll('.btn-back-home');
 
         let selectedFile = null;
+        let latestReportPayload = null;
+
+        function resetPdfDownloadState() {
+            latestReportPayload = null;
+            pdfDownloadButton.disabled = true;
+            pdfDownloadButton.textContent = 'この内容をPDFで保存';
+            pdfDownloadError.textContent = '';
+            pdfDownloadError.hidden = true;
+        }
 
         // Nav functions
         function showScreen(screenId) {
@@ -1493,6 +1529,7 @@ INDEX_HTML = """<!DOCTYPE html>
             const file = event.target.files[0];
             if (!file) return;
 
+            resetPdfDownloadState();
             selectedFile = file;
             errorDiv.style.display = 'none';
 
@@ -1633,6 +1670,7 @@ INDEX_HTML = """<!DOCTYPE html>
             const notAppMsg = document.getElementById('not-applicable-message');
             const imagesList = document.querySelector('.result-images-list');
 
+            resetPdfDownloadState();
             renderAnalysisModeBanner(payload);
 
             // Set risk badge
@@ -1660,6 +1698,16 @@ INDEX_HTML = """<!DOCTYPE html>
                 // Set Images
                 document.getElementById('result-annotated-img').src = 'data:image/png;base64,' + payload.annotated_image_base64;
                 document.getElementById('result-improvement-img').src = 'data:image/png;base64,' + payload.improvement_image_base64;
+
+                latestReportPayload = {
+                    finding_count: count,
+                    overall_risk_level: overallRisk,
+                    family_actions_markdown: payload.family_actions_markdown || '',
+                    care_manager_actions_markdown: payload.care_manager_actions_markdown || '',
+                    contractor_actions_markdown: payload.contractor_actions_markdown || '',
+                    risk_summary_markdown: payload.risk_summary_markdown || ''
+                };
+                pdfDownloadButton.disabled = false;
             }
 
             // Render Markdown using marked.js
@@ -1757,6 +1805,42 @@ INDEX_HTML = """<!DOCTYPE html>
             return '中';
         }
 
+        async function downloadSuggestionsPdf() {
+            if (!latestReportPayload || pdfDownloadButton.disabled) return;
+
+            pdfDownloadButton.disabled = true;
+            pdfDownloadButton.textContent = 'PDFを作成中…';
+            pdfDownloadError.textContent = '';
+            pdfDownloadError.hidden = true;
+
+            try {
+                const response = await fetch('/suggestions.pdf', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(latestReportPayload)
+                });
+                if (!response.ok) throw new Error('pdf_download_failed');
+
+                const blob = await response.blob();
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="([A-Za-z0-9._-]+)"/);
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = match ? match[1] : 'sumai-guard-safety-actions.pdf';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (_error) {
+                pdfDownloadError.textContent = 'PDFを保存できませんでした。時間をおいて、もう一度お試しください。';
+                pdfDownloadError.hidden = false;
+            } finally {
+                pdfDownloadButton.textContent = 'この内容をPDFで保存';
+                pdfDownloadButton.disabled = latestReportPayload === null;
+            }
+        }
+
         // Accordion Card Toggle Handler
         document.querySelectorAll('.accordion-card-header').forEach(header => {
             header.addEventListener('click', () => {
@@ -1779,9 +1863,12 @@ INDEX_HTML = """<!DOCTYPE html>
             showScreen('screen-result');
         });
 
+        pdfDownloadButton.addEventListener('click', downloadSuggestionsPdf);
+
         // Reset flow
         function resetApp() {
             clearPreview();
+            resetPdfDownloadState();
             updateDebugPanel(null);
             showScreen('screen-home');
         }
