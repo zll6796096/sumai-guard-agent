@@ -56,6 +56,11 @@ def test_viewport_keeps_browser_zoom_available() -> None:
     assert "user-scalable=no" not in viewport.group(1)
 
 
+def test_home_declares_an_inline_favicon_without_an_extra_request() -> None:
+    html = _home_html()
+    assert '<link rel="icon" href="data:,">' in html
+
+
 def test_accordion_headers_are_native_accessible_buttons() -> None:
     html = _home_html()
     assert html.count('class="accordion-card-header"') == 4

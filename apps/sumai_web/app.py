@@ -163,6 +163,38 @@ def _markdown_flowables(
     return flowables
 
 
+def _draw_pdf_page_furniture(
+    canvas: Any,
+    document: Any,
+    *,
+    continuation: bool,
+) -> None:
+    canvas.saveState()
+    canvas.setFillColor(colors.HexColor("#6E6E73"))
+    canvas.setFont(PDF_FONT_NAME, 8)
+    if continuation:
+        canvas.drawString(
+            document.leftMargin,
+            A4[1] - 11 * mm,
+            "安全のためにできること",
+        )
+    canvas.drawString(document.leftMargin, 9 * mm, "親の家 安全チェックAI")
+    canvas.drawRightString(
+        A4[0] - document.rightMargin,
+        9 * mm,
+        f"ページ {document.page}",
+    )
+    canvas.restoreState()
+
+
+def _draw_pdf_first_page(canvas: Any, document: Any) -> None:
+    _draw_pdf_page_furniture(canvas, document, continuation=False)
+
+
+def _draw_pdf_later_page(canvas: Any, document: Any) -> None:
+    _draw_pdf_page_furniture(canvas, document, continuation=True)
+
+
 def build_safety_advice_pdf(report: SuggestionPdfRequest) -> bytes:
     buffer = io.BytesIO()
     styles = _pdf_styles()
@@ -171,8 +203,8 @@ def build_safety_advice_pdf(report: SuggestionPdfRequest) -> bytes:
         pagesize=A4,
         rightMargin=18 * mm,
         leftMargin=18 * mm,
-        topMargin=16 * mm,
-        bottomMargin=16 * mm,
+        topMargin=20 * mm,
+        bottomMargin=18 * mm,
         title="親の家 安全チェックAI - 安全のためにできること",
         author="SumaiGuard Agent POC",
     )
@@ -227,7 +259,11 @@ def build_safety_advice_pdf(report: SuggestionPdfRequest) -> bytes:
             ),
         ]
     )
-    document.build(story)
+    document.build(
+        story,
+        onFirstPage=_draw_pdf_first_page,
+        onLaterPages=_draw_pdf_later_page,
+    )
     return buffer.getvalue()
 
 
@@ -237,6 +273,7 @@ INDEX_HTML = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <link rel="icon" href="data:,">
     <title>親の家 安全チェックAI</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>

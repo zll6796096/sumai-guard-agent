@@ -72,6 +72,29 @@ def test_pdf_download_returns_a_text_only_japanese_attachment() -> None:
         )
 
 
+def test_multi_page_pdf_repeats_context_and_numbers_every_page() -> None:
+    module = _load_web_module()
+    payload = _payload() | {
+        "family_actions_markdown": (
+            "## 家族で今日できること\n"
+            + "\n".join(
+                f"- 対策{i}：通路に置かれた物を安全な場所へ移動します。"
+                for i in range(1, 36)
+            )
+        )
+    }
+
+    response = TestClient(module.app).post("/suggestions.pdf", json=payload)
+
+    assert response.status_code == 200
+    reader = PdfReader(io.BytesIO(response.content))
+    assert len(reader.pages) >= 2
+    for page_number, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        assert "安全のためにできること" in text
+        assert f"ページ {page_number}" in text
+
+
 def test_pdf_download_forbids_image_and_debug_fields() -> None:
     module = _load_web_module()
     payload = _payload() | {
