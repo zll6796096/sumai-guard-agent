@@ -109,3 +109,21 @@ def test_pdf_export_policy_is_text_only_disclaimed_and_nonpersistent() -> None:
         "not stored",
     ):
         assert phrase in readme
+
+
+def test_ci_installs_both_app_dependencies_before_collecting_all_tests() -> None:
+    root = Path(__file__).resolve().parents[3]
+    workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    backend_install = workflow.index(
+        "pip install -r apps/sumai_agent/requirements.txt"
+    )
+    frontend_install = workflow.index(
+        "pip install -r apps/sumai_web/requirements.txt"
+    )
+    full_test_suite = workflow.index(
+        "python -m pytest apps/sumai_agent/tests -v"
+    )
+
+    assert backend_install < full_test_suite
+    assert frontend_install < full_test_suite

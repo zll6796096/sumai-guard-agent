@@ -21,11 +21,11 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r apps/sumai_agent/requirements.txt
 
-      - name: Run backend tests
-        run: python -m pytest apps/sumai_agent/tests -v
-
       - name: Install frontend dependencies
         run: pip install -r apps/sumai_web/requirements.txt
+
+      - name: Run backend tests
+        run: python -m pytest apps/sumai_agent/tests -v
 
       - name: Frontend import check
         run: |
