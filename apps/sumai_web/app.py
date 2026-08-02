@@ -7,15 +7,37 @@ import json
 import logging
 import math
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from datetime import datetime
+from html import escape
+from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import FastAPI, File, Form, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from dotenv import load_dotenv
 from PIL import Image
+from pydantic import BaseModel, ConfigDict, Field
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.platypus import (
+    Flowable,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
 
 
 load_dotenv()
@@ -34,6 +56,179 @@ DISCLAIMER = (
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
 )
+
+PDF_FONT_NAME = "HeiseiKakuGo-W5"
+PDF_DISCLAIMER = (
+    "このPDFは、写真1枚に写っている範囲だけをもとにした一般的な安全上の注意と相談の目安です。"
+    "写真に写っていない危険や、AIが見落とした危険がある可能性があります。\n"
+    "医療・介護認定・保険・法令適合・施工可否・見積もり、その他の専門判断を行うものではありません。"
+    "実際の状況を現地で確認し、必要に応じてケアマネジャー、福祉用具専門相談員、施工の専門家へ相談してください。\n"
+    "このPOCは、アップロードした写真や生成したPDFを保存しません。"
+)
+
+
+class SuggestionPdfRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    finding_count: int = Field(ge=0, le=100)
+    overall_risk_level: Literal["low", "medium", "high"]
+    family_actions_markdown: str = Field(min_length=1, max_length=20_000)
+    care_manager_actions_markdown: str = Field(min_length=1, max_length=20_000)
+    contractor_actions_markdown: str = Field(min_length=1, max_length=20_000)
+    risk_summary_markdown: str = Field(min_length=1, max_length=20_000)
+
+
+pdfmetrics.registerFont(UnicodeCIDFont(PDF_FONT_NAME))
+
+
+def _pdf_styles() -> dict[str, ParagraphStyle]:
+    return {
+        "title": ParagraphStyle(
+            "SumaiTitle",
+            fontName=PDF_FONT_NAME,
+            fontSize=19,
+            leading=26,
+            alignment=TA_CENTER,
+            textColor=colors.HexColor("#1D1D1F"),
+            spaceAfter=5 * mm,
+            wordWrap="CJK",
+        ),
+        "meta": ParagraphStyle(
+            "SumaiMeta",
+            fontName=PDF_FONT_NAME,
+            fontSize=9,
+            leading=14,
+            textColor=colors.HexColor("#6E6E73"),
+            spaceAfter=2 * mm,
+            wordWrap="CJK",
+        ),
+        "heading": ParagraphStyle(
+            "SumaiHeading",
+            fontName=PDF_FONT_NAME,
+            fontSize=13,
+            leading=19,
+            textColor=colors.HexColor("#1D1D1F"),
+            spaceBefore=4 * mm,
+            spaceAfter=2 * mm,
+            wordWrap="CJK",
+        ),
+        "subheading": ParagraphStyle(
+            "SumaiSubheading",
+            fontName=PDF_FONT_NAME,
+            fontSize=11,
+            leading=17,
+            textColor=colors.HexColor("#1D1D1F"),
+            spaceBefore=2 * mm,
+            spaceAfter=1 * mm,
+            wordWrap="CJK",
+        ),
+        "body": ParagraphStyle(
+            "SumaiBody",
+            fontName=PDF_FONT_NAME,
+            fontSize=10,
+            leading=16,
+            textColor=colors.HexColor("#1D1D1F"),
+            spaceAfter=1.5 * mm,
+            wordWrap="CJK",
+        ),
+        "disclaimer": ParagraphStyle(
+            "SumaiDisclaimer",
+            fontName=PDF_FONT_NAME,
+            fontSize=8.5,
+            leading=14,
+            textColor=colors.HexColor("#3A3A3C"),
+            wordWrap="CJK",
+        ),
+    }
+
+
+def _markdown_flowables(
+    markdown: str,
+    styles: dict[str, ParagraphStyle],
+) -> list[Flowable]:
+    flowables: list[Flowable] = []
+    for raw_line in markdown.splitlines():
+        line = raw_line.strip()
+        if not line:
+            flowables.append(Spacer(1, 1.5 * mm))
+        elif line.startswith("### "):
+            flowables.append(Paragraph(escape(line[4:]), styles["subheading"]))
+        elif line.startswith("## "):
+            flowables.append(Paragraph(escape(line[3:]), styles["heading"]))
+        elif re.match(r"^[-*]\s+", line):
+            content = re.sub(r"^[-*]\s+", "", line)
+            flowables.append(Paragraph("・" + escape(content), styles["body"]))
+        else:
+            flowables.append(Paragraph(escape(line), styles["body"]))
+    return flowables
+
+
+def build_safety_advice_pdf(report: SuggestionPdfRequest) -> bytes:
+    buffer = io.BytesIO()
+    styles = _pdf_styles()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=18 * mm,
+        leftMargin=18 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
+        title="親の家 安全チェックAI - 安全のためにできること",
+        author="SumaiGuard Agent POC",
+    )
+    risk_labels = {"low": "低", "medium": "中", "high": "高"}
+    generated_at = datetime.now(ZoneInfo("Asia/Tokyo"))
+
+    story: list[Flowable] = [
+        Paragraph("親の家 安全チェックAI", styles["meta"]),
+        Paragraph("安全のためにできること", styles["title"]),
+        Paragraph(
+            f"作成日：{generated_at:%Y年%m月%d日}（日本時間）",
+            styles["meta"],
+        ),
+        Paragraph(
+            "写真で確認した注意箇所："
+            f"{report.finding_count}件　総合リスク：{risk_labels[report.overall_risk_level]}",
+            styles["meta"],
+        ),
+    ]
+    for markdown in (
+        report.family_actions_markdown,
+        report.care_manager_actions_markdown,
+        report.contractor_actions_markdown,
+        report.risk_summary_markdown,
+    ):
+        story.extend(_markdown_flowables(markdown, styles))
+
+    story.extend(
+        [
+            Spacer(1, 4 * mm),
+            Paragraph("ご利用前に必ずご確認ください", styles["heading"]),
+            Table(
+                [
+                    [
+                        Paragraph(
+                            escape(PDF_DISCLAIMER).replace("\n", "<br/>"),
+                            styles["disclaimer"],
+                        )
+                    ]
+                ],
+                colWidths=[A4[0] - 36 * mm],
+                style=TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F2F2F7")),
+                        ("BOX", (0, 0), (-1, -1), 0.7, colors.HexColor("#C7C7CC")),
+                        ("LEFTPADDING", (0, 0), (-1, -1), 4 * mm),
+                        ("RIGHTPADDING", (0, 0), (-1, -1), 4 * mm),
+                        ("TOPPADDING", (0, 0), (-1, -1), 3 * mm),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 3 * mm),
+                    ]
+                ),
+            ),
+        ]
+    )
+    document.build(story)
+    return buffer.getvalue()
 
 
 # HTML Template with mobile-first CSS and vanilla JS
@@ -1649,6 +1844,22 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="SumaiGuard Web", lifespan=lifespan)
 
 
+@app.exception_handler(RequestValidationError)
+async def safe_request_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+):
+    if request.url.path == "/suggestions.pdf":
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "invalid_pdf_request",
+                "message": "PDFの内容が無効です。画面を再読み込みして、もう一度お試しください。",
+            },
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
 def backend_client() -> httpx.AsyncClient:
     global _backend_client
     if _backend_client is None:
@@ -1701,6 +1912,37 @@ def _safe_backend_client_error(status_code: int) -> JSONResponse:
 @app.get("/", response_class=HTMLResponse)
 def get_home():
     return HTMLResponse(content=INDEX_HTML)
+
+
+@app.post("/suggestions.pdf")
+def download_suggestions_pdf(report: SuggestionPdfRequest):
+    try:
+        content = build_safety_advice_pdf(report)
+    except Exception as exc:
+        logger.error(
+            "pdf_generation_failed",
+            extra={"failure_type": type(exc).__name__},
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "pdf_generation_failed",
+                "message": "PDFを作成できませんでした。時間をおいて、もう一度お試しください。",
+            },
+        )
+
+    generated_at = datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d")
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename="sumai-guard-safety-actions-'
+                f'{generated_at}.pdf"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @app.post("/analyze")
