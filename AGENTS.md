@@ -20,7 +20,6 @@ Do not add:
 - Elderly profile questionnaires.
 - Age, walking-state, fall-history, care-level, disease, medication, or insurance questions.
 - Full RAG, vector databases, or persistent knowledge stores.
-- PDF report download.
 - Authentication, user accounts, or persistent storage.
 - Cloud deployment work in the local POC.
 - Final renovation design, construction drawings, legal compliance claims, or exact measurements from one photo.
@@ -35,6 +34,9 @@ Do not add:
 - Strip EXIF during image intake.
 - Use Gemini only for visible-risk extraction; deterministic rule mapping runs after Gemini output.
 - Gemini must not override the deterministic action-tier policy.
+- PDF export is limited to a text-only PDF copy of the current action advice and risk basis.
+- Every PDF must include the approved POC/professional-judgment disclaimer and must not include photos or debug metadata.
+- PDF generation must not persist the PDF, report payload, or any new user history.
 
 ## Action Tier Policy
 

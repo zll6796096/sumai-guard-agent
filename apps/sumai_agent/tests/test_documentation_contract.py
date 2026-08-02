@@ -92,3 +92,20 @@ def test_government_review_docs_reflect_source_layer_without_overclaiming() -> N
     assert "No government pilot protocol" in risk_gaps
     assert "No formal evaluation metrics" in risk_gaps
     assert "Not suitable now" in pre_review
+
+
+def test_pdf_export_policy_is_text_only_disclaimed_and_nonpersistent() -> None:
+    root = Path(__file__).resolve().parents[3]
+    agents = (root / "AGENTS.md").read_text(encoding="utf-8")
+    readme = (root / "README.md").read_text(encoding="utf-8")
+
+    assert "PDF report download" not in agents
+    assert "PDF report download" not in readme
+    for phrase in ("text-only PDF", "disclaimer", "must not persist"):
+        assert phrase in agents
+    for phrase in (
+        "Japanese text-only PDF",
+        "does not include photos",
+        "not stored",
+    ):
+        assert phrase in readme

@@ -26,6 +26,7 @@ Implemented:
 - Current-risk and improvement images stacked vertically.
 - Deterministic rule mapping into three action tiers.
 - Japanese markdown reports.
+- Japanese text-only PDF export of the current safety advice.
 - Cloud Run deployment scripts.
 - GitHub Actions CI/CD.
 - Structured JSON logging.
@@ -35,7 +36,6 @@ Not implemented:
 - Authentication or user accounts.
 - Persistent storage.
 - Full RAG or vector DB.
-- PDF report download.
 - Elderly profile questionnaire.
 - Medical, care-level, insurance, or construction judgment.
 - Exact measurements from one photo.
@@ -294,7 +294,7 @@ See [docs/demo_script.md](docs/demo_script.md) for the full 3-minute demo script
 - No exact measurements from photos.
 - Improvement image is a deterministic overlay, not a realistic rendering.
 - Cloud Run cold start may take 5-10 seconds.
-- No PDF report download.
+- The Japanese text-only PDF does not include photos, is not stored, and is not a professional inspection, medical/care, insurance, legal, construction, or quotation document.
 - No user accounts or persistent history.
 
 ## Documentation
