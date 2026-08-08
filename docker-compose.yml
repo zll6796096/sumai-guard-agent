@@ -4,10 +4,16 @@ services:
       context: ./apps/sumai_agent
       dockerfile: Dockerfile
     ports:
-      - "8080:8080"
+      - "${SUMAI_BIND_ADDRESS:-127.0.0.1}:8080:8080"
     environment:
       MOCK_MODE: ${MOCK_MODE:-true}
       REQUIRE_REAL_GEMINI: ${REQUIRE_REAL_GEMINI:-false}
+      APP_CHECK_REQUIRED: ${APP_CHECK_REQUIRED:-false}
+      FIREBASE_APP_ID: ${FIREBASE_APP_ID:-}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-10485760}
+      MAX_SOURCE_PIXELS: ${MAX_SOURCE_PIXELS:-25000000}
+      RESULT_MEMO_TTL_SECONDS: ${RESULT_MEMO_TTL_SECONDS:-300}
+      RESULT_MEMO_MAX_ITEMS: ${RESULT_MEMO_MAX_ITEMS:-128}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       ANALYSIS_TIMEOUT: ${ANALYSIS_TIMEOUT:-120}
@@ -19,7 +25,7 @@ services:
       context: ./apps/sumai_web
       dockerfile: Dockerfile
     ports:
-      - "8081:8080"
+      - "${SUMAI_BIND_ADDRESS:-127.0.0.1}:8081:8080"
     environment:
       SUMAI_AGENT_URL: http://sumai-agent:8080
       SUMAI_WEB_PORT: "8080"
@@ -27,6 +33,7 @@ services:
       SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS: ${SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS:-30}
       MOCK_MODE: ${MOCK_MODE:-true}
       REQUIRE_REAL_GEMINI: ${REQUIRE_REAL_GEMINI:-false}
+      PUBLIC_WEB_ANALYSIS_ENABLED: ${PUBLIC_WEB_ANALYSIS_ENABLED:-true}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:
       - sumai-agent
