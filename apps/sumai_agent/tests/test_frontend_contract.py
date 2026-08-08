@@ -1,20 +1,31 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
-import uuid
-from pathlib import Path
+import os
+
+from apps.sumai_agent.tests.web_module_loader import load_web_module as _load_web_module
 
 
 def _index_html() -> str:
-    app_path = Path(__file__).resolve().parents[2] / "sumai_web" / "app.py"
-    module_name = f"sumai_web_contract_{uuid.uuid4().hex}"
-    spec = importlib.util.spec_from_file_location(module_name, app_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module.INDEX_HTML
+    return _load_web_module().INDEX_HTML
+
+
+def test_frontend_loader_ignores_hostile_outer_environment_and_restores_it(
+    monkeypatch,
+) -> None:
+    hostile_environment = {
+        "MOCK_MODE": "false",
+        "REQUIRE_REAL_GEMINI": "true",
+        "PUBLIC_WEB_ANALYSIS_ENABLED": "false",
+    }
+    for name, value in hostile_environment.items():
+        monkeypatch.setenv(name, value)
+
+    module = _load_web_module()
+
+    assert module.FRONTEND_MOCK is True
+    assert module.FRONTEND_REQUIRE_REAL_GEMINI is False
+    assert module.PUBLIC_WEB_ANALYSIS_ENABLED is True
+    assert {name: os.environ.get(name) for name in hostile_environment} == hostile_environment
 
 
 def test_completed_result_exposes_mode_provenance_without_debug_mode() -> None:

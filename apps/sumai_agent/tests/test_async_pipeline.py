@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import io
 import json
-import sys
-import uuid
-from pathlib import Path
+import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -19,6 +16,7 @@ from app import main
 from app.models import AnalysisResponse
 from app.services.gemini_vision import GEMINI_FACTS_JSON_SCHEMA, GeminiVisionService
 from app.services.orchestrator import AnalysisOrchestrator
+from apps.sumai_agent.tests.web_module_loader import load_web_module as _load_web_module
 
 
 def _valid_facts_json() -> str:
@@ -56,15 +54,38 @@ def _image_bytes() -> bytes:
     return output.getvalue()
 
 
-def _load_web_module() -> object:
-    app_path = Path(__file__).resolve().parents[2] / "sumai_web" / "app.py"
-    module_name = f"sumai_web_async_test_{uuid.uuid4().hex}"
-    spec = importlib.util.spec_from_file_location(module_name, app_path)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
+def test_web_loader_ignores_hostile_outer_environment_and_restores_it(
+    monkeypatch,
+) -> None:
+    hostile_environment = {
+        "MOCK_MODE": "false",
+        "REQUIRE_REAL_GEMINI": "true",
+        "PUBLIC_WEB_ANALYSIS_ENABLED": "false",
+    }
+    for name, value in hostile_environment.items():
+        monkeypatch.setenv(name, value)
+
+    web = _load_web_module()
+
+    assert web.FRONTEND_MOCK is True
+    assert web.FRONTEND_REQUIRE_REAL_GEMINI is False
+    assert web.PUBLIC_WEB_ANALYSIS_ENABLED is True
+    assert {name: os.environ.get(name) for name in hostile_environment} == hostile_environment
+
+    backend_response = SimpleNamespace(
+        status_code=200,
+        json=MagicMock(return_value={"mode": "local_mock"}),
+    )
+    backend_post = AsyncMock(return_value=backend_response)
+    web._backend_client = SimpleNamespace(post=backend_post, aclose=AsyncMock())
+    with TestClient(web.app) as client:
+        response = client.post(
+            "/analyze",
+            files={"image": ("hallway.png", _image_bytes(), "image/png")},
+        )
+
+    assert response.status_code == 200
+    backend_post.assert_awaited_once()
 
 
 def test_gemini_client_is_lazy_reused_and_awaits_async_provider() -> None:
@@ -179,6 +200,7 @@ def test_web_proxy_preserves_other_4xx_with_safe_message() -> None:
         )
 
     assert response.status_code == 409
+    assert response.headers["cache-control"] == "no-store"
     assert response.json() == {
         "error": "backend_request_rejected",
         "message": "分析リクエストを処理できませんでした。入力内容を確認してください。",
@@ -231,11 +253,15 @@ def test_web_proxy_timeout_default_exceeds_backend_budget_and_configures_read_ti
 
 
 def test_web_proxy_timeout_uses_valid_explicit_override(monkeypatch) -> None:
-    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "45")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "15")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "75")
+    overrides = {
+        "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS": "45",
+        "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS": "15",
+        "SUMAI_AGENT_TIMEOUT_SECONDS": "75",
+    }
+    for name, value in overrides.items():
+        monkeypatch.setenv(name, value)
 
-    web = _load_web_module()
+    web = _load_web_module(overrides)
 
     assert web.SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS == 45.0
     assert web.SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS == 15.0
@@ -254,24 +280,32 @@ def test_web_proxy_timeout_rejects_non_finite_or_non_positive_values(monkeypatch
     monkeypatch.setenv(name, value)
 
     with pytest.raises(ValueError, match=name):
-        _load_web_module()
+        _load_web_module({name: value})
 
 
 def test_web_proxy_timeout_rejects_override_below_required_margin(monkeypatch) -> None:
-    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "120")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "30")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "149.999")
+    overrides = {
+        "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS": "120",
+        "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS": "30",
+        "SUMAI_AGENT_TIMEOUT_SECONDS": "149.999",
+    }
+    for name, value in overrides.items():
+        monkeypatch.setenv(name, value)
 
     with pytest.raises(ValueError, match="SUMAI_AGENT_TIMEOUT_SECONDS"):
-        _load_web_module()
+        _load_web_module(overrides)
 
 
 def test_web_proxy_timeout_accepts_override_at_required_margin(monkeypatch) -> None:
-    monkeypatch.setenv("SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS", "120")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS", "30")
-    monkeypatch.setenv("SUMAI_AGENT_TIMEOUT_SECONDS", "150")
+    overrides = {
+        "SUMAI_AGENT_ANALYSIS_TIMEOUT_SECONDS": "120",
+        "SUMAI_AGENT_TIMEOUT_MARGIN_SECONDS": "30",
+        "SUMAI_AGENT_TIMEOUT_SECONDS": "150",
+    }
+    for name, value in overrides.items():
+        monkeypatch.setenv(name, value)
 
-    web = _load_web_module()
+    web = _load_web_module(overrides)
 
     assert web.SUMAI_AGENT_TIMEOUT_SECONDS == 150.0
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import importlib.util
 import io
 import json
 import logging
@@ -12,6 +13,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -38,6 +40,24 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from starlette._utils import get_route_path
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+def _load_static_public_pages() -> tuple[str, str]:
+    public_pages_path = Path(__file__).with_name("public_pages.py")
+    spec = importlib.util.spec_from_file_location(
+        "_sumai_web_static_public_pages",
+        public_pages_path,
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("public pages module is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.PRIVACY_HTML, module.SUPPORT_HTML
+
+
+PRIVACY_HTML, SUPPORT_HTML = _load_static_public_pages()
 
 
 load_dotenv()
@@ -49,12 +69,39 @@ SUMAI_AGENT_URL = os.getenv("SUMAI_AGENT_URL", "http://localhost:8080").rstrip("
 SUMAI_WEB_PORT = int(os.getenv("SUMAI_WEB_PORT", "8081"))
 FRONTEND_MOCK = os.getenv("MOCK_MODE", "true").strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _public_web_analysis_enabled(frontend_mock: bool) -> bool:
+    raw_value = os.getenv("PUBLIC_WEB_ANALYSIS_ENABLED")
+    if raw_value is None:
+        return frontend_mock
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return False
+
+
+PUBLIC_WEB_ANALYSIS_ENABLED = _public_web_analysis_enabled(FRONTEND_MOCK)
+
 _backend_client: httpx.AsyncClient | None = None
 
 DISCLAIMER = (
     "POC版です。医療・介護・施工判断を代替しません。\n"
     "改善イメージはコミュニケーション用であり施工図ではありません。\n"
     "写真から正確な寸法や適用制度を判断するものではありません。"
+)
+
+HOME_CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "form-action 'self'; "
+    "frame-ancestors 'none'"
 )
 
 PDF_FONT_NAME = "HeiseiKakuGo-W5"
@@ -275,7 +322,6 @@ INDEX_HTML = """<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="icon" href="data:,">
     <title>親の家 安全チェックAI</title>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             color-scheme: light;
@@ -1700,6 +1746,50 @@ INDEX_HTML = """<!DOCTYPE html>
             return matches ? matches.length : 0;
         }
 
+        function renderSafeMarkdown(target, markdown) {
+            const fragment = document.createDocumentFragment();
+            let currentList = null;
+
+            String(markdown || '').split(/\r?\n/).forEach(rawLine => {
+                const line = rawLine.trim();
+                if (!line) {
+                    currentList = null;
+                    return;
+                }
+
+                let node;
+                let content;
+                if (line.startsWith('### ')) {
+                    node = document.createElement('h3');
+                    content = line.slice(4);
+                    currentList = null;
+                } else if (line.startsWith('## ')) {
+                    node = document.createElement('h2');
+                    content = line.slice(3);
+                    currentList = null;
+                } else if (line.startsWith('- ') || line.startsWith('* ')) {
+                    if (!currentList) {
+                        currentList = document.createElement('ul');
+                        fragment.appendChild(currentList);
+                    }
+                    node = document.createElement('li');
+                    content = line.slice(2);
+                    node.textContent = content;
+                    currentList.appendChild(node);
+                    return;
+                } else {
+                    node = document.createElement('p');
+                    content = line;
+                    currentList = null;
+                }
+
+                node.textContent = content;
+                fragment.appendChild(node);
+            });
+
+            target.replaceChildren(fragment);
+        }
+
         function renderResults(payload) {
             const isNotApplicable = payload.is_not_applicable === true || payload.is_home_environment === false;
             const resultSummary = document.querySelector('.result-summary');
@@ -1747,11 +1837,22 @@ INDEX_HTML = """<!DOCTYPE html>
                 pdfDownloadButton.disabled = false;
             }
 
-            // Render Markdown using marked.js
-            document.getElementById('action-family-content').innerHTML = marked.parse(payload.family_actions_markdown || '');
-            document.getElementById('action-care-content').innerHTML = marked.parse(payload.care_manager_actions_markdown || '');
-            document.getElementById('action-contractor-content').innerHTML = marked.parse(payload.contractor_actions_markdown || '');
-            document.getElementById('risk-details-content').innerHTML = marked.parse(payload.risk_summary_markdown || '');
+            renderSafeMarkdown(
+                document.getElementById('action-family-content'),
+                payload.family_actions_markdown
+            );
+            renderSafeMarkdown(
+                document.getElementById('action-care-content'),
+                payload.care_manager_actions_markdown
+            );
+            renderSafeMarkdown(
+                document.getElementById('action-contractor-content'),
+                payload.contractor_actions_markdown
+            );
+            renderSafeMarkdown(
+                document.getElementById('risk-details-content'),
+                payload.risk_summary_markdown
+            );
 
             // Set dynamic counts in headers
             const famCount = countItems(payload.family_actions_markdown);
@@ -1965,7 +2066,79 @@ async def lifespan(_app: FastAPI):
         await close_backend_client()
 
 
+class PublicWebAnalysisGateMiddleware:
+    """Reject public photo uploads from ASGI scope data before body parsing."""
+
+    def __init__(self, app: ASGIApp, *, analysis_enabled: bool) -> None:
+        self.app = app
+        self.analysis_enabled = analysis_enabled
+
+    async def __call__(
+        self,
+        scope: Scope,
+        receive: Receive,
+        send: Send,
+    ) -> None:
+        if scope["type"] != "http" or get_route_path(scope) != "/analyze":
+            await self.app(scope, receive, send)
+            return
+
+        response_started = False
+
+        async def send_without_storage(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+                headers = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() != b"cache-control"
+                ]
+                headers.append((b"cache-control", b"no-store"))
+                message["headers"] = headers
+            await send(message)
+
+        if not self.analysis_enabled:
+            response = JSONResponse(
+                status_code=503,
+                content={
+                    "error": "NATIVE_APP_REQUIRED",
+                    "message": "公開版の写真解析はiPhoneアプリからご利用ください。",
+                },
+            )
+            await response(scope, receive, send_without_storage)
+            return
+
+        try:
+            await self.app(scope, receive, send_without_storage)
+        except Exception as exc:
+            if response_started:
+                raise
+            logger.error(
+                "web_analysis_unexpected_failure",
+                extra={
+                    "failure_code": "ANALYSIS_FAILED",
+                    "failure_type": type(exc).__name__,
+                },
+            )
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": "ANALYSIS_FAILED",
+                    "message": (
+                        "分析を完了できませんでした。"
+                        "時間をおいて、もう一度お試しください。"
+                    ),
+                },
+            )
+            await response(scope, receive, send_without_storage)
+
+
 app = FastAPI(title="SumaiGuard Web", lifespan=lifespan)
+app.add_middleware(
+    PublicWebAnalysisGateMiddleware,
+    analysis_enabled=PUBLIC_WEB_ANALYSIS_ENABLED,
+)
 
 
 @app.exception_handler(RequestValidationError)
@@ -2035,7 +2208,29 @@ def _safe_backend_client_error(status_code: int) -> JSONResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def get_home():
-    return HTMLResponse(content=INDEX_HTML)
+    return HTMLResponse(
+        content=INDEX_HTML,
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Security-Policy": HOME_CONTENT_SECURITY_POLICY,
+        },
+    )
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def get_privacy():
+    return HTMLResponse(
+        content=PRIVACY_HTML,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/support", response_class=HTMLResponse)
+def get_support():
+    return HTMLResponse(
+        content=SUPPORT_HTML,
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/suggestions.pdf")
@@ -2082,7 +2277,7 @@ async def analyze(
         files = {"image": (image.filename or "photo.png", image_bytes, image.content_type or "image/png")}
         data = {"room_hint": room_hint, "mock": "true" if FRONTEND_MOCK else "false"}
         response = await backend_client().post(
-            f"{SUMAI_AGENT_URL}/analyze", data=data, files=files
+            f"{SUMAI_AGENT_URL}/api/v1/analyze", data=data, files=files
         )
 
         if response.status_code == 200:

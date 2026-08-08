@@ -1,25 +1,32 @@
 from __future__ import annotations
 
-import importlib.util
 import io
-import sys
-from pathlib import Path
-from types import ModuleType
+import os
 
 from fastapi.testclient import TestClient
 from pypdf import PdfReader
 
+from apps.sumai_agent.tests.web_module_loader import load_web_module as _load_web_module
 
-WEB_APP_PATH = Path(__file__).resolve().parents[2] / "sumai_web" / "app.py"
 
 
-def _load_web_module() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("sumai_web_pdf_contract", WEB_APP_PATH)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
+def test_pdf_loader_ignores_hostile_outer_environment_and_restores_it(
+    monkeypatch,
+) -> None:
+    hostile_environment = {
+        "MOCK_MODE": "false",
+        "REQUIRE_REAL_GEMINI": "true",
+        "PUBLIC_WEB_ANALYSIS_ENABLED": "false",
+    }
+    for name, value in hostile_environment.items():
+        monkeypatch.setenv(name, value)
+
+    module = _load_web_module()
+
+    assert module.FRONTEND_MOCK is True
+    assert module.FRONTEND_REQUIRE_REAL_GEMINI is False
+    assert module.PUBLIC_WEB_ANALYSIS_ENABLED is True
+    assert {name: os.environ.get(name) for name in hostile_environment} == hostile_environment
 
 
 def _payload() -> dict[str, object]:
