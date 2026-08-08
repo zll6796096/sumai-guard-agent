@@ -142,6 +142,105 @@ def normalized_shell_contract(command_text: str) -> str:
     return re.sub(r"\s+", " ", without_continuations).replace("$$", "$").strip()
 
 
+def validate_production_service_account_preconditions(
+    command_steps: dict[str, str],
+) -> None:
+    step_id = "deploy-agent-candidate"
+    assert step_id in command_steps, f"missing Cloud Build step: {step_id}"
+    command_text = command_steps[step_id]
+    normalized = normalized_shell_contract(command_text)
+    mutation = re.search(
+        r"\bgcloud\s+run\s+(?:deploy|services\s+update)(?=\s|$)",
+        normalized,
+        re.IGNORECASE,
+    )
+    assert mutation is not None, (
+        f"{step_id} must contain a candidate or migration mutation"
+    )
+
+    specifications = {
+        "agent": {
+            "production_revision": "agent_production_before",
+            "production_service_account": "agent_production_service_account",
+            "service_account_substitution": "_AGENT_SERVICE_ACCOUNT",
+        },
+        "web": {
+            "production_revision": "web_production_before",
+            "production_service_account": "web_production_service_account",
+            "service_account_substitution": "_WEB_SERVICE_ACCOUNT",
+        },
+    }
+    for component, specification in specifications.items():
+        production_revision = specification["production_revision"]
+        production_service_account = specification["production_service_account"]
+        service_account_substitution = specification[
+            "service_account_substitution"
+        ]
+        production_assignment_pattern = re.compile(
+            rf"(?m)^[ \t]*{re.escape(production_revision)}\s*=",
+        )
+        production_assignments = list(
+            production_assignment_pattern.finditer(command_text)
+        )
+        assert len(production_assignments) == 1, (
+            f"{step_id} must resolve the serving {component} revision exactly once"
+        )
+        service_account_assignment_pattern = re.compile(
+            rf"(?m)^[ \t]*{re.escape(production_service_account)}\s*=",
+        )
+        service_account_assignments = list(
+            service_account_assignment_pattern.finditer(command_text)
+        )
+        assert len(service_account_assignments) == 1, (
+            f"{step_id} must assign the serving {component} service account "
+            "exactly once"
+        )
+        assert (
+            production_assignments[0].start()
+            < service_account_assignments[0].start()
+        ), (
+            f"{step_id} must resolve the serving {component} revision before "
+            "describing its service account"
+        )
+        assert not re.search(
+            rf"(?ms)^[ \t]*{re.escape(production_service_account)}\s*=\s*"
+            rf"[\"']?\$\$?\(\s*gcloud\s+run\s+services\s+describe\b",
+            command_text,
+            re.IGNORECASE,
+        ), (
+            f"{step_id} must not derive the serving {component} service account "
+            "from the mutable service template"
+        )
+
+        fragments = {
+            "exact serving-revision describe": (
+                f'{production_service_account}="$(gcloud run revisions describe '
+                f'"${production_revision}" --project="$PROJECT_ID" '
+                '--region="${_REGION}" '
+                "--format='value(spec.serviceAccountName)')\""
+            ),
+            "nonempty check": f'test -n "${production_service_account}"',
+            "caller identity binding": (
+                f'test "${production_service_account}" = '
+                f'"${{{service_account_substitution}}}"'
+            ),
+        }
+        positions = []
+        for contract_name, fragment in fragments.items():
+            assert normalized.count(fragment) == 1, (
+                f"{step_id} missing ordered {component} {contract_name}"
+            )
+            positions.append(normalized.index(fragment))
+        assert positions == sorted(positions), (
+            f"{step_id} must resolve, validate, then bind the serving "
+            f"{component} service account"
+        )
+        assert all(position < mutation.start() for position in positions), (
+            f"{step_id} must bind the serving {component} service account "
+            "before any Cloud Run mutation"
+        )
+
+
 def validate_digest_provenance(command_steps: dict[str, str]) -> None:
     specifications = {
         "agent": {
@@ -727,6 +826,7 @@ def main() -> None:
         for step_id, step in steps.items()
     }
     validate_traffic_commands(command_steps)
+    validate_production_service_account_preconditions(command_steps)
     for step_id, command_text in command_steps.items():
         assert "smoke_real_gemini.py" not in command_text, (
             f"{step_id} must not run the real-image candidate smoke upload"
@@ -799,11 +899,22 @@ def main() -> None:
     agent_probe = command_steps[agent_probe_id]
     for path in ("/health", "/ready", "/api/v1/analyze"):
         require_quoted_url(agent_probe_id, agent_probe, "agent_url", path)
+    suppressed_header_pattern = re.compile(
+        r"(?<!\S)(?:-H|--header)(?:=|[ \t]+)(?P<quote>['\"])"
+        r"X-Firebase-AppCheck:\s*(?P=quote)"
+    )
+    assert suppressed_header_pattern.search(agent_probe) is None, (
+        f"{agent_probe_id} must not use colon-only X-Firebase-AppCheck syntax; "
+        "curl suppresses that header instead of sending an explicitly empty value"
+    )
     assert re.search(
-        r"(?:-H|--header)(?:=|\s+)(?P<quote>['\"])"
-        r"X-Firebase-AppCheck:\s*(?P=quote)",
+        r"(?<!\S)-H[ \t]+(?P<quote>['\"])"
+        r"X-Firebase-AppCheck;(?P=quote)(?=\s|$)",
         agent_probe,
-    ), f"{agent_probe_id} must send an explicitly empty X-Firebase-AppCheck header"
+    ), (
+        f"{agent_probe_id} must use exact curl syntax "
+        "-H 'X-Firebase-AppCheck;' to send an explicitly empty header"
+    )
     assert re.search(
         r"\btest\s+['\"]?\$\$?(?:\{status\}|status)['\"]?"
         r"\s+(?:=|==)\s+['\"]?401['\"]?(?=\s|$)",

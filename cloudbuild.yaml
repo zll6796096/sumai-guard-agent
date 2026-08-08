@@ -7,7 +7,8 @@ steps:
       - |
         pip install --disable-pip-version-check \
           -r apps/sumai_agent/requirements.txt \
-          -r apps/sumai_web/requirements.txt
+          -r apps/sumai_web/requirements.txt \
+          PyYAML==6.0.2
         python -m pytest apps/sumai_agent/tests -v
         python - <<'PY'
         import importlib.util
@@ -78,63 +79,100 @@ steps:
     args:
       - -ceu
       - |
+        test -n "${_AGENT_SERVICE_ACCOUNT}" || {
+          echo "Agent candidate service account is required" >&2
+          exit 1
+        }
+        test -n "${_WEB_SERVICE_ACCOUNT}" || {
+          echo "Web candidate service account is required" >&2
+          exit 1
+        }
+        printf '%s' "${_FIREBASE_APP_ID}" |
+          grep -Eq '^1:[0-9]+:ios:[0-9a-f]+$$' || {
+            echo "Firebase app ID is missing or invalid" >&2
+            exit 1
+          }
+
         agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
         agent_digest="$$(cat /workspace/sumai-agent.digest)"
         printf '%s' "$$agent_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
 
         build_token="$$(printf '%s' "$BUILD_ID" | tr -cd 'a-z0-9' | cut -c1-4)"
+        test -n "$$build_token" || {
+          echo "Build identifier cannot create a candidate tag" >&2
+          exit 1
+        }
         agent_tag="candidate-${SHORT_SHA}-$${build_token}"
         agent_suffix="${SHORT_SHA}-$${build_token}"
-        migration_tag=""
-        old_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+
+        agent_traffic_before="$$(gcloud run services describe "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" --format=json |
-          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
-        old_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"]["traffic"]))')"
+        web_traffic_before="$$(gcloud run services describe "${_WEB_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" --format=json |
-          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))')"
+          python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"]["traffic"]))')"
+        agent_production_before="$$(printf '%s' "$$agent_traffic_before" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must have exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        web_production_before="$$(printf '%s' "$$web_traffic_before" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must have exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        agent_resource_version_before="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.resourceVersion)')"
+        web_resource_version_before="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.resourceVersion)')"
+        agent_production_service_account="$$(gcloud run revisions describe "$$agent_production_before" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(spec.serviceAccountName)')"
+        web_production_service_account="$$(gcloud run revisions describe "$$web_production_before" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(spec.serviceAccountName)')"
+        test -n "$$agent_production_before"
+        test -n "$$web_production_before"
+        test -n "$$agent_resource_version_before"
+        test -n "$$web_resource_version_before"
+        test -n "$$agent_production_service_account"
+        test -n "$$web_production_service_account"
+        test "$$agent_production_service_account" = "${_AGENT_SERVICE_ACCOUNT}" || {
+          echo "Agent serving revision service account does not match the candidate identity" >&2
+          exit 1
+        }
+        test "$$web_production_service_account" = "${_WEB_SERVICE_ACCOUNT}" || {
+          echo "Web serving revision service account does not match the candidate identity" >&2
+          exit 1
+        }
 
         credential_shape="$$(gcloud run services describe "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" \
-          --format='json(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].valueFrom.secretKeyRef.secret)' |
+          --format='json(spec.template.spec.containers[0].env[].name,spec.template.spec.containers[0].env[].valueFrom.secretKeyRef.name,spec.template.spec.containers[0].env[].valueFrom.secretKeyRef.secret)' |
           python3 -c '
         import json
         import sys
 
         rows = json.load(sys.stdin)["spec"]["template"]["spec"]["containers"][0].get("env", [])
-        match = next((row for row in rows if row.get("name") == "GEMINI_API_KEY"), None)
-        if match is None:
+        matches = [row for row in rows if row.get("name") == "GEMINI_API_KEY"]
+        if not matches:
             print("absent")
-        elif match.get("valueFrom", {}).get("secretKeyRef", {}).get("secret"):
+        elif len(matches) != 1:
+            raise SystemExit("Agent credential shape is ambiguous")
+        elif matches[0].get("valueFrom", {}).get("secretKeyRef"):
             print("secret")
         else:
             print("plaintext")
         ')"
         case "$$credential_shape" in
           plaintext)
-            migration_tag="migration-${SHORT_SHA}-$${build_token}"
             gcloud run services update "${_AGENT_SERVICE}" \
               --project="$PROJECT_ID" \
               --region="${_REGION}" \
               --no-traffic \
-              --tag="$$migration_tag" \
               --revision-suffix="${SHORT_SHA}-$${build_token}-rm" \
               --remove-env-vars=GEMINI_API_KEY
             ;;
           absent|secret) ;;
-          *) echo "Unexpected Gemini credential shape" >&2; exit 1 ;;
+          *) echo "Agent credential shape read-back failed" >&2; exit 1 ;;
         esac
 
-        cleanup_agent_tag() {
-          gcloud run services update-traffic "${_AGENT_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
-          if [[ -n "$$migration_tag" ]]; then
-            gcloud run services update-traffic "${_AGENT_SERVICE}" \
-              --project="$PROJECT_ID" --region="${_REGION}" \
-              --remove-tags="$$migration_tag" >/dev/null 2>&1 || true
-          fi
-        }
-        trap cleanup_agent_tag ERR
         gcloud run deploy "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
@@ -142,22 +180,117 @@ steps:
           --no-traffic \
           --tag="$$agent_tag" \
           --revision-suffix="$$agent_suffix" \
+          --service-account="${_AGENT_SERVICE_ACCOUNT}" \
           --memory=1Gi \
           --cpu=1 \
           --timeout=120 \
           --max-instances=20 \
           --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
-          --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO" \
+          --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,APP_CHECK_REQUIRED=true,FIREBASE_APP_ID=${_FIREBASE_APP_ID},GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO" \
           --update-secrets=GEMINI_API_KEY=sumai-gemini-api-key:2
 
-        service_json="$$(gcloud run services describe "${_AGENT_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
-        agent_revision="$$(printf '%s' "$$service_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$agent_tag")"
-        agent_url="$$(printf '%s' "$$service_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$agent_tag")"
+        agent_traffic_after="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"]["traffic"]))')"
+        agent_revision="$$(printf '%s' "$$agent_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Agent candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0]["revisionName"])' "$$agent_tag")"
+        agent_url="$$(printf '%s' "$$agent_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Agent candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0]["url"])' "$$agent_tag")"
+        agent_candidate_percent="$$(printf '%s' "$$agent_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Agent candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0].get("percent",0))' "$$agent_tag")"
+        agent_production_after="$$(printf '%s' "$$agent_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        agent_resource_version_after="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.resourceVersion)')"
+        agent_source_label="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.labels.source-commit)')"
+        agent_lock_label="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.labels.deployment-lock)')"
         test -n "$$agent_revision"
         test -n "$$agent_url"
+        test "$$agent_candidate_percent" = 0 || {
+          echo "Agent candidate unexpectedly received production traffic" >&2
+          exit 1
+        }
+        test "$$agent_production_after" = "$$agent_production_before" || {
+          echo "Agent production predecessor changed during candidate deploy" >&2
+          exit 1
+        }
+        test "$$agent_resource_version_after" != "$$agent_resource_version_before" || {
+          echo "Agent service resource version did not advance" >&2
+          exit 1
+        }
+        test "$$agent_source_label" = "$COMMIT_SHA" || {
+          echo "Agent source label read-back failed" >&2
+          exit 1
+        }
+        test "$$agent_lock_label" = "$COMMIT_SHA" || {
+          echo "Agent deployment label read-back failed" >&2
+          exit 1
+        }
+
+        current_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_web" = "$$web_production_before" || {
+          echo "Web production predecessor changed during agent candidate deploy" >&2
+          exit 1
+        }
+
+        agent_revision_contract="$$(gcloud run revisions describe "$$agent_revision" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='json(spec.containers[0].env,spec.containers[0].image,spec.serviceAccountName)')"
+        AGENT_REVISION_CONTRACT="$$agent_revision_contract" python3 - \
+          "$${agent_ref%:*}@$${agent_digest}" \
+          "${_AGENT_SERVICE_ACCOUNT}" \
+          "${_FIREBASE_APP_ID}" <<'PY'
+        import json
+        import os
+        import sys
+
+        def fail(message: str) -> None:
+            raise SystemExit(message)
+
+        payload = json.loads(os.environ["AGENT_REVISION_CONTRACT"])
+        spec = payload.get("spec", {})
+        containers = spec.get("containers", [])
+        if len(containers) != 1:
+            fail("Agent candidate must have exactly one container")
+        container = containers[0]
+        if container.get("image") != sys.argv[1]:
+            fail("Agent candidate image digest read-back failed")
+        if spec.get("serviceAccountName") != sys.argv[2]:
+            fail("Agent candidate service account read-back failed")
+        rows = container.get("env", [])
+        values = {
+            row.get("name"): row.get("value")
+            for row in rows
+            if "value" in row
+        }
+        expected = {
+            "MOCK_MODE": "false",
+            "REQUIRE_REAL_GEMINI": "true",
+            "APP_CHECK_REQUIRED": "true",
+            "FIREBASE_APP_ID": sys.argv[3],
+            "GEMINI_MODEL": "gemini-2.5-flash",
+            "LOG_LEVEL": "INFO",
+        }
+        if any(values.get(key) != value for key, value in expected.items()):
+            fail("Agent candidate environment read-back failed")
+        secret_rows = [
+            row for row in rows if row.get("name") == "GEMINI_API_KEY"
+        ]
+        if len(secret_rows) != 1:
+            fail("Agent candidate secret reference read-back failed")
+        secret_ref = secret_rows[0].get("valueFrom", {}).get("secretKeyRef", {})
+        secret_name = secret_ref.get("name", secret_ref.get("secret"))
+        secret_version = secret_ref.get("key", secret_ref.get("version"))
+        if secret_name != "sumai-gemini-api-key" or str(secret_version) != "2":
+            fail("Agent candidate pinned secret reference read-back failed")
+        PY
 
         umask 077
         {
@@ -166,29 +299,103 @@ steps:
           printf 'agent_tag=%q\n' "$$agent_tag"
           printf 'agent_revision=%q\n' "$$agent_revision"
           printf 'agent_url=%q\n' "$$agent_url"
-          printf 'old_agent=%q\n' "$$old_agent"
-          printf 'old_web=%q\n' "$$old_web"
+          printf 'agent_service_account=%q\n' "$$agent_production_service_account"
+          printf 'agent_production_service_account=%q\n' "$$agent_production_service_account"
+          printf 'agent_resource_version_before=%q\n' "$$agent_resource_version_before"
+          printf 'agent_resource_version_after=%q\n' "$$agent_resource_version_after"
+          printf 'agent_production_before=%q\n' "$$agent_production_before"
+          printf 'web_production_service_account=%q\n' "$$web_production_service_account"
+          printf 'web_resource_version_before=%q\n' "$$web_resource_version_before"
+          printf 'web_production_before=%q\n' "$$web_production_before"
           printf 'build_token=%q\n' "$$build_token"
-          printf 'migration_tag=%q\n' "$$migration_tag"
         } > /workspace/sumai-deploy.env
-        trap - ERR
     waitFor: [push-agent]
 
   - id: probe-agent-candidate
-    name: python:3.12
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
     args:
       - -ceu
       - |
         source /workspace/sumai-deploy.env
-        pip install --disable-pip-version-check requests Pillow
-        set +e
-        SUMAI_AGENT_URL="$$agent_url" \
-          GEMINI_MODEL=gemini-2.5-flash \
-          python scripts/smoke_real_gemini.py
-        probe_rc="$$?"
-        set -e
-        printf '%s\n' "$$probe_rc" > /workspace/sumai-agent-probe.rc
+
+        health_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -o /workspace/sumai-agent-health.json \
+          -w '%{http_code}' "$$agent_url/health")"
+        test "$$health_status" = 200 || {
+          echo "Agent candidate health probe failed" >&2
+          exit 1
+        }
+
+        ready_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -o /workspace/sumai-agent-ready.json \
+          -w '%{http_code}' "$$agent_url/ready")"
+        test "$$ready_status" = 200 || {
+          echo "Agent candidate readiness probe failed" >&2
+          exit 1
+        }
+
+        status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -X POST \
+          -H 'X-Firebase-AppCheck;' \
+          -F 'room_hint=auto' \
+          -D /workspace/sumai-agent-rejection.headers \
+          -o /workspace/sumai-agent-rejection.json \
+          -w '%{http_code}' "$$agent_url/api/v1/analyze")"
+        test "$$status" = 401 || {
+          echo "Agent candidate App Check rejection status failed" >&2
+          exit 1
+        }
+
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+
+        def fail(message: str) -> None:
+            raise SystemExit(message)
+
+        health = json.loads(
+            Path("/workspace/sumai-agent-health.json").read_text(encoding="utf-8")
+        )
+        if health.get("status") != "ok" or set(health) != {"status", "version"}:
+            fail("Agent candidate health response contract failed")
+        ready = json.loads(
+            Path("/workspace/sumai-agent-ready.json").read_text(encoding="utf-8")
+        )
+        if ready.get("status") != "ready" or set(ready) != {"status", "version"}:
+            fail("Agent candidate readiness response contract failed")
+        rejection = json.loads(
+            Path("/workspace/sumai-agent-rejection.json").read_text(encoding="utf-8")
+        )
+        if rejection.get("error") != "APP_CHECK_INVALID":
+            fail("Agent candidate App Check error code failed")
+        headers = Path("/workspace/sumai-agent-rejection.headers").read_text(
+            encoding="iso-8859-1"
+        )
+        cache_controls = [
+            line.partition(":")[2].strip().casefold()
+            for line in headers.splitlines()
+            if line.partition(":")[0].strip().casefold() == "cache-control"
+        ]
+        if not cache_controls or "no-store" not in cache_controls[-1]:
+            fail("Agent candidate rejection cache policy failed")
+        PY
+
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        current_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production traffic changed during safe probes" >&2
+          exit 1
+        }
+        test "$$current_web" = "$$web_production_before" || {
+          echo "Web production traffic changed during agent probes" >&2
+          exit 1
+        }
+        printf '%s\n' "$COMMIT_SHA" > /workspace/sumai-agent-probe.ok
     waitFor: [deploy-agent-candidate]
 
   - id: gate-agent-candidate
@@ -198,10 +405,15 @@ steps:
       - -ceu
       - |
         source /workspace/sumai-deploy.env
-        test "$$(cat /workspace/sumai-agent-probe.rc)" = 0 || {
-          gcloud run services update-traffic "${_AGENT_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+        test "$$(cat /workspace/sumai-agent-probe.ok)" = "$COMMIT_SHA" || {
+          echo "Agent candidate probe marker failed" >&2
+          exit 1
+        }
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production predecessor changed at candidate gate" >&2
           exit 1
         }
     waitFor: [probe-agent-candidate]
@@ -213,26 +425,16 @@ steps:
       - -ceu
       - |
         source /workspace/sumai-deploy.env
+        test -n "${_WEB_SERVICE_ACCOUNT}" || {
+          echo "Web candidate service account is required" >&2
+          exit 1
+        }
         web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
         web_digest="$$(cat /workspace/sumai-web.digest)"
         printf '%s' "$$web_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
         web_tag="candidate-${SHORT_SHA}-$${build_token}"
         web_suffix="${SHORT_SHA}-$${build_token}-can"
 
-        cleanup_candidate_tags() {
-          gcloud run services update-traffic "${_WEB_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$web_tag" >/dev/null 2>&1 || true
-          gcloud run services update-traffic "${_AGENT_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
-          if [[ -n "$$migration_tag" ]]; then
-            gcloud run services update-traffic "${_AGENT_SERVICE}" \
-              --project="$PROJECT_ID" --region="${_REGION}" \
-              --remove-tags="$$migration_tag" >/dev/null 2>&1 || true
-          fi
-        }
-        trap cleanup_candidate_tags ERR
         gcloud run deploy "${_WEB_SERVICE}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
@@ -240,46 +442,197 @@ steps:
           --no-traffic \
           --tag="$$web_tag" \
           --revision-suffix="$$web_suffix" \
+          --service-account="${_WEB_SERVICE_ACCOUNT}" \
           --memory=1Gi \
           --cpu=1 \
           --timeout=120 \
           --max-instances=20 \
           --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
-          --update-env-vars="SUMAI_AGENT_URL=$${agent_url},SUMAI_WEB_PORT=8080,MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,LOG_LEVEL=INFO"
+          --update-env-vars="SUMAI_AGENT_URL=$${agent_url},SUMAI_WEB_PORT=8080,MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,PUBLIC_WEB_ANALYSIS_ENABLED=false,LOG_LEVEL=INFO"
 
-        service_json="$$(gcloud run services describe "${_WEB_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
-        web_candidate_revision="$$(printf '%s' "$$service_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$web_tag")"
-        web_candidate_url="$$(printf '%s' "$$service_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$web_tag")"
-        test -n "$$web_candidate_revision"
-        test -n "$$web_candidate_url"
+        web_traffic_after="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"]["traffic"]))')"
+        web_revision="$$(printf '%s' "$$web_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Web candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0]["revisionName"])' "$$web_tag")"
+        web_url="$$(printf '%s' "$$web_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Web candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0]["url"])' "$$web_tag")"
+        web_candidate_percent="$$(printf '%s' "$$web_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); tag=sys.argv[1]; matches=[row for row in rows if row.get("tag")==tag]; sys.exit("Web candidate tag must resolve exactly once") if len(matches)!=1 else print(matches[0].get("percent",0))' "$$web_tag")"
+        web_production_after="$$(printf '%s' "$$web_traffic_after" |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin); matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        web_resource_version_after="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.resourceVersion)')"
+        web_source_label="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.labels.source-commit)')"
+        web_lock_label="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(metadata.labels.deployment-lock)')"
+        test -n "$$web_revision"
+        test -n "$$web_url"
+        test "$$web_candidate_percent" = 0 || {
+          echo "Web candidate unexpectedly received production traffic" >&2
+          exit 1
+        }
+        test "$$web_production_after" = "$$web_production_before" || {
+          echo "Web production predecessor changed during candidate deploy" >&2
+          exit 1
+        }
+        test "$$web_resource_version_after" != "$$web_resource_version_before" || {
+          echo "Web service resource version did not advance" >&2
+          exit 1
+        }
+        test "$$web_source_label" = "$COMMIT_SHA" || {
+          echo "Web source label read-back failed" >&2
+          exit 1
+        }
+        test "$$web_lock_label" = "$COMMIT_SHA" || {
+          echo "Web deployment label read-back failed" >&2
+          exit 1
+        }
+
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production predecessor changed during web candidate deploy" >&2
+          exit 1
+        }
+
+        web_revision_contract="$$(gcloud run revisions describe "$$web_revision" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='json(spec.containers[0].env,spec.containers[0].image,spec.serviceAccountName)')"
+        WEB_REVISION_CONTRACT="$$web_revision_contract" python3 - \
+          "$${web_ref%:*}@$${web_digest}" \
+          "${_WEB_SERVICE_ACCOUNT}" \
+          "$$agent_url" <<'PY'
+        import json
+        import os
+        import sys
+
+        def fail(message: str) -> None:
+            raise SystemExit(message)
+
+        payload = json.loads(os.environ["WEB_REVISION_CONTRACT"])
+        spec = payload.get("spec", {})
+        containers = spec.get("containers", [])
+        if len(containers) != 1:
+            fail("Web candidate must have exactly one container")
+        container = containers[0]
+        if container.get("image") != sys.argv[1]:
+            fail("Web candidate image digest read-back failed")
+        if spec.get("serviceAccountName") != sys.argv[2]:
+            fail("Web candidate service account read-back failed")
+        rows = container.get("env", [])
+        values = {
+            row.get("name"): row.get("value")
+            for row in rows
+            if "value" in row
+        }
+        expected = {
+            "SUMAI_AGENT_URL": sys.argv[3],
+            "SUMAI_WEB_PORT": "8080",
+            "MOCK_MODE": "false",
+            "REQUIRE_REAL_GEMINI": "true",
+            "PUBLIC_WEB_ANALYSIS_ENABLED": "false",
+            "LOG_LEVEL": "INFO",
+        }
+        if any(values.get(key) != value for key, value in expected.items()):
+            fail("Web candidate environment read-back failed")
+        PY
+
         {
           printf 'web_ref=%q\n' "$$web_ref"
           printf 'web_digest=%q\n' "$$web_digest"
           printf 'web_tag=%q\n' "$$web_tag"
-          printf 'web_candidate_revision=%q\n' "$$web_candidate_revision"
-          printf 'web_candidate_url=%q\n' "$$web_candidate_url"
+          printf 'web_revision=%q\n' "$$web_revision"
+          printf 'web_url=%q\n' "$$web_url"
+          printf 'web_service_account=%q\n' "$$web_production_service_account"
+          printf 'web_resource_version_after=%q\n' "$$web_resource_version_after"
         } >> /workspace/sumai-deploy.env
-        trap - ERR
     waitFor: [push-web, gate-agent-candidate]
 
   - id: probe-web-candidate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    entrypoint: sh
+    entrypoint: bash
     args:
       - -ceu
       - |
-        . /workspace/sumai-deploy.env
-        set +e
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_candidate_url/" >/dev/null &&
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_candidate_url/ready" >/dev/null
-        probe_rc="$$?"
-        set -e
-        printf '%s\n' "$$probe_rc" > /workspace/sumai-web-probe.rc
+        source /workspace/sumai-deploy.env
+
+        home_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -o /workspace/sumai-web-home.html \
+          -w '%{http_code}' "$$web_url/")"
+        test "$$home_status" = 200 || {
+          echo "Web candidate home probe failed" >&2
+          exit 1
+        }
+        ready_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -o /workspace/sumai-web-ready.json \
+          -w '%{http_code}' "$$web_url/ready")"
+        test "$$ready_status" = 200 || {
+          echo "Web candidate readiness probe failed" >&2
+          exit 1
+        }
+        privacy_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -D /workspace/sumai-web-privacy.headers \
+          -o /workspace/sumai-web-privacy.html \
+          -w '%{http_code}' "$$web_url/privacy")"
+        test "$$privacy_status" = 200 || {
+          echo "Web candidate privacy probe failed" >&2
+          exit 1
+        }
+        support_status="$$(curl -sS --retry 8 --retry-all-errors --retry-delay 5 \
+          -D /workspace/sumai-web-support.headers \
+          -o /workspace/sumai-web-support.html \
+          -w '%{http_code}' "$$web_url/support")"
+        test "$$support_status" = 200 || {
+          echo "Web candidate support probe failed" >&2
+          exit 1
+        }
+
+        python3 - <<'PY'
+        import json
+        from pathlib import Path
+
+        def fail(message: str) -> None:
+            raise SystemExit(message)
+
+        ready = json.loads(
+            Path("/workspace/sumai-web-ready.json").read_text(encoding="utf-8")
+        )
+        if ready != {"status": "ok"}:
+            fail("Web candidate readiness response contract failed")
+        for page in ("privacy", "support"):
+            headers = Path(
+                f"/workspace/sumai-web-{page}.headers"
+            ).read_text(encoding="iso-8859-1")
+            cache_controls = [
+                line.partition(":")[2].strip().casefold()
+                for line in headers.splitlines()
+                if line.partition(":")[0].strip().casefold() == "cache-control"
+            ]
+            if not cache_controls or "no-store" not in cache_controls[-1]:
+                fail(f"Web candidate {page} cache policy failed")
+        PY
+
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        current_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production traffic changed during web probes" >&2
+          exit 1
+        }
+        test "$$current_web" = "$$web_production_before" || {
+          echo "Web production traffic changed during safe probes" >&2
+          exit 1
+        }
+        printf '%s\n' "$COMMIT_SHA" > /workspace/sumai-web-probe.ok
     waitFor: [deploy-web-candidate]
 
   - id: gate-web-candidate
@@ -289,156 +642,126 @@ steps:
       - -ceu
       - |
         source /workspace/sumai-deploy.env
-        test "$$(cat /workspace/sumai-web-probe.rc)" = 0 || {
-          gcloud run services update-traffic "${_WEB_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$web_tag" >/dev/null 2>&1 || true
-          gcloud run services update-traffic "${_AGENT_SERVICE}" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$agent_tag" >/dev/null 2>&1 || true
+        test "$$(cat /workspace/sumai-web-probe.ok)" = "$COMMIT_SHA" || {
+          echo "Web candidate probe marker failed" >&2
+          exit 1
+        }
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        current_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production predecessor changed at web candidate gate" >&2
+          exit 1
+        }
+        test "$$current_web" = "$$web_production_before" || {
+          echo "Web production predecessor changed at candidate gate" >&2
           exit 1
         }
     waitFor: [probe-web-candidate]
 
-  - id: promote
+  - id: write-candidate-evidence
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: bash
     args:
       - -ceu
       - |
         source /workspace/sumai-deploy.env
-        web_final_tag="final-${SHORT_SHA}-$${build_token}"
-        web_final_suffix="${SHORT_SHA}-$${build_token}-fin"
 
-        service_revision_at_100() {
-          gcloud run services describe "$$1" \
-            --project="$PROJECT_ID" --region="${_REGION}" --format=json |
-            python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("percent")==100))'
+        current_agent="$$(gcloud run services describe "${_AGENT_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Agent service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        current_web="$$(gcloud run services describe "${_WEB_SERVICE}" \
+          --project="$PROJECT_ID" --region="${_REGION}" --format=json |
+          python3 -c 'import json,sys; rows=json.load(sys.stdin)["status"]["traffic"]; matches=[row["revisionName"] for row in rows if row.get("percent")==100]; sys.exit("Web service must retain exactly one 100 percent revision") if len(matches)!=1 else print(matches[0])')"
+        test "$$current_agent" = "$$agent_production_before" || {
+          echo "Agent production predecessor changed before evidence" >&2
+          exit 1
         }
-        service_lock() {
-          gcloud run services describe "$$1" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --format='value(metadata.labels.deployment-lock)'
+        test "$$current_web" = "$$web_production_before" || {
+          echo "Web production predecessor changed before evidence" >&2
+          exit 1
         }
-        owns_locks() {
-          test "$$(service_lock "${_AGENT_SERVICE}")" = "${COMMIT_SHA}" &&
-          test "$$(service_lock "${_WEB_SERVICE}")" = "${COMMIT_SHA}"
-        }
-        assert_current_build() {
-          trigger_id="$$(gcloud builds describe "$BUILD_ID" \
-            --project="$PROJECT_ID" --format='value(buildTriggerId)')"
-          test -n "$$trigger_id"
-          latest_build="$$(gcloud builds list \
-            --project="$PROJECT_ID" \
-            --filter="buildTriggerId=$${trigger_id}" \
-            --sort-by=~createTime \
-            --limit=1 \
-            --format='value(id)')"
-          test "$$latest_build" = "$BUILD_ID"
-        }
-        remove_tag() {
-          gcloud run services update-traffic "$$1" \
-            --project="$PROJECT_ID" --region="${_REGION}" \
-            --remove-tags="$$2" >/dev/null 2>&1 || true
-        }
-        cleanup_tags() {
-          remove_tag "${_WEB_SERVICE}" "$$web_tag"
-          remove_tag "${_WEB_SERVICE}" "$$web_final_tag"
-          remove_tag "${_AGENT_SERVICE}" "$$agent_tag"
-          if [[ -n "$$migration_tag" ]]; then
-            remove_tag "${_AGENT_SERVICE}" "$$migration_tag"
-          fi
-        }
-        rollback() {
-          if owns_locks; then
-            gcloud run services update-traffic "${_WEB_SERVICE}" \
-              --project="$PROJECT_ID" --region="${_REGION}" \
-              --to-revisions="$${old_web}=100" || true
-            gcloud run services update-traffic "${_AGENT_SERVICE}" \
-              --project="$PROJECT_ID" --region="${_REGION}" \
-              --to-revisions="$${old_agent}=100" || true
-          else
-            echo "Deployment lock changed; a newer build owns rollback decisions." >&2
-          fi
-          cleanup_tags
-        }
-        trap rollback ERR
 
-        assert_current_build
-        owns_locks
-        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$old_agent"
-        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$old_web"
-
-        gcloud run services update-traffic "${_AGENT_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" \
-          --to-revisions="$${agent_revision}=100"
-
-        stable_agent_url="$$(gcloud run services describe "${_AGENT_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" \
-          --format='value(status.url)')"
-        gcloud run deploy "${_WEB_SERVICE}" \
-          --project="$PROJECT_ID" \
-          --region="${_REGION}" \
-          --image="$${web_ref%:*}@$${web_digest}" \
-          --no-traffic \
-          --tag="$$web_final_tag" \
-          --revision-suffix="$$web_final_suffix" \
-          --memory=1Gi \
-          --cpu=1 \
-          --timeout=120 \
-          --max-instances=20 \
-          --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
-          --update-env-vars="SUMAI_AGENT_URL=$${stable_agent_url},SUMAI_WEB_PORT=8080,MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,LOG_LEVEL=INFO"
-
-        final_json="$$(gcloud run services describe "${_WEB_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" --format=json)"
-        web_final_revision="$$(printf '%s' "$$final_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["revisionName"] for row in rows if row.get("tag")==tag))' "$$web_final_tag")"
-        web_final_url="$$(printf '%s' "$$final_json" |
-          python3 -c 'import json,sys; tag=sys.argv[1]; rows=json.load(sys.stdin)["status"]["traffic"]; print(next(row["url"] for row in rows if row.get("tag")==tag))' "$$web_final_tag")"
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_final_url/" >/dev/null
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$web_final_url/ready" >/dev/null
-
-        assert_current_build
-        owns_locks
-        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$agent_revision"
-        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$old_web"
-        gcloud run services update-traffic "${_WEB_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" \
-          --to-revisions="$${web_final_revision}=100"
-
-        python3 - "$$stable_agent_url" <<'PY'
+        python3 - <<'PY'
         import json
-        import sys
-        from urllib.request import urlopen
+        import os
+        import shlex
+        from pathlib import Path
 
-        status = json.load(urlopen(sys.argv[1] + "/status", timeout=30))
-        assert status["mock_mode"] is False, status
-        assert status["require_real_gemini"] is True, status
-        assert status["has_gemini_api_key"] is True, status
-        assert status["mock_allowed"] is False, status
+        values = {}
+        for line in Path("/workspace/sumai-deploy.env").read_text(
+            encoding="utf-8"
+        ).splitlines():
+            key, separator, raw_value = line.partition("=")
+            if not separator or not key or key in values:
+                raise SystemExit("Candidate metadata source is invalid")
+            parsed = shlex.split(raw_value)
+            if len(parsed) != 1:
+                raise SystemExit("Candidate metadata value is invalid")
+            values[key] = parsed[0]
+
+        required = {
+            "agent_digest",
+            "agent_revision",
+            "agent_url",
+            "agent_service_account",
+            "agent_resource_version_before",
+            "agent_resource_version_after",
+            "agent_production_before",
+            "web_digest",
+            "web_revision",
+            "web_url",
+            "web_service_account",
+            "web_resource_version_before",
+            "web_resource_version_after",
+            "web_production_before",
+        }
+        if any(not values.get(key) for key in required):
+            raise SystemExit("Candidate metadata source is incomplete")
+
+        evidence = {
+            "schema_version": 1,
+            "source_commit": os.environ["COMMIT_SHA"],
+            "build_id": os.environ["BUILD_ID"],
+            "project_id": os.environ["PROJECT_ID"],
+            "region": os.environ["REGION"],
+            "agent_digest": values["agent_digest"],
+            "agent_revision": values["agent_revision"],
+            "agent_url": values["agent_url"],
+            "agent_service_account": values["agent_service_account"],
+            "agent_resource_version_before": values["agent_resource_version_before"],
+            "agent_resource_version_after": values["agent_resource_version_after"],
+            "agent_production_before": values["agent_production_before"],
+            "web_digest": values["web_digest"],
+            "web_revision": values["web_revision"],
+            "web_url": values["web_url"],
+            "web_service_account": values["web_service_account"],
+            "web_resource_version_before": values["web_resource_version_before"],
+            "web_resource_version_after": values["web_resource_version_after"],
+            "web_production_before": values["web_production_before"],
+            "production_traffic_changed": False,
+        }
+        Path("/workspace/candidate-evidence.json").write_text(json.dumps(evidence, sort_keys=True) + "\n", encoding="utf-8")
         PY
-        stable_web_url="$$(gcloud run services describe "${_WEB_SERVICE}" \
-          --project="$PROJECT_ID" --region="${_REGION}" \
-          --format='value(status.url)')"
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$stable_web_url/" >/dev/null
-        curl -fsS --retry 8 --retry-all-errors --retry-delay 5 \
-          "$$stable_web_url/ready" >/dev/null
-
-        cleanup_tags
-        test "$$(service_revision_at_100 "${_AGENT_SERVICE}")" = "$$agent_revision"
-        test "$$(service_revision_at_100 "${_WEB_SERVICE}")" = "$$web_final_revision"
-        trap - ERR
+        gcloud storage cp /workspace/candidate-evidence.json "gs://$PROJECT_ID-sumai-release-evidence/candidates/$COMMIT_SHA/$BUILD_ID.json"
     waitFor: [gate-web-candidate]
+    env:
+      - PROJECT_ID=$PROJECT_ID
+      - COMMIT_SHA=$COMMIT_SHA
+      - BUILD_ID=$BUILD_ID
+      - REGION=${_REGION}
 
 substitutions:
   _REGION: asia-northeast1
   _AR_REPO: apps
   _AGENT_SERVICE: sumai-agent
   _WEB_SERVICE: sumai-web
+  _FIREBASE_APP_ID: ''
+  _AGENT_SERVICE_ACCOUNT: ''
+  _WEB_SERVICE_ACCOUNT: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
