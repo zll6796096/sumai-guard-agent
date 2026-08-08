@@ -79,12 +79,51 @@ final class APIClientTests: XCTestCase {
         StubURLProtocol.state.respond(status: 200, contentType: "application/json; charset=utf-8", body: try fixture("analysis-applicable"))
         let client = try makeClient(token: secret)
 
-        _ = try await client.analyze(image: testImage, roomHint: "auto")
+        _ = try await analyze(using: client, image: testImage)
 
         let request = try XCTUnwrap(StubURLProtocol.state.requests.first)
         XCTAssertEqual(request.headers["X-Firebase-AppCheck"], secret)
         XCTAssertFalse(request.url.contains(secret))
         XCTAssertFalse(String(decoding: request.body, as: UTF8.self).contains(secret))
+    }
+
+    func testPreflightStartsNoHTTPRequestAndAuthorizedUploadIsOneShot() async throws {
+        StubURLProtocol.state.respond(
+            status: 200,
+            contentType: "application/json",
+            body: try fixture("analysis-applicable")
+        )
+        let client = try makeClient(token: "one-shot-token")
+
+        let authorized = try await client.prepareAnalysis()
+
+        XCTAssertEqual(StubURLProtocol.state.requests.count, 0)
+        _ = try await authorized.analyze(image: testImage, roomHint: "auto")
+        XCTAssertEqual(StubURLProtocol.state.requests.count, 1)
+
+        do {
+            _ = try await authorized.analyze(image: testImage, roomHint: "auto")
+            XCTFail("An authorization must not upload twice")
+        } catch {
+            XCTAssertEqual(error as? APIError, .appCheckInvalid)
+            XCTAssertEqual(StubURLProtocol.state.requests.count, 1)
+        }
+    }
+
+    func testExpiredAuthorizationFailsClosedBeforeHTTPRequest() async throws {
+        let client = try makeClient(
+            token: "expired-token",
+            authorizationLifetime: .zero
+        )
+        let authorized = try await client.prepareAnalysis()
+
+        do {
+            _ = try await authorized.analyze(image: testImage, roomHint: "auto")
+            XCTFail("An expired authorization must not upload")
+        } catch {
+            XCTAssertEqual(error as? APIError, .appCheckInvalid)
+            XCTAssertEqual(StubURLProtocol.state.requests.count, 0)
+        }
     }
 
     func testMultipartContainsOneJPEGAndFixedAutoRoomHint() async throws {
@@ -98,7 +137,11 @@ final class APIClientTests: XCTestCase {
             filename: "bad.jpg\"\r\nX-Evil: yes"
         )
 
-        _ = try await client.analyze(image: hostileImage, roomHint: "x\r\nX-Evil: yes")
+        _ = try await analyze(
+            using: client,
+            image: hostileImage,
+            roomHint: "x\r\nX-Evil: yes"
+        )
 
         let request = try XCTUnwrap(StubURLProtocol.state.requests.first)
         XCTAssertEqual(request.method, "POST")
@@ -123,7 +166,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(token: "token")
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await analyze(using: client, image: testImage)
             XCTFail("A non-2xx response must fail")
         } catch {
             XCTAssertEqual(error as? APIError, .appCheckInvalid)
@@ -137,7 +180,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(token: "token")
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await analyze(using: client, image: testImage)
             XCTFail("A mismatched status and stable code must fail")
         } catch {
             XCTAssertEqual(error as? APIError, .invalidResponse)
@@ -185,7 +228,7 @@ final class APIClientTests: XCTestCase {
             let client = try makeClient(token: "token")
 
             do {
-                _ = try await client.analyze(image: testImage, roomHint: "auto")
+                _ = try await analyze(using: client, image: testImage)
                 XCTFail("Malformed or non-JSON responses must fail closed")
             } catch {
                 XCTAssertEqual(error as? APIError, .invalidResponse)
@@ -206,7 +249,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(token: "token", maximumResponseBytes: 64)
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await analyze(using: client, image: testImage)
             XCTFail("Oversized responses must fail closed")
         } catch {
             XCTAssertEqual(error as? APIError, .invalidResponse)
@@ -229,7 +272,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(token: "token", maximumResponseBytes: 64)
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await analyze(using: client, image: testImage)
             XCTFail("An oversized declared response must fail before consuming body bytes")
         } catch {
             XCTAssertEqual(error as? APIError, .invalidResponse)
@@ -255,7 +298,7 @@ final class APIClientTests: XCTestCase {
         )
         let client = try makeClient(token: "token", maximumResponseBytes: body.count)
 
-        let response = try await client.analyze(image: testImage, roomHint: "auto")
+        let response = try await analyze(using: client, image: testImage)
 
         XCTAssertFalse(response.analysisID.isEmpty)
         XCTAssertEqual(StubURLProtocol.state.emittedChunkCount, 3)
@@ -265,7 +308,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(token: "token\r\nX-Evil: yes")
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await client.prepareAnalysis()
             XCTFail("Header injection must fail")
         } catch {
             XCTAssertEqual(error as? APIError, .appCheckInvalid)
@@ -277,7 +320,7 @@ final class APIClientTests: XCTestCase {
         let client = try makeClient(tokenProvider: FailingTokenProvider())
 
         do {
-            _ = try await client.analyze(image: testImage, roomHint: "auto")
+            _ = try await client.prepareAnalysis()
             XCTFail("Token failure must fail closed")
         } catch {
             XCTAssertEqual(error as? APIError, .appCheckInvalid)
@@ -289,8 +332,9 @@ final class APIClientTests: XCTestCase {
     func testCancellationCancelsURLTaskAndPropagatesCancellationError() async throws {
         StubURLProtocol.state.hang()
         let client = try makeClient(token: "token")
+        let authorized = try await client.prepareAnalysis()
         let image = testImage
-        let task = Task { try await client.analyze(image: image, roomHint: "auto") }
+        let task = Task { try await authorized.analyze(image: image, roomHint: "auto") }
         try await waitForRequestCount(1)
 
         task.cancel()
@@ -299,8 +343,42 @@ final class APIClientTests: XCTestCase {
             _ = try await task.value
             XCTFail("A cancelled upload must not return")
         } catch is CancellationError {
+            await StubURLProtocol.state.waitForStop()
             XCTAssertTrue(StubURLProtocol.state.didStop)
             XCTAssertEqual(StubURLProtocol.state.requests.count, 1)
+        } catch {
+            XCTFail("Expected CancellationError, received \(type(of: error))")
+        }
+    }
+
+    func testCancelledRealURLLoadReleasesSanitizedBackingBytes() async throws {
+        StubURLProtocol.state.hang()
+        let client = try makeClient(token: "token")
+        let authorized = try await client.prepareAnalysis()
+        let probe = APIDataDeallocationProbe()
+        let task = Task {
+            let image = SanitizedImage(
+                data: probe.makeTrackedData(),
+                pixelWidth: 1,
+                pixelHeight: 1,
+                mimeType: "image/jpeg",
+                filename: "sumaiguard-upload.jpg"
+            )
+            return try await authorized.analyze(image: image, roomHint: "auto")
+        }
+        try await waitForRequestCount(1)
+
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            XCTFail("A cancelled upload must not return")
+        } catch is CancellationError {
+            await probe.waitForDeallocation()
+            await StubURLProtocol.state.waitForStop()
+            let isDeallocated = await probe.isDeallocated
+            XCTAssertTrue(isDeallocated)
+            XCTAssertTrue(StubURLProtocol.state.didStop)
         } catch {
             XCTFail("Expected CancellationError, received \(type(of: error))")
         }
@@ -323,19 +401,38 @@ private extension APIClientTests {
         return try Data(contentsOf: url)
     }
 
-    func makeClient(token: String, maximumResponseBytes: Int = 10 * 1_024 * 1_024) throws -> APIClient {
-        try makeClient(tokenProvider: FixedTokenProvider(value: token), maximumResponseBytes: maximumResponseBytes)
+    func analyze(
+        using client: APIClient,
+        image: SanitizedImage,
+        roomHint: String = "auto"
+    ) async throws -> AnalysisResponse {
+        let authorized = try await client.prepareAnalysis()
+        return try await authorized.analyze(image: image, roomHint: roomHint)
+    }
+
+    func makeClient(
+        token: String,
+        maximumResponseBytes: Int = 10 * 1_024 * 1_024,
+        authorizationLifetime: Duration = .seconds(120)
+    ) throws -> APIClient {
+        try makeClient(
+            tokenProvider: FixedTokenProvider(value: token),
+            maximumResponseBytes: maximumResponseBytes,
+            authorizationLifetime: authorizationLifetime
+        )
     }
 
     func makeClient(
         tokenProvider: any AppCheckTokenProviding,
-        maximumResponseBytes: Int = 10 * 1_024 * 1_024
+        maximumResponseBytes: Int = 10 * 1_024 * 1_024,
+        authorizationLifetime: Duration = .seconds(120)
     ) throws -> APIClient {
         return APIClient(
             origin: try APIOrigin("https://api.example.com"),
             tokenProvider: tokenProvider,
             protocolClasses: [StubURLProtocol.self],
-            maximumResponseBytes: maximumResponseBytes
+            maximumResponseBytes: maximumResponseBytes,
+            authorizationLifetime: authorizationLifetime
         )
     }
 
@@ -365,6 +462,37 @@ private struct FailingTokenProvider: AppCheckTokenProviding {
     }
 }
 
+private actor APIDataDeallocationProbe {
+    private(set) var isDeallocated = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    nonisolated func makeTrackedData() -> Data {
+        let count = 1_024
+        let bytes = UnsafeMutableRawPointer.allocate(
+            byteCount: count,
+            alignment: MemoryLayout<UInt8>.alignment
+        )
+        bytes.initializeMemory(as: UInt8.self, repeating: 0xA5, count: count)
+        return Data(bytesNoCopy: bytes, count: count, deallocator: .custom { pointer, _ in
+            pointer.deallocate()
+            Task { await self.markDeallocated() }
+        })
+    }
+
+    func waitForDeallocation() async {
+        guard !isDeallocated else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func markDeallocated() {
+        isDeallocated = true
+        waiters.forEach { $0.resume() }
+        waiters.removeAll()
+    }
+}
+
 private final class StubURLProtocolState: @unchecked Sendable {
     struct RecordedRequest: Sendable {
         let url: String
@@ -384,6 +512,7 @@ private final class StubURLProtocolState: @unchecked Sendable {
     private var recordedRequests: [RecordedRequest] = []
     private var stopped = false
     private var chunkCount = 0
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
 
     var requests: [RecordedRequest] {
         lock.withLock { recordedRequests }
@@ -451,7 +580,27 @@ private final class StubURLProtocolState: @unchecked Sendable {
     }
 
     func stop() {
-        lock.withLock { stopped = true }
+        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            stopped = true
+            defer { stopWaiters.removeAll() }
+            return stopWaiters
+        }
+        waiters.forEach { $0.resume() }
+    }
+
+    func waitForStop() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately = lock.withLock { () -> Bool in
+                guard !stopped else {
+                    return true
+                }
+                stopWaiters.append(continuation)
+                return false
+            }
+            if resumeImmediately {
+                continuation.resume()
+            }
+        }
     }
 
     private static func readBody(from request: URLRequest) -> Data {

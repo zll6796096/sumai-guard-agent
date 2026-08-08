@@ -5,6 +5,10 @@ protocol AppCheckTokenProviding: Sendable {
 }
 
 protocol Analyzing: Sendable {
+    func prepareAnalysis() async throws -> any AuthorizedAnalyzing
+}
+
+protocol AuthorizedAnalyzing: Sendable {
     func analyze(image: SanitizedImage, roomHint: String) async throws -> AnalysisResponse
 }
 
@@ -119,18 +123,22 @@ final class APIClient: Analyzing, @unchecked Sendable {
     private let tokenProvider: any AppCheckTokenProviding
     private let protocolClasses: [AnyClass]?
     private let maximumResponseBytes: Int
+    private let authorizationLifetime: Duration
 
     init(
         origin: APIOrigin,
         tokenProvider: any AppCheckTokenProviding,
         protocolClasses: [AnyClass]? = nil,
-        maximumResponseBytes: Int = APIClient.defaultMaximumResponseBytes
+        maximumResponseBytes: Int = APIClient.defaultMaximumResponseBytes,
+        authorizationLifetime: Duration = .seconds(120)
     ) {
         precondition(maximumResponseBytes > 0)
+        precondition(authorizationLifetime >= .zero)
         self.origin = origin
         self.tokenProvider = tokenProvider
         self.protocolClasses = protocolClasses
         self.maximumResponseBytes = maximumResponseBytes
+        self.authorizationLifetime = authorizationLifetime
     }
 
     static func makeSessionConfiguration(
@@ -149,10 +157,13 @@ final class APIClient: Analyzing, @unchecked Sendable {
         return configuration
     }
 
-    func analyze(image: SanitizedImage, roomHint _: String) async throws -> AnalysisResponse {
+    func prepareAnalysis() async throws -> any AuthorizedAnalyzing {
         try Task.checkCancellation()
 
         var appCheckToken: String?
+        defer {
+            appCheckToken = nil
+        }
         do {
             appCheckToken = try await tokenProvider.token()
         } catch is CancellationError {
@@ -162,9 +173,27 @@ final class APIClient: Analyzing, @unchecked Sendable {
         }
         try Task.checkCancellation()
 
-        guard appCheckToken.map(Self.isValidHeaderValue) == true else {
+        guard let appCheckToken, Self.isValidHeaderValue(appCheckToken) else {
             throw APIError.appCheckInvalid
         }
+
+        return AuthorizedRequest(
+            token: appCheckToken,
+            expiresAt: ContinuousClock.now.advanced(by: authorizationLifetime),
+            origin: origin,
+            protocolClasses: protocolClasses,
+            maximumResponseBytes: maximumResponseBytes
+        )
+    }
+
+    fileprivate static func performAuthorizedAnalysis(
+        image: SanitizedImage,
+        appCheckToken: String,
+        origin: APIOrigin,
+        protocolClasses: [AnyClass]?,
+        maximumResponseBytes: Int
+    ) async throws -> AnalysisResponse {
+        try Task.checkCancellation()
 
         let boundary = "SumaiGuard-\(UUID().uuidString)"
         var multipartBody: Data? = Self.multipartBody(
@@ -182,7 +211,6 @@ final class APIClient: Analyzing, @unchecked Sendable {
         request.setValue(appCheckToken, forHTTPHeaderField: "X-Firebase-AppCheck")
 
         defer {
-            appCheckToken = nil
             multipartBody = nil
             request.httpBody = nil
         }
@@ -253,6 +281,57 @@ final class APIClient: Analyzing, @unchecked Sendable {
         body.appendUTF8("auto\r\n")
         body.appendUTF8("--\(boundary)--\r\n")
         return body
+    }
+}
+
+private final class AuthorizedRequest: AuthorizedAnalyzing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var token: String?
+    private let expiresAt: ContinuousClock.Instant
+    private let origin: APIOrigin
+    private let protocolClasses: [AnyClass]?
+    private let maximumResponseBytes: Int
+
+    init(
+        token: String,
+        expiresAt: ContinuousClock.Instant,
+        origin: APIOrigin,
+        protocolClasses: [AnyClass]?,
+        maximumResponseBytes: Int
+    ) {
+        self.token = token
+        self.expiresAt = expiresAt
+        self.origin = origin
+        self.protocolClasses = protocolClasses
+        self.maximumResponseBytes = maximumResponseBytes
+    }
+
+    func analyze(image: SanitizedImage, roomHint _: String) async throws -> AnalysisResponse {
+        var claimedToken: String? = try claimToken()
+        defer {
+            claimedToken = nil
+        }
+        guard let claimedToken else {
+            throw APIError.appCheckInvalid
+        }
+        return try await APIClient.performAuthorizedAnalysis(
+            image: image,
+            appCheckToken: claimedToken,
+            origin: origin,
+            protocolClasses: protocolClasses,
+            maximumResponseBytes: maximumResponseBytes
+        )
+    }
+
+    private func claimToken() throws -> String {
+        try lock.withLock {
+            guard let token, ContinuousClock.now < expiresAt else {
+                self.token = nil
+                throw APIError.appCheckInvalid
+            }
+            self.token = nil
+            return token
+        }
     }
 }
 

@@ -16,6 +16,8 @@
 		6E19AF90E0D2C11115027C7E /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */; };
 		878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */; };
 		89E4B8E36B4A025DAB860056 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD4B13B23263B5B5715EEA52 /* FirebaseCore */; };
+		8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */; };
+		908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */; };
 		A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574F946E01B468839D87F543 /* AnalysisResponseTests.swift */; };
 		D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */; };
 		EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */; };
@@ -38,12 +40,14 @@
 /* Begin PBXFileReference section */
 		0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCheckBootstrapTests.swift; sourceTree = "<group>"; };
 		3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponse.swift; sourceTree = "<group>"; };
+		412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinatorTests.swift; sourceTree = "<group>"; };
 		53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
 		574F946E01B468839D87F543 /* AnalysisResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponseTests.swift; sourceTree = "<group>"; };
 		6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizerTests.swift; sourceTree = "<group>"; };
 		700B53EC57194F309C61E141 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		767CE7297C052E8BC830882F /* ImageSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizer.swift; sourceTree = "<group>"; };
 		81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SumaiGuard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinator.swift; sourceTree = "<group>"; };
 		92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SumaiGuardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SumaiGuardApp.swift; sourceTree = "<group>"; };
@@ -85,6 +89,7 @@
 				E81C528F8B9DFC2ED0B6B611 /* App */,
 				E6EB9EA057A43B578B634FD6 /* Models */,
 				9ECFCECD3A108362C3C37009 /* Services */,
+				4317E3EE1480E644EA390AF2 /* ViewModels */,
 			);
 			path = SumaiGuard;
 			sourceTree = "<group>";
@@ -97,6 +102,14 @@
 				BAE245C590CFDEABE7241EEF /* SumaiGuardTests */,
 				F3F2CA10E8324869AC5E53A2 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		4317E3EE1480E644EA390AF2 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */,
+			);
+			path = ViewModels;
 			sourceTree = "<group>";
 		};
 		9ECFCECD3A108362C3C37009 /* Services */ = {
@@ -125,6 +138,7 @@
 				574F946E01B468839D87F543 /* AnalysisResponseTests.swift */,
 				53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */,
 				0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */,
+				412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */,
 				6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */,
 				B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */,
 				1C61DE370ECB24BA31E1185A /* Fixtures */,
@@ -258,6 +272,7 @@
 				6E19AF90E0D2C11115027C7E /* APIClientTests.swift in Sources */,
 				A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */,
 				878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */,
+				8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */,
 				EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */,
 				F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */,
 			);
@@ -271,6 +286,7 @@
 				3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */,
 				FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */,
 				55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */,
+				908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */,
 				2C53C8455C533FC103101D35 /* ImageSanitizer.swift in Sources */,
 				D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */,
 			);
