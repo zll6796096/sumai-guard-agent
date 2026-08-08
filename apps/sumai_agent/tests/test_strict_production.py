@@ -218,8 +218,10 @@ def test_strict_mode_without_api_key() -> None:
         )
         assert response.status_code == 503
         data = response.json()
-        assert data["error"] == "gemini_unavailable"
-        assert "unavailable" in data["message"]
+        assert data == {
+            "error": "GEMINI_UNAVAILABLE",
+            "message": "現在解析を利用できません。時間をおいてお試しください。",
+        }
 
 
 @patch("app.services.gemini_vision.GeminiVisionService._call_gemini")
@@ -253,8 +255,8 @@ def test_strict_mode_parse_failure_returns_503_without_detail_leakage(
 
     assert response.status_code == 503
     assert response.json() == {
-        "error": "gemini_unavailable",
-        "message": "Real Gemini analysis is required but unavailable.",
+        "error": "GEMINI_UNAVAILABLE",
+        "message": "現在解析を利用できません。時間をおいてお試しください。",
     }
     assert SENTINEL not in response.text
     assert str(HUGE_INTEGER) not in response.text
