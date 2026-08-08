@@ -8,9 +8,15 @@
 
 /* Begin PBXBuildFile section */
 		028FF3694117DB082BC36AFC /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = A30FA7C11DA666D3A9468E21 /* FirebaseAppCheck */; };
+		19DC95AFC7D36E413FF19415 /* error-app-check.json in Resources */ = {isa = PBXBuildFile; fileRef = F8827A386EDEC248B85AC3CD /* error-app-check.json */; };
+		3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700B53EC57194F309C61E141 /* APIError.swift */; };
 		89E4B8E36B4A025DAB860056 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD4B13B23263B5B5715EEA52 /* FirebaseCore */; };
+		A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574F946E01B468839D87F543 /* AnalysisResponseTests.swift */; };
 		D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */; };
+		F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */; };
 		F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */; };
+		F99B7B5458AECF44D5182AD9 /* analysis-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E729575DEE08118605FF942E /* analysis-applicable.json */; };
+		FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,12 +30,18 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponse.swift; sourceTree = "<group>"; };
+		574F946E01B468839D87F543 /* AnalysisResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponseTests.swift; sourceTree = "<group>"; };
+		700B53EC57194F309C61E141 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SumaiGuard.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SumaiGuardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SumaiGuardApp.swift; sourceTree = "<group>"; };
 		B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContractTests.swift; sourceTree = "<group>"; };
 		CF15A45E467EFB128F3BF93E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		E729575DEE08118605FF942E /* analysis-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-applicable.json"; sourceTree = "<group>"; };
+		E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-not-applicable.json"; sourceTree = "<group>"; };
+		F8827A386EDEC248B85AC3CD /* error-app-check.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-app-check.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,10 +57,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1C61DE370ECB24BA31E1185A /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				E729575DEE08118605FF942E /* analysis-applicable.json */,
+				E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */,
+				F8827A386EDEC248B85AC3CD /* error-app-check.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
 		32D2BF15B673A5EE9F964BB4 /* SumaiGuard */ = {
 			isa = PBXGroup;
 			children = (
 				E81C528F8B9DFC2ED0B6B611 /* App */,
+				E6EB9EA057A43B578B634FD6 /* Models */,
 			);
 			path = SumaiGuard;
 			sourceTree = "<group>";
@@ -76,9 +99,20 @@
 		BAE245C590CFDEABE7241EEF /* SumaiGuardTests */ = {
 			isa = PBXGroup;
 			children = (
+				574F946E01B468839D87F543 /* AnalysisResponseTests.swift */,
 				B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */,
+				1C61DE370ECB24BA31E1185A /* Fixtures */,
 			);
 			path = SumaiGuardTests;
+			sourceTree = "<group>";
+		};
+		E6EB9EA057A43B578B634FD6 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */,
+				700B53EC57194F309C61E141 /* APIError.swift */,
+			);
+			path = Models;
 			sourceTree = "<group>";
 		};
 		E81C528F8B9DFC2ED0B6B611 /* App */ = {
@@ -126,6 +160,7 @@
 			buildConfigurationList = 94CCC071B61100BA64E64867 /* Build configuration list for PBXNativeTarget "SumaiGuardTests" */;
 			buildPhases = (
 				1E619CA10907FBC5C4BDDEF3 /* Sources */,
+				230AE1720CFCD7F69DDE1FD0 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -176,11 +211,25 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		230AE1720CFCD7F69DDE1FD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F99B7B5458AECF44D5182AD9 /* analysis-applicable.json in Resources */,
+				F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */,
+				19DC95AFC7D36E413FF19415 /* error-app-check.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		1E619CA10907FBC5C4BDDEF3 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */,
 				F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -189,6 +238,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */,
+				FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */,
 				D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
