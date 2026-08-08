@@ -1,114 +1,69 @@
-name: Deploy to Cloud Run
+name: Submit Cloud Run candidates
 
 on:
   workflow_dispatch:
-    inputs:
-      deploy_agent:
-        description: "Deploy sumai-agent"
-        required: true
-        default: "true"
-        type: boolean
-      deploy_web:
-        description: "Deploy sumai-web"
-        required: true
-        default: "true"
-        type: boolean
 
-# Required GitHub Secrets:
-#   GCP_PROJECT_ID       - Google Cloud project ID
-#   GCP_SA_KEY           - Service account JSON key (or use Workload Identity)
-#   GEMINI_API_KEY       - (Optional) Gemini API key for real analysis
-#
-# Alternative to GCP_SA_KEY: Workload Identity Federation
-#   GCP_WORKLOAD_IDENTITY_PROVIDER - Workload Identity Provider
-#   GCP_SERVICE_ACCOUNT            - Service Account email
+permissions:
+  contents: read
+  id-token: write
 
-env:
-  REGION: asia-northeast1
-  GEMINI_MODEL: gemini-2.5-flash
+concurrency:
+  group: sumai-cloudrun-candidate-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  candidate:
+    name: Candidate-only paired Cloud Build
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+    env:
+      GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+      SUMAI_FIREBASE_APP_ID: ${{ vars.SUMAI_FIREBASE_APP_ID }}
+      SUMAI_AGENT_SERVICE_ACCOUNT: ${{ vars.SUMAI_AGENT_SERVICE_ACCOUNT }}
+      SUMAI_WEB_SERVICE_ACCOUNT: ${{ vars.SUMAI_WEB_SERVICE_ACCOUNT }}
+      SUMAI_REGION: ${{ vars.SUMAI_REGION || 'asia-northeast1' }}
+      SUMAI_AR_REPO: ${{ vars.SUMAI_AR_REPO || 'apps' }}
+      SUMAI_AGENT_SERVICE: ${{ vars.SUMAI_AGENT_SERVICE || 'sumai-agent' }}
+      SUMAI_WEB_SERVICE: ${{ vars.SUMAI_WEB_SERVICE || 'sumai-web' }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check required repository configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$GOOGLE_CLOUD_PROJECT" ]] || { echo "GOOGLE_CLOUD_PROJECT is required" >&2; exit 1; }
+          [[ -n "$SUMAI_FIREBASE_APP_ID" ]] || { echo "SUMAI_FIREBASE_APP_ID is required" >&2; exit 1; }
+          [[ -n "$SUMAI_AGENT_SERVICE_ACCOUNT" ]] || { echo "SUMAI_AGENT_SERVICE_ACCOUNT is required" >&2; exit 1; }
+          [[ -n "$SUMAI_WEB_SERVICE_ACCOUNT" ]] || { echo "SUMAI_WEB_SERVICE_ACCOUNT is required" >&2; exit 1; }
+          [[ -n "$GCP_WORKLOAD_IDENTITY_PROVIDER" ]] || { echo "GCP_WORKLOAD_IDENTITY_PROVIDER is required" >&2; exit 1; }
+          [[ -n "$GCP_DEPLOY_SERVICE_ACCOUNT" ]] || { echo "GCP_DEPLOY_SERVICE_ACCOUNT is required" >&2; exit 1; }
 
-      # Option 1: Service Account Key authentication
-      - name: Authenticate to Google Cloud (SA Key)
-        if: ${{ secrets.GCP_SA_KEY != '' }}
-        uses: google-github-actions/auth@v2
+      - name: Check out exact main revision
+        uses: actions/checkout@v7
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          ref: main
+          fetch-depth: 0
 
-      # Option 2: Workload Identity Federation
-      - name: Authenticate to Google Cloud (Workload Identity)
-        if: ${{ secrets.GCP_SA_KEY == '' && secrets.GCP_WORKLOAD_IDENTITY_PROVIDER != '' }}
-        uses: google-github-actions/auth@v2
+      - name: Verify workflow revision is main HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF" == "refs/heads/main" ]] || { echo "Dispatch must target main" >&2; exit 1; }
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]] || { echo "Workflow SHA is not main HEAD" >&2; exit 1; }
+
+      - name: Authenticate with Workload Identity Federation
+        uses: google-github-actions/auth@v3
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          version: ">= 363.0.0"
 
-      - name: Deploy sumai-agent
-        if: ${{ inputs.deploy_agent }}
-        run: |
-          ENV_VARS="MOCK_MODE=false,GEMINI_MODEL=${{ env.GEMINI_MODEL }},LOG_LEVEL=INFO"
-          if [ -n "${{ secrets.GEMINI_API_KEY }}" ]; then
-            ENV_VARS="${ENV_VARS},GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}"
-          fi
-
-          gcloud run deploy sumai-agent \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --source apps/sumai_agent \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --set-env-vars "$ENV_VARS" \
-            --memory 1Gi \
-            --cpu 1 \
-            --timeout 120
-
-      - name: Get agent URL
-        id: agent-url
-        run: |
-          AGENT_URL=$(gcloud run services describe sumai-agent \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --region ${{ env.REGION }} \
-            --format='value(status.url)')
-          echo "url=$AGENT_URL" >> $GITHUB_OUTPUT
-          echo "Agent URL: $AGENT_URL"
-
-      - name: Deploy sumai-web
-        if: ${{ inputs.deploy_web }}
-        run: |
-          gcloud run deploy sumai-web \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --source apps/sumai_web \
-            --region ${{ env.REGION }} \
-            --allow-unauthenticated \
-            --set-env-vars "SUMAI_AGENT_URL=${{ steps.agent-url.outputs.url }},SUMAI_WEB_PORT=8080,MOCK_MODE=false,LOG_LEVEL=INFO" \
-            --memory 1Gi \
-            --cpu 1 \
-            --timeout 120
-
-      - name: Print deployment URLs
-        run: |
-          echo "========================================="
-          echo "  Deployment Complete"
-          echo "========================================="
-          echo "Agent: ${{ steps.agent-url.outputs.url }}"
-          WEB_URL=$(gcloud run services describe sumai-web \
-            --project ${{ secrets.GCP_PROJECT_ID }} \
-            --region ${{ env.REGION }} \
-            --format='value(status.url)' 2>/dev/null || echo "Not deployed")
-          echo "Web:   $WEB_URL"
-          echo "========================================="
-
-      - name: Health check
-        run: |
-          curl -s --max-time 10 "${{ steps.agent-url.outputs.url }}/healthz" || echo "Health check failed"
+      - name: Submit cloudbuild.yaml candidate-only paired build
+        shell: bash
+        run: ./scripts/deploy_all_cloudrun.sh
