@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from http import HTTPStatus
 import json
 import logging
 import math
@@ -8,7 +9,7 @@ import time
 from typing import Any, Callable, NoReturn
 
 from app.config import settings
-from app.errors import GeminiUnavailableError
+from app.errors import GeminiUnavailableError, ServiceLimitedError
 from app.models import (
     BoundingBox,
     RiskFinding,
@@ -30,6 +31,11 @@ class TargetedFollowupError(ValueError):
     def __init__(self, reason: str) -> None:
         super().__init__("Targeted follow-up analysis failed.")
         self.reason = reason
+
+
+class _TargetedFollowupLimitedError(Exception):
+    """Payload-free internal marker for a limit during the targeted second call."""
+
 
 ONTOLOGY = OntologyRepository.load_default()
 VALID_ROOMS: set[str] = {*ONTOLOGY.room_names, "auto"}
@@ -463,6 +469,54 @@ def _gemini_failure_reason(exc: Exception) -> str:
     return "provider_error"
 
 
+def _safe_metadata_field(value: object, attribute: str) -> object | None:
+    try:
+        return getattr(value, attribute, None)
+    except BaseException:
+        # Provider-controlled properties must not escape the error classifier.
+        return None
+
+
+def _strict_gemini_failure_reason(exc: Exception) -> str:
+    exc_type = type(exc)
+    if exc_type is TargetedFollowupError:
+        reason = _safe_metadata_field(exc, "reason")
+        if type(reason) is str and reason in {
+            "gemini_timeout",
+            "invalid_response",
+            "provider_error",
+        }:
+            return f"followup_{reason}"
+        return "followup_provider_error"
+    if exc_type is TimeoutError:
+        return "gemini_timeout"
+    if exc_type is ValueError:
+        return "invalid_response"
+    return "provider_error"
+
+
+def _is_quota_code(value: object) -> bool:
+    value_type = type(value)
+    if value_type is int:
+        return int.__eq__(value, 429) is True
+    if value_type is HTTPStatus:
+        return value is HTTPStatus.TOO_MANY_REQUESTS
+    if value_type is str:
+        return value.strip() == "429"
+    return False
+
+
+def _is_provider_limited(exc: Exception) -> bool:
+    for attribute in ("status_code", "code"):
+        if _is_quota_code(_safe_metadata_field(exc, attribute)):
+            return True
+
+    response = _safe_metadata_field(exc, "response")
+    return response is not None and _is_quota_code(
+        _safe_metadata_field(response, "status_code")
+    )
+
+
 class GeminiVisionService:
     def __init__(self, client_factory: Callable[[], Any] | None = None) -> None:
         self._client_factory = client_factory
@@ -547,6 +601,7 @@ class GeminiVisionService:
             },
         )
         start_time = time.monotonic()
+        provider_limited = False
         try:
             async with asyncio.timeout(settings.analysis_timeout):
                 result = await self._call_gemini(image_png, room_hint)
@@ -566,16 +621,33 @@ class GeminiVisionService:
             return result, "gemini"
         except Exception as exc:
             latency_ms = int((time.monotonic() - start_time) * 1000)
-            fallback_reason = _gemini_failure_reason(exc)
+            exc_type = type(exc)
+            provider_limited = (
+                exc_type is ServiceLimitedError
+                or exc_type is _TargetedFollowupLimitedError
+                or _is_provider_limited(exc)
+            )
+            fallback_reason = (
+                "service_limited"
+                if provider_limited
+                else _strict_gemini_failure_reason(exc)
+            )
+            safe_error_code = (
+                "SERVICE_LIMITED" if provider_limited else "GEMINI_UNAVAILABLE"
+            )
             logger.error(
                 "vision_failed_strict",
                 extra={
                     "analysis_id": analysis_id,
                     "fallback_reason": fallback_reason,
                     "latency_ms": latency_ms,
+                    "safe_error_code": safe_error_code,
                 },
             )
-            raise GeminiUnavailableError("Real Gemini analysis failed.") from None
+
+        if provider_limited:
+            raise ServiceLimitedError
+        raise GeminiUnavailableError
 
     async def _analyze_with_gemini(
         self,
@@ -614,9 +686,13 @@ class GeminiVisionService:
             )
             return result, "gemini"
 
-        except TargetedFollowupError as exc:
+        except (TargetedFollowupError, _TargetedFollowupLimitedError) as exc:
             latency_ms = int((time.monotonic() - start_time) * 1000)
-            fallback_reason = _gemini_failure_reason(exc)
+            fallback_reason = (
+                "followup_provider_error"
+                if type(exc) is _TargetedFollowupLimitedError
+                else _gemini_failure_reason(exc)
+            )
             logger.warning(
                 "vision_targeted_followup_abstained",
                 extra={
@@ -661,6 +737,8 @@ class GeminiVisionService:
             )
             if remaining_budget <= 0:
                 raise TargetedFollowupError("gemini_timeout")
+            targeted_provider_limited = False
+            targeted_failure_reason = ""
             try:
                 async with asyncio.timeout(remaining_budget):
                     targeted_result = await self._call_gemini_once(
@@ -675,9 +753,15 @@ class GeminiVisionService:
             except TargetedFollowupError:
                 raise
             except Exception as exc:
-                raise TargetedFollowupError(
-                    _gemini_failure_reason(exc)
-                ) from None
+                targeted_provider_limited = (
+                    type(exc) is ServiceLimitedError or _is_provider_limited(exc)
+                )
+                if not targeted_provider_limited:
+                    targeted_failure_reason = _gemini_failure_reason(exc)
+
+            if targeted_provider_limited:
+                raise _TargetedFollowupLimitedError
+            raise TargetedFollowupError(targeted_failure_reason)
         return first_result
 
     async def _call_gemini_once(
