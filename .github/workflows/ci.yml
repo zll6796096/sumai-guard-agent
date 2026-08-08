@@ -6,15 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -26,6 +29,12 @@ jobs:
 
       - name: Run backend tests
         run: python -m pytest apps/sumai_agent/tests -v
+
+      - name: Validate release control contracts
+        run: |
+          python scripts/test_cloudbuild_config.py
+          python -m pytest scripts/test_promote_verified_candidate.py scripts/test_deployment_entrypoints.py -v
+          bash -n scripts/promote-verified-candidate.sh scripts/check_cloudrun.sh scripts/deploy_all_cloudrun.sh scripts/deploy_sumai_agent.sh scripts/deploy_sumai_web.sh
 
       - name: Frontend import check
         run: |
