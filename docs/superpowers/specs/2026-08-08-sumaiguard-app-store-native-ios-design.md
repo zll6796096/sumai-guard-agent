@@ -1,8 +1,9 @@
 # SumaiGuard Native iOS App Store Release Design
 
 **Date:** 2026-08-08
-**Status:** Approved design; implementation has not started
-**Public product name:** `親の家 安全チェック`
+**Status:** Approved design; Phase 1 backend privacy/App Check source complete;
+native iOS, candidate deployment, and Apple release work not started
+**Public product name:** `実家あんしんチェック`
 **Repository:** `/Users/zhanglonglong/Projects/apps/sumai-guard-agent`
 
 ## 1. Real objective and governing principle
@@ -39,25 +40,31 @@ The overall release is complete only after all of these are observed:
 
 ## 3. Current evidence snapshot
 
-This snapshot is context, not permanent release proof:
+This snapshot is context, not permanent release proof. It was refreshed after
+the product-name and release-control decisions on 2026-08-08:
 
-- Source identity was `5a4421501d90de4af70b7891a141378d7becbe3d` on
-  `main`, aligned with `origin/main` when the design audit began.
+- Local `main` is `a02adf575f9be9a80bde27f5b98df597483a1a80`, ten
+  commits ahead of `origin/main`; those commits are not yet pushed.
 - `docs/preconsultation/` was pre-existing, untracked user material and must
   remain unmodified and unstaged.
-- An isolated dependency environment passed 373/373 Python tests, frontend
-  import, and `docker compose config`.
+- Phase 1 backend privacy and App Check source is merged into local `main`.
+  Independent review found zero Critical, Important, or Minor findings after
+  the root-path App Check regression was fixed.
+- The merged result passed 576/576 Python tests, frontend import,
+  `docker compose config`, and current-source Docker image builds.
 - Xcode 26.6, iOS simulators, Apple Development, and Apple Distribution
   identities were present on the development Mac.
-- `sumai-agent` and `sumai-web` were serving 100% traffic in
-  `asia-northeast1`, with strict Gemini mode and a Secret Manager reference.
-- The public `/status` endpoint returned 200, while the audited `/healthz` and
-  both `/privacy` endpoints returned 404.
-- The repository had no iOS or Xcode project.
+- GitHub CLI authentication is active for the repository, but the local Google
+  Cloud CLI has no active authenticated account. Current Cloud Run service,
+  traffic, secret, retention, and endpoint state is therefore unverified.
+- The repository has no iOS or Xcode project.
 - The existing `cloudbuild.yaml` deployed zero-traffic candidates but promoted
   them automatically in the same build.
 - The legacy GitHub deployment workflow could perform a separate source deploy
   and could pass a Gemini key as an ordinary environment value.
+- Firebase Console/App Attest setup, owner-approved support identity, observed
+  Cloud Logging retention, candidate deployment, real-device attestation, and
+  every Apple external state remain not started or not confirmed.
 
 Every time-sensitive item above must be reverified during implementation.
 
@@ -65,9 +72,9 @@ Every time-sensitive item above must be reverified during implementation.
 
 | Field | Required value |
 |---|---|
-| App Store name | `親の家 安全チェック` |
-| Home-screen display name | `親の家チェック` |
-| Japanese subtitle | `写真で注意箇所と相談先を整理` |
+| App Store name | `実家あんしんチェック` |
+| Home-screen display name | `実家チェック` |
+| Japanese subtitle | `写真で見つける住まいの注意点` |
 | Bundle identifier | `com.zll.sumaiguard` |
 | Marketing version | `1.0` |
 | Initial build number | `1` |
@@ -75,14 +82,29 @@ Every time-sensitive item above must be reverified during implementation.
 | Initial storefront | Japan |
 | Primary category | Lifestyle |
 | Secondary category | Utilities |
+| Price | Free; no in-app purchases |
 | Device family | iPhone only |
 | Minimum OS | iOS 17.0 |
 | Orientation | Portrait |
 
-The selected icon direction is a dark, low-saturation green field with a
-cream-colored home and check mark. It must remain legible at notification-icon
-size and must not use a medical cross, an elderly-person silhouette, a robot,
-or AI sparkle imagery.
+The selected icon direction is a dark forest-green field with a cream-colored
+home and check mark plus one small warm-gold doorway accent. It must remain
+legible at notification-icon size and must not use a medical cross, an
+elderly-person silhouette, a robot, or AI sparkle imagery.
+
+The first three Japan App Store screenshots use a value-first story:
+
+1. `親の家、気になったら 写真を1枚`
+2. `見える注意点だけ 赤枠で確認`
+3. `次にできることを 3つの相談先へ`
+
+The screenshots include privacy and professional-judgment boundaries, but the
+first impression leads with the family need, then visible evidence, then the
+three action tiers. It does not lead with AI, scanning, or fear.
+
+Public web search found no obvious exact-name collision, but that is not name
+availability evidence. `実家あんしんチェック` remains provisional until App
+Store Connect accepts the localized name on the intended app record.
 
 ## 5. Product boundary
 
@@ -217,7 +239,8 @@ contains no photo, debug field, token, request ID, model payload, or new history
 
 ### 8.6 Visual and accessibility direction
 
-- Calm Apple-native utility design with a low-saturation green accent.
+- Calm Apple-native utility design with the selected forest-green, cream, and
+  restrained warm-gold identity.
 - No purple-blue gradients, scan rings, robot icons, or AI sparkle imagery.
 - Dynamic Type, VoiceOver labels, light/dark mode, Reduce Motion, and at least
   44-point controls are required.
@@ -363,6 +386,10 @@ The conservative App Store privacy draft is:
 
 ## 13. Backend and Cloud Run release design
 
+The exact local `main` commit is pushed first, and GitHub CI must pass for that
+same commit before any Cloud Build or Apple release action begins. A GitHub push
+or green CI result does not authorize deployment or production traffic.
+
 `cloudbuild.yaml` becomes candidate-only:
 
 1. Install both Python requirement sets before test collection.
@@ -421,6 +448,12 @@ The screenshot set covers capture, consent, visible evidence, three-tier advice,
 and PDF sharing. It does not show real names, addresses, faces, possessions,
 family photos, account details, credentials, or debug mode.
 
+The first public version targets the Japan storefront, is free with no in-app
+purchases, and uses manual release. App Review approval does not publish the
+version. Before the manual-release action, the exact approved build, production
+backend, public privacy/support URLs, rollback evidence, and real-device smoke
+are reverified.
+
 External states remain separate:
 
 `Archive -> Export -> Upload -> TestFlight -> Submit for Review -> Approved -> Manual Release -> Japan Storefront -> Production Smoke`
@@ -448,9 +481,6 @@ not pre-mark any of those states as complete.
 - `ios/SumaiGuard/Info.plist`
 - `ios/SumaiGuard/SumaiGuard.entitlements`
 - `ios/SumaiGuardTests/*.swift`
-- `apps/sumai_agent/app/security/app_check.py`
-- `apps/sumai_agent/tests/test_app_check.py`
-- `apps/sumai_agent/tests/test_native_api_privacy.py`
 - `scripts/promote-verified-candidate.sh`
 - `scripts/validate_ios_release.py`
 - `docs/app-store/app-description-ja.md`
@@ -484,7 +514,7 @@ No implementation task may modify or stage `docs/preconsultation/`.
 
 ### Local and backend
 
-- All 373 baseline tests plus new tests pass.
+- All 576 current baseline tests plus new tests pass.
 - Frontend import and Compose validation pass.
 - Production analysis responses have `Cache-Control: no-store`.
 - Production analysis rejects missing or invalid App Check tokens before intake.
@@ -598,3 +628,16 @@ Every implementation closeout reports:
 - skipped validations as `SKIPPED` with reason;
 - Git diff and Git status;
 - remaining risks and next authorized action.
+
+## 20. Current external references
+
+- Apple App information field limits and immutable identifiers:
+  <https://developer.apple.com/help/app-store-connect/reference/app-information/app-information/>
+- Apple App Privacy and privacy-policy URL requirements:
+  <https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy>
+- App Review submission workflow:
+  <https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/submit-an-app/>
+- Manual, automatic, and phased App Store publication boundary:
+  <https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/overview-of-publishing-your-app-on-the-app-store>
+- App Review privacy and product-quality rules:
+  <https://developer.apple.com/app-store/review/guidelines/>
