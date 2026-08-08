@@ -9,11 +9,15 @@ echo "  SumaiGuard Agent — Test Suite"
 echo "========================================="
 
 echo ""
-echo "1/3: Running backend tests..."
+echo "1/4: Running backend tests..."
 python3 -m pytest apps/sumai_agent/tests -v
 
 echo ""
-echo "2/3: Checking frontend import..."
+echo "2/4: Running verified candidate promotion gate tests..."
+python3 -m pytest scripts/test_promote_verified_candidate.py -v
+
+echo ""
+echo "3/4: Checking frontend import..."
 python3 -c "
 import importlib.util
 from pathlib import Path
@@ -27,7 +31,7 @@ print('frontend import ok')
 "
 
 echo ""
-echo "3/3: Validating docker compose config..."
+echo "4/4: Validating docker compose config..."
 docker compose config > /dev/null
 echo "docker compose config ok"
 
