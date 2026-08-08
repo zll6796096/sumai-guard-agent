@@ -43,8 +43,10 @@ The overall release is complete only after all of these are observed:
 This snapshot is context, not permanent release proof. It was refreshed after
 the product-name and release-control decisions on 2026-08-08:
 
-- Local `main` is `a02adf575f9be9a80bde27f5b98df597483a1a80`, ten
-  commits ahead of `origin/main`; those commits are not yet pushed.
+- The Phase 1 implementation predecessor is
+  `a02adf575f9be9a80bde27f5b98df597483a1a80`; the approved design was committed
+  as `c0036ba`. Local `main` was eleven commits ahead of `origin/main` after
+  that design commit; those commits were not yet pushed.
 - `docs/preconsultation/` was pre-existing, untracked user material and must
   remain unmodified and unstaged.
 - Phase 1 backend privacy and App Check source is merged into local `main`.
