@@ -265,6 +265,8 @@ def _fresh_orchestrator(monkeypatch: pytest.MonkeyPatch, vision: CountingVision)
             require_real_gemini=False,
             gemini_api_key="",
             gemini_model="gemini-test",
+            max_upload_bytes=10 * 1024 * 1024,
+            max_source_pixels=25_000_000,
             result_memo_ttl_seconds=300,
             result_memo_max_items=128,
         ),

@@ -22,7 +22,11 @@ from app.services.canonicalization import (
 )
 from app.services.gemini_vision import GeminiVisionService, normalize_room_hint
 from app.services.checklist_engine import ChecklistEngine
-from app.services.image_intake import PREPROCESS_VERSION, read_and_sanitize_image
+from app.services.image_intake import (
+    PREPROCESS_VERSION,
+    read_and_sanitize_image,
+    read_upload_bytes,
+)
 from app.services.relationship_engine import RelationshipEngine
 from app.services.report_renderer import ReportRenderer
 from app.services.result_memo import AsyncResultMemo
@@ -103,8 +107,12 @@ class AnalysisOrchestrator:
         )
 
         intake_started = time.monotonic()
-        raw_bytes = await upload.read()
-        image, safe_png, pixel_digest = await asyncio.to_thread(_prepare_image, raw_bytes)
+        raw_bytes = await read_upload_bytes(upload, max_bytes=settings.max_upload_bytes)
+        image, safe_png, pixel_digest = await asyncio.to_thread(
+            _prepare_image,
+            raw_bytes,
+            settings.max_source_pixels,
+        )
         stage_timings_ms["intake"] = elapsed_ms(intake_started)
         execution_mode = execution_mode_for_request(force_mock=mock)
         configured_model = settings.gemini_model
@@ -326,9 +334,15 @@ def elapsed_ms(start: float) -> int:
     return max(0, int((time.monotonic() - start) * 1000))
 
 
-def _prepare_image(raw_bytes: bytes) -> tuple[Image.Image, bytes, str]:
+def _prepare_image(
+    raw_bytes: bytes,
+    max_source_pixels: int,
+) -> tuple[Image.Image, bytes, str]:
     """Run image decoding, EXIF stripping, and pixel digesting off the event loop."""
-    image, safe_png = read_and_sanitize_image(raw_bytes)
+    image, safe_png = read_and_sanitize_image(
+        raw_bytes,
+        max_source_pixels=max_source_pixels,
+    )
     return image, safe_png, canonical_pixel_digest(image)
 
 

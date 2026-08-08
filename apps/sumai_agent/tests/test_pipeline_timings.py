@@ -80,6 +80,8 @@ def _subject(monkeypatch: pytest.MonkeyPatch, vision: CountingVision) -> Analysi
             require_real_gemini=False,
             gemini_api_key="",
             gemini_model="gemini-test",
+            max_upload_bytes=1024,
+            max_source_pixels=10_000,
             result_memo_ttl_seconds=300,
             result_memo_max_items=128,
         ),
@@ -270,23 +272,44 @@ def test_intake_and_visual_rendering_use_to_thread(monkeypatch: pytest.MonkeyPat
         subject = _subject(monkeypatch, CountingVision())
         threaded_calls: list[str] = []
         intake_calls = 0
+        upload_limits: list[int] = []
+        source_pixel_limits: list[int | None] = []
         original_to_thread = asyncio.to_thread
         original_intake = orchestrator_module.read_and_sanitize_image
+        original_upload_read = orchestrator_module.read_upload_bytes
 
-        def counted_intake(raw_bytes: bytes) -> tuple[Image.Image, bytes]:
+        async def counted_upload_read(upload: UploadFile, *, max_bytes: int) -> bytes:
+            upload_limits.append(max_bytes)
+            return await original_upload_read(upload, max_bytes=max_bytes)
+
+        def counted_intake(
+            raw_bytes: bytes,
+            max_source_pixels: int | None = None,
+        ) -> tuple[Image.Image, bytes]:
             nonlocal intake_calls
             intake_calls += 1
-            return original_intake(raw_bytes)
+            source_pixel_limits.append(max_source_pixels)
+            if max_source_pixels is None:
+                return original_intake(raw_bytes)
+            return original_intake(raw_bytes, max_source_pixels=max_source_pixels)
 
         async def recording_to_thread(func: object, /, *args: object, **kwargs: object) -> object:
             threaded_calls.append(getattr(func, "__name__", ""))
             return await original_to_thread(func, *args, **kwargs)  # type: ignore[arg-type]
 
+        monkeypatch.setattr(
+            orchestrator_module,
+            "read_upload_bytes",
+            counted_upload_read,
+            raising=False,
+        )
         monkeypatch.setattr(orchestrator_module, "read_and_sanitize_image", counted_intake)
         monkeypatch.setattr(orchestrator_module.asyncio, "to_thread", recording_to_thread)
         await subject.analyze(_upload(), room_hint="genkan", mock=True)
 
         assert intake_calls == 1
+        assert upload_limits == [1024]
+        assert source_pixel_limits == [10_000]
         assert "_prepare_image" in threaded_calls
         assert "render" in threaded_calls
 
