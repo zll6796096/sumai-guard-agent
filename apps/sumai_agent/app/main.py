@@ -17,6 +17,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette._utils import get_route_path
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -94,6 +95,12 @@ logger.info(
 
 
 ANALYSIS_PATHS = frozenset({"/api/v1/analyze", "/analyze"})
+
+
+def _is_analysis_route(scope: Scope) -> bool:
+    return get_route_path(scope) in ANALYSIS_PATHS
+
+
 PublicErrorCode = Literal[
     "INVALID_IMAGE",
     "APP_CHECK_INVALID",
@@ -172,7 +179,7 @@ class AnalysisSecurityMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        if scope["type"] != "http" or scope.get("path") not in ANALYSIS_PATHS:
+        if scope["type"] != "http" or not _is_analysis_route(scope):
             await self.app(scope, receive, send)
             return
 
@@ -234,7 +241,7 @@ async def request_validation_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    if request.url.path in ANALYSIS_PATHS:
+    if _is_analysis_route(request.scope):
         return public_error("INVALID_IMAGE")
     return await request_validation_exception_handler(request, exc)
 
@@ -245,7 +252,7 @@ async def http_exception_safety_handler(
     exc: StarletteHTTPException,
 ) -> JSONResponse:
     if (
-        request.url.path in ANALYSIS_PATHS
+        _is_analysis_route(request.scope)
         and exc.status_code == status.HTTP_400_BAD_REQUEST
     ):
         return public_error("INVALID_IMAGE")

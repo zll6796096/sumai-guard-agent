@@ -513,7 +513,12 @@ class RecordingOrchestrator:
         return _fixed_analysis_response()
 
 
-def _asgi_scope(path: str, *, token: str | None = None) -> dict[str, object]:
+def _asgi_scope(
+    path: str,
+    *,
+    token: str | None = None,
+    root_path: str = "",
+) -> dict[str, object]:
     headers: list[tuple[bytes, bytes]] = [
         (b"content-type", b"multipart/form-data; boundary=malformed"),
         (b"content-length", b"999999999999"),
@@ -528,6 +533,7 @@ def _asgi_scope(path: str, *, token: str | None = None) -> dict[str, object]:
         "scheme": "http",
         "path": path,
         "raw_path": path.encode("ascii"),
+        "root_path": root_path,
         "query_string": b"",
         "headers": headers,
         "client": ("127.0.0.1", 12345),
@@ -605,6 +611,65 @@ def test_pure_asgi_app_check_rejects_before_body_read_or_multipart_parse(
     asyncio.run(middleware(_asgi_scope(path, token=token), receive, send))
 
     assert events == ["app_check_attempted"]
+    status_code, headers, body = _asgi_response(sent)
+    assert status_code == 401
+    assert headers["cache-control"] == "no-store"
+    assert body == APP_CHECK_ERROR
+
+
+@pytest.mark.parametrize("path", ANALYSIS_PATHS)
+def test_pure_asgi_root_path_missing_app_check_rejects_before_body_read(
+    path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    receive_calls = 0
+    sent: list[dict[str, object]] = []
+
+    class RejectingVerifier:
+        def __init__(self, *, required: bool, expected_app_id: str) -> None:
+            assert required is True
+            assert expected_app_id == EXPECTED_APP_ID
+
+        def verify(self, received_token: str | None) -> None:
+            assert received_token is None
+            raise AppCheckInvalidError(PROVIDER_SENTINEL)
+
+    async def receive() -> dict[str, object]:
+        nonlocal receive_calls
+        receive_calls += 1
+        return {"type": "http.request", "body": b"private body", "more_body": False}
+
+    async def inner_app(
+        _scope: object,
+        inner_receive: object,
+        inner_send: object,
+    ) -> None:
+        await inner_receive()
+        await inner_send({"type": "http.response.start", "status": 200, "headers": []})
+        await inner_send({"type": "http.response.body", "body": b"{}"})
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message.copy())
+
+    monkeypatch.setattr(
+        main,
+        "settings",
+        _explicit_settings(
+            app_check_required=True,
+            firebase_app_id=EXPECTED_APP_ID,
+        ),
+    )
+    monkeypatch.setattr(main, "AppCheckVerifier", RejectingVerifier)
+
+    asyncio.run(
+        main.AnalysisSecurityMiddleware(inner_app)(
+            _asgi_scope(f"/prefix{path}", root_path="/prefix"),
+            receive,
+            send,
+        )
+    )
+
+    assert receive_calls == 0
     status_code, headers, body = _asgi_response(sent)
     assert status_code == 401
     assert headers["cache-control"] == "no-store"
@@ -1161,6 +1226,35 @@ def test_malformed_multipart_is_flat_invalid_image(path: str) -> None:
         content=b"malformed multipart",
         headers={"content-type": "multipart/form-data; boundary=missing"},
     )
+
+    expected_status, expected_message = PUBLIC_ERRORS["INVALID_IMAGE"]
+    assert response.status_code == expected_status
+    assert response.json() == {
+        "error": "INVALID_IMAGE",
+        "message": expected_message,
+    }
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("path", ANALYSIS_PATHS)
+@pytest.mark.parametrize("failure_kind", ["request-validation", "http-400"])
+def test_analysis_error_handlers_normalize_nonempty_root_path(
+    path: str,
+    failure_kind: str,
+) -> None:
+    client = TestClient(
+        main.app,
+        raise_server_exceptions=False,
+        root_path="/prefix",
+    )
+    if failure_kind == "request-validation":
+        response = client.post(f"/prefix{path}", files={})
+    else:
+        response = client.post(
+            f"/prefix{path}",
+            content=b"malformed multipart",
+            headers={"content-type": "multipart/form-data; boundary=missing"},
+        )
 
     expected_status, expected_message = PUBLIC_ERRORS["INVALID_IMAGE"]
     assert response.status_code == expected_status
