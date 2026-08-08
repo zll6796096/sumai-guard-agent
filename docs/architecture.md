@@ -13,9 +13,11 @@ flowchart LR
     Rel --> Ont["room-scoped OntologyRepository / room_checklists.yaml"]
     Ont --> Canon["canonicalize findings"]
     Canon --> Rules["deterministic RuleEngine and action tiers"]
-    Rules --> Memo["process-local semantic TTL/LRU memo"]
-    Memo --> Render["per-request render and report"]
-    Render --> Response["JSON response"]
+    Rules --> Reports["deterministic report/advice text"]
+    Reports --> Memo["process-local semantic and report TTL/LRU memo"]
+    Memo --> Render["per-request annotated and improvement images"]
+    Memo --> Response["JSON response with reusable report text"]
+    Render --> Response
     Response --> Web
 ```
 
@@ -77,7 +79,23 @@ Each HTTP request receives a random `analysis_id` for correlation only. It is in
 
 `semantic_hash` identifies stable reader-facing semantics: room, home/not-applicable state and reason, canonical findings, and action plan. It excludes generated images, timings, execution mode, and render-only `display_bbox`; it includes the fixed not-applicable semantics described above. Findings are canonicalized before policy output so ordering, display mapping, and signed zero do not change the semantic result.
 
-The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. It retains structured semantic output only—never images—and rendering still runs for every request. Strict failures and non-strict fallback results are uncached. The memo is neither persistent nor cross-process, so a restart or a different worker may call Gemini again.
+The memo is a bounded process-local TTL/LRU cache with in-flight coalescing. Its
+value is the complete `ComputedAnalysis`: room and risk semantics, findings,
+deterministic action tiers, generated report/advice text, mode/model metadata,
+semantic hash, and the not-applicable state. Generated report/advice text is
+cached and reused on a memo hit. Annotated and improvement images are rendered
+for every request from the request-local sanitized pixels and cached findings;
+uploaded bytes, sanitized PNG bytes, rendered image bytes, and PDF bytes are
+outside the memo. PDF bytes are generated on demand and are not persisted or
+cached.
+
+TTL and maximum item count are configured by `RESULT_MEMO_TTL_SECONDS` and
+`RESULT_MEMO_MAX_ITEMS` (source defaults: 300 seconds and 128 items). The memo
+is process-local, not persistent, and not shared across worker processes. A
+restart, eviction, TTL expiry, or request reaching another worker therefore
+requires semantic computation again. Strict failures and non-strict fallback
+results are uncached. These are source semantics, not evidence of deployed
+values or worker topology.
 
 Every completed result also shows the always-visible `analysis-mode-banner`, independent of the optional debug panel. It distinguishes `gemini`, `mock`, `local_mock`, and `gemini_fallback(...)`; mock and fallback wording explicitly says they are not Gemini analysis. Unknown modes receive a warning rather than an inferred provenance label.
 
@@ -99,6 +117,28 @@ Benchmark output separates schema validity from scoring applicability. `schema_v
 
 The public `AnalysisResponse` and benchmark schema validator enforce the same applicability state: neutral output is `room_type=auto`, `overall_risk_level=low`, empty findings and action tiers, and a nonblank reason; applicable output is a known home room with no neutral reason. This validation does not infer a different home-state rule for neutral output, because non-home, unknown-room, and insufficient-evidence cases are all valid abstentions.
 
-## Cloud Run note
+## Cloud Run candidate and promotion boundary
 
-Historical Cloud Run configuration may exist in this repository, but Task9 neither modifies nor verifies deployment. This document is local-POC acceptance documentation, not a production-readiness claim. The existing 120-second deployment request limit and the 150-second local proxy budget remain an out-of-scope timeout compatibility risk; no Cloud Run behavior is asserted as verified here.
+Cloud Build is a candidate-only path: it tests the exact source, builds both
+images, resolves each immutable digest, creates tagged agent and web revisions
+at 0% production traffic, and emits identity-bound sanitized evidence. The
+agent candidate must use `APP_CHECK_REQUIRED=true` and
+`REQUIRE_REAL_GEMINI=true`; App Check is evaluated before reading the multipart
+body. The web candidate must use `PUBLIC_WEB_ANALYSIS_ENABLED=false`. Local
+mock mode remains available through the local Compose defaults and is not the
+candidate configuration.
+
+Source, exact-head CI, candidate deployment, real-device App Attest evidence,
+the separate promotion checkpoint, production verification, archive/signing,
+review, release, and storefront visibility are independent gates. Candidate
+success does not authorize production traffic. Promotion is a separate script
+whose default dry-run validates candidate evidence and real-device App Attest
+evidence without mutation. Apply mode requires dual confirmation (the explicit
+apply flag and exact confirmation phrase), then uses the Cloud Run Admin API
+with `resourceVersion` compare-and-swap behavior and ownership-aware rollback.
+Direct legacy deployment paths are retired.
+
+This architecture describes the source contract only. It does not assert a
+currently deployed candidate, current production revision, promotion, Apple
+archive, review decision, release, or storefront availability. The safe
+inspection script is read-only and cannot clear any release gate by itself.

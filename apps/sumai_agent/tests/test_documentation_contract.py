@@ -1,8 +1,14 @@
 import json
 import os
 import re
+import stat
 import subprocess
+import textwrap
 from pathlib import Path
+
+from fastapi.testclient import TestClient
+
+from apps.sumai_agent.tests.web_module_loader import load_web_module
 
 
 DOCS = Path(__file__).resolve().parents[3] / "docs"
@@ -303,7 +309,7 @@ def test_readme_documents_memo_defaults_configurability_and_observation_gate() -
         "Both memo limits are environment-configurable",
         "structured semantic results and generated report/advice text only",
         "never image or PDF bytes",
-        "Phase 3 must observe the deployed memo values before final privacy publication",
+        "The release process must observe the deployed memo values before final privacy publication",
     ):
         assert required in normalized
 
@@ -359,16 +365,38 @@ def test_task7_artifacts_contain_no_real_credentials_identities_or_service_urls(
         assert pattern.search(artifacts) is None, label
 
 
-def test_legacy_cloud_run_entries_are_explicitly_non_release() -> None:
+def test_candidate_wrappers_and_read_only_inspector_are_described_truthfully() -> None:
     normalized = _normalized(_root_document("README.md"))
 
     assert (
-        "`GOOGLE_CLOUD_PROJECT` | (empty) | Legacy deploy tooling only; "
-        "not for App Store release"
+        "`GOOGLE_CLOUD_PROJECT` | (empty) | Explicit target for the read-only "
+        "Cloud Run inspector; never release authorization"
     ) in normalized
     assert (
-        "Cloud Run Deployment — legacy/non-release; do not use for App Store release"
+        "Direct legacy deployment paths are retired"
     ) in normalized
+    assert "`scripts/check_cloudrun.sh` is now a strict read-only inspector" in normalized
+    for required in (
+        "The compatibility wrappers remain operational",
+        "delegate to `scripts/deploy_all_cloudrun.sh`",
+        "submits one paired candidate-only Cloud Build",
+        "clean exact `main`/`origin/main` state",
+        "approved WIF or otherwise valid `gcloud` authentication",
+        "This is an external candidate deployment",
+        "changes no production traffic",
+        "prints a bounded runtime shape summary",
+        "container count, timeout, and concurrency",
+        "traffic and service identity summary",
+        "never prints environment values, secret references, tokens, or credential/provider details",
+    ):
+        assert required in normalized
+    for forbidden in (
+        "`scripts/deploy_*.sh` fail closed",
+        "`scripts/deploy_all_cloudrun.sh` fails closed",
+        "compatibility wrappers are retired",
+        "cannot deploy, change traffic, inspect logs, print configuration values",
+    ):
+        assert forbidden not in normalized
 
 
 def test_production_guidance_states_the_app_check_and_gemini_boundaries() -> None:
@@ -402,16 +430,13 @@ def test_operator_guidance_keeps_observed_facts_and_phase_gates_separate() -> No
     for required in (
         "Cloud Logging retention must be observed in the target environment",
         "owner-approved support/operator contact must be confirmed",
-        "Phase 1 makes no deployment, traffic, Firebase console, or App Store changes",
-        "Phase 3 Cloud Build uses control-plane verification",
-        "remove `/status`",
         "Local mock mode needs no Google or Firebase credentials",
         "bounded process-local",
         "does not persist uploaded images or account history",
         "operational logs",
-        "legacy and non-release",
-        "must not be used for an App Store release",
-        "Phase 3 replaces or converges",
+        "Direct legacy deployment paths are retired",
+        "default dry-run behavior",
+        "0% production traffic",
     ):
         assert required in normalized
 
@@ -550,3 +575,559 @@ def test_ci_installs_both_app_dependencies_before_collecting_all_tests() -> None
 
     assert backend_install < full_test_suite
     assert frontend_install < full_test_suite
+
+
+def test_cloudrun_checker_has_a_strict_read_only_command_and_endpoint_allowlist() -> None:
+    checker = _root_document("scripts/check_cloudrun.sh")
+
+    for variable in (
+        "GOOGLE_CLOUD_PROJECT",
+        "SUMAI_REGION",
+        "SUMAI_AGENT_SERVICE",
+        "SUMAI_WEB_SERVICE",
+    ):
+        assert variable in checker
+        assert f"{variable} is required" in checker
+
+    for forbidden_default in (
+        "SUMAI_REGION:-asia-northeast1",
+        "SUMAI_AGENT_SERVICE:-sumai-agent",
+        "SUMAI_WEB_SERVICE:-sumai-web",
+    ):
+        assert forbidden_default not in checker
+
+    gcloud_lines = [
+        line.strip()
+        for line in checker.splitlines()
+        if re.search(r"(?:^|\s)gcloud\s", line)
+    ]
+    assert gcloud_lines
+    assert all("gcloud run services describe" in line for line in gcloud_lines)
+
+    for route in ("/health", "/ready", "/privacy", "/support"):
+        assert route in checker
+    for forbidden in (
+        "/status",
+        "/healthz",
+        "/analyze",
+        "run deploy",
+        "run services update",
+        "update-traffic",
+        "run revisions",
+        "gcloud logging",
+        "gcloud secrets",
+        "print-access-token",
+        "--request POST",
+        "--data",
+        "secretKeyRef",
+        "GEMINI_API_KEY",
+    ):
+        assert forbidden not in checker
+
+    assert "--request GET" in checker
+    assert "curl \\\n    --disable \\" in checker
+    assert "--proto '=https'" in checker
+    assert "--max-redirs 0" in checker
+    for forbidden_curl_option in (
+        "--location",
+        "--location-trusted",
+        "--user",
+        "--oauth2-bearer",
+        "--header",
+    ):
+        assert forbidden_curl_option not in checker
+    assert "chmod 700" in checker
+    assert "chmod 600" in checker
+    assert "service_account_sha256" in checker
+    assert "service_accounts_equal" in checker
+    assert "env" not in " ".join(
+        line.strip().casefold()
+        for line in checker.splitlines()
+        if line.strip().startswith("printf")
+    )
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.write_text(textwrap.dedent(source).lstrip(), encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def _fake_cloudrun_commands(tmp_path: Path) -> tuple[Path, Path]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True)
+    call_log = tmp_path / "calls.jsonl"
+    call_log.touch()
+
+    _write_executable(
+        bin_dir / "gcloud",
+        r'''
+        #!/usr/bin/env python3
+        import json
+        import os
+        import sys
+        from pathlib import Path
+
+        args = sys.argv[1:]
+        with Path(os.environ["FAKE_CALL_LOG"]).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"tool": "gcloud", "args": args}) + "\n")
+        if len(args) < 5 or args[:3] != ["run", "services", "describe"]:
+            print("forbidden gcloud command", file=sys.stderr)
+            raise SystemExit(90)
+        service = args[3]
+        if service not in {"sumai-agent", "sumai-web"}:
+            print("unexpected service", file=sys.stderr)
+            raise SystemExit(91)
+        if os.environ.get("FAKE_GCLOUD_FAIL_SERVICE") == service:
+            print("private control plane detail", file=sys.stderr)
+            raise SystemExit(1)
+        component = "agent" if service == "sumai-agent" else "web"
+        account = f"{component}-runtime" + chr(64) + "example-project.iam.gserviceaccount.com"
+        payload = {
+            "apiVersion": "serving.knative.dev/v1",
+            "kind": "Service",
+            "metadata": {
+                "name": service,
+                "resourceVersion": "12345",
+                "labels": {"source-commit": "f" * 40},
+            },
+            "spec": {
+                "template": {
+                    "spec": {
+                        "serviceAccountName": account,
+                        "timeoutSeconds": 120,
+                        "containerConcurrency": 80,
+                        "containers": [{
+                            "image": "registry.invalid/private@sha256:" + "a" * 64,
+                            "env": [{
+                                "name": "GEMINI_API_KEY",
+                                "valueFrom": {"secretKeyRef": {"name": "do-not-print", "key": "9"}},
+                            }],
+                        }],
+                    }
+                },
+                "traffic": [
+                    {"revisionName": f"{service}-r1", "percent": 100},
+                    {"revisionName": f"{service}-candidate", "tag": "candidate-safe", "percent": 0},
+                ],
+            },
+            "status": {
+                "url": "https:" + f"//{service}-safe-hash-an.a" + ".run" + ".app",
+                "latestCreatedRevisionName": f"{service}-candidate",
+                "latestReadyRevisionName": f"{service}-candidate",
+                "traffic": [
+                    {"revisionName": f"{service}-r1", "percent": 100},
+                    {
+                        "revisionName": f"{service}-candidate",
+                        "tag": "candidate-safe",
+                        "percent": 0,
+                        "url": "https:" + f"//candidate-safe---{service}-safe-hash-an.a" + ".run" + ".app",
+                    },
+                ],
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }
+        print(json.dumps(payload))
+        ''',
+    )
+    _write_executable(
+        bin_dir / "curl",
+        r'''
+        #!/usr/bin/env python3
+        import json
+        import os
+        import stat
+        import sys
+        from pathlib import Path
+        from urllib.parse import urlsplit
+
+        args = sys.argv[1:]
+        curl_home = Path(os.environ.get("CURL_HOME", ""))
+        if args[:1] != ["--disable"] and (curl_home / ".curlrc").is_file():
+            print("malicious curl configuration was applied", file=sys.stderr)
+            raise SystemExit(93)
+        def option(name):
+            index = args.index(name)
+            return args[index + 1]
+
+        output_path = Path(option("--output"))
+        header_path = Path(option("--dump-header"))
+        url = args[-1]
+        parsed = urlsplit(url)
+        path = parsed.path or "/"
+        hostname = parsed.hostname or ""
+        record = {
+            "tool": "curl",
+            "args": args,
+            "url": url,
+            "output_mode": oct(stat.S_IMODE(output_path.stat().st_mode)),
+            "header_mode": oct(stat.S_IMODE(header_path.stat().st_mode)),
+            "directory_mode": oct(stat.S_IMODE(output_path.parent.stat().st_mode)),
+        }
+        with Path(os.environ["FAKE_CALL_LOG"]).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record) + "\n")
+        if os.environ.get("FAKE_CURL_FAIL_PATH") == path:
+            output_path.write_text("private service response", encoding="utf-8")
+            print("private network detail", file=sys.stderr)
+            raise SystemExit(22)
+        if path == "/health":
+            body = '{"status":"ok","version":"test"}'
+            content_type = "application/json"
+        elif path == "/ready" and hostname.startswith("sumai-agent-"):
+            body = '{"status":"ready","version":"test"}'
+            content_type = "application/json"
+        elif path == "/ready" and hostname.startswith("sumai-web-"):
+            body = '{"status":"ok","version":"test"}'
+            content_type = "application/json"
+        elif path in {"/", "/privacy", "/support"}:
+            body = "<html lang=ja>safe</html>"
+            content_type = "text/html; charset=utf-8"
+        else:
+            print("forbidden endpoint", file=sys.stderr)
+            raise SystemExit(92)
+        cache = "Cache-Control: no-store\r\n" if path in {"/privacy", "/support"} else ""
+        output_path.write_text(body, encoding="utf-8")
+        header_path.write_text(
+            "HTTP/1.1 200 OK\r\n" + f"Content-Type: {content_type}\r\n" + cache + "\r\n",
+            encoding="iso-8859-1",
+        )
+        print("200", end="")
+        ''',
+    )
+    return bin_dir, call_log
+
+
+def _run_cloudrun_checker(
+    tmp_path: Path,
+    overrides: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[dict[str, object]]]:
+    bin_dir, call_log = _fake_cloudrun_commands(tmp_path)
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{bin_dir}:{environment['PATH']}",
+            "FAKE_CALL_LOG": str(call_log),
+            "GOOGLE_CLOUD_PROJECT": "safe-project-123",
+            "SUMAI_REGION": "asia-northeast1",
+            "SUMAI_AGENT_SERVICE": "sumai-agent",
+            "SUMAI_WEB_SERVICE": "sumai-web",
+        }
+    )
+    environment.update(overrides or {})
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/check_cloudrun.sh")],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    calls = [json.loads(line) for line in call_log.read_text(encoding="utf-8").splitlines()]
+    return result, calls
+
+
+def test_cloudrun_checker_runtime_reports_only_sanitized_read_only_evidence(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_cloudrun_checker(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert "inspection_result=PASS" in result.stdout
+    assert "service_accounts_equal=false" in result.stdout
+    assert result.stdout.count("service_account_sha256=") == 2
+    assert "traffic=sumai-agent-r1:100,candidate-safe@sumai-agent-candidate:0" in result.stdout
+    assert "traffic=sumai-web-r1:100,candidate-safe@sumai-web-candidate:0" in result.stdout
+    assert "config_summary=containers:1,timeout_seconds:120,container_concurrency:80" in result.stdout
+    for forbidden in (
+        "@example-project.iam.gserviceaccount.com",
+        "do-not-print",
+        "GEMINI_API_KEY",
+        "secretKeyRef",
+        "private@sha256",
+    ):
+        assert forbidden not in result.stdout + result.stderr
+
+    gcloud_calls = [call for call in calls if call["tool"] == "gcloud"]
+    curl_calls = [call for call in calls if call["tool"] == "curl"]
+    assert len(gcloud_calls) == 2
+    assert all(call["args"][:3] == ["run", "services", "describe"] for call in gcloud_calls)
+    assert {call["url"].rsplit(".run.app", 1)[1] for call in curl_calls} == {
+        "/health",
+        "/ready",
+        "/",
+        "/privacy",
+        "/support",
+    }
+    assert all("--request" in call["args"] for call in curl_calls)
+    assert all(call["args"][call["args"].index("--request") + 1] == "GET" for call in curl_calls)
+    assert all(call["args"][0] == "--disable" for call in curl_calls)
+    assert all(call["args"][call["args"].index("--proto") + 1] == "=https" for call in curl_calls)
+    assert all(call["args"][call["args"].index("--max-redirs") + 1] == "0" for call in curl_calls)
+    assert all("--location" not in call["args"] for call in curl_calls)
+    assert all("--location-trusted" not in call["args"] for call in curl_calls)
+    assert all("--header" not in call["args"] for call in curl_calls)
+    assert all(call["directory_mode"] == "0o700" for call in curl_calls)
+    assert all(call["output_mode"] == "0o600" for call in curl_calls)
+    assert all(call["header_mode"] == "0o600" for call in curl_calls)
+
+
+def test_cloudrun_checker_fails_closed_without_leaking_private_probe_details(
+    tmp_path: Path,
+) -> None:
+    result, calls = _run_cloudrun_checker(
+        tmp_path,
+        {"FAKE_CURL_FAIL_PATH": "/health"},
+    )
+
+    assert result.returncode != 0
+    assert "inspection_result=FAILED_SAFE" in result.stderr
+    assert "service=sumai-agent endpoint=/health reason=UNREACHABLE_OR_NON_200" in result.stderr
+    assert "private network detail" not in result.stderr
+    assert "private service response" not in result.stdout + result.stderr
+    assert all(call["tool"] in {"gcloud", "curl"} for call in calls)
+
+
+def test_cloudrun_checker_ignores_a_malicious_curlrc_before_safe_fake_probes(
+    tmp_path: Path,
+) -> None:
+    curl_home = tmp_path / "malicious-curl-home"
+    curl_home.mkdir()
+    (curl_home / ".curlrc").write_text(
+        'request = "POST"\nlocation\nheader = "X-Unsafe: from-curlrc"\n',
+        encoding="utf-8",
+    )
+
+    result, calls = _run_cloudrun_checker(
+        tmp_path / "run",
+        {"CURL_HOME": str(curl_home), "HOME": str(curl_home)},
+    )
+
+    assert result.returncode == 0, result.stderr
+    curl_calls = [call for call in calls if call["tool"] == "curl"]
+    assert curl_calls
+    assert all(call["args"][0] == "--disable" for call in curl_calls)
+
+
+def test_cloudrun_checker_uses_the_real_web_readiness_contract() -> None:
+    module = load_web_module()
+    response = TestClient(module.app).get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    checker = _root_document("scripts/check_cloudrun.sh")
+    assert 'probe_endpoint "${agent_service}" "${agent_url}" /ready json ready false' in checker
+    assert 'probe_endpoint "${web_service}" "${web_url}" /ready json ok false' in checker
+
+
+def test_cloudrun_checker_rejects_each_missing_target_before_commands(
+    tmp_path: Path,
+) -> None:
+    for variable in (
+        "GOOGLE_CLOUD_PROJECT",
+        "SUMAI_REGION",
+        "SUMAI_AGENT_SERVICE",
+        "SUMAI_WEB_SERVICE",
+    ):
+        missing, missing_calls = _run_cloudrun_checker(
+            tmp_path / f"missing-{variable.casefold()}",
+            {variable: ""},
+        )
+        assert missing.returncode != 0, variable
+        assert f"{variable} is required" in missing.stderr
+        assert missing_calls == [], variable
+
+
+def test_cloudrun_checker_rejects_each_unsafe_target_before_commands(
+    tmp_path: Path,
+) -> None:
+    unsafe_targets = {
+        "GOOGLE_CLOUD_PROJECT": "UPPER_project",
+        "SUMAI_REGION": "asia-northeast1;update",
+        "SUMAI_AGENT_SERVICE": "sumai-agent;update",
+        "SUMAI_WEB_SERVICE": "sumai/web",
+    }
+    for variable, value in unsafe_targets.items():
+        invalid, invalid_calls = _run_cloudrun_checker(
+            tmp_path / f"invalid-{variable.casefold()}",
+            {variable: value},
+        )
+        assert invalid.returncode != 0, variable
+        assert "cloud_run_target=INVALID" in invalid.stderr
+        assert invalid_calls == [], variable
+
+
+def test_release_docs_define_candidate_only_and_independent_promotion_gates() -> None:
+    readme = _root_document("README.md")
+    architecture = _document("architecture.md")
+    deployment = _document("cloudrun_deployment.md")
+    combined = _normalized("\n".join((readme, architecture, deployment)))
+    combined_lowered = combined.casefold()
+
+    for required in (
+        "candidate-only",
+        "immutable digest",
+        "0% production traffic",
+        "App Check before reading the multipart body",
+        "REQUIRE_REAL_GEMINI=true",
+        "PUBLIC_WEB_ANALYSIS_ENABLED=false",
+        "local mock mode remains available",
+        "separate promotion checkpoint",
+        "default dry-run",
+        "real-device App Attest evidence",
+        "dual confirmation",
+        "Cloud Run Admin API",
+        "resourceVersion",
+        "ownership-aware rollback",
+        "direct legacy deployment paths are retired",
+    ):
+        assert required.casefold() in combined_lowered
+
+    for gate in (
+        "source",
+        "CI",
+        "candidate",
+        "device",
+        "promotion",
+        "archive",
+        "review",
+        "release",
+        "storefront",
+    ):
+        assert gate in combined
+    for forbidden_claim in (
+        "candidate is deployed",
+        "production is verified",
+        "app store release is complete",
+    ):
+        assert forbidden_claim not in combined_lowered
+
+
+def test_cloudrun_inspector_usage_requires_all_explicit_targets_and_wrappers_stay_operational() -> None:
+    deployment = _normalized(_document("cloudrun_deployment.md"))
+
+    assert (
+        "GOOGLE_CLOUD_PROJECT=owner-approved-project "
+        "SUMAI_REGION=owner-approved-region "
+        "SUMAI_AGENT_SERVICE=owner-approved-agent-service "
+        "SUMAI_WEB_SERVICE=owner-approved-web-service "
+        "./scripts/check_cloudrun.sh"
+    ) in deployment
+    for required in (
+        "All four inspection targets are mandatory",
+        "compatibility wrappers remain operational",
+        "delegate to `scripts/deploy_all_cloudrun.sh`",
+        "paired candidate-only Cloud Build",
+        "clean exact `main` and `origin/main`",
+        "approved WIF or otherwise valid `gcloud` authentication",
+        "external candidate deployment",
+        "does not change production traffic",
+    ):
+        assert required in deployment
+    for forbidden in (
+        "`scripts/deploy_sumai_agent.sh`, `scripts/deploy_sumai_web.sh`, and `scripts/deploy_all_cloudrun.sh` fail closed",
+        "must not be revived",
+    ):
+        assert forbidden not in deployment
+
+
+def test_architecture_and_readme_describe_the_actual_memoized_report_boundary() -> None:
+    combined = _normalized(
+        _root_document("README.md") + "\n" + _document("architecture.md")
+    )
+    lowered = combined.casefold()
+
+    for required in (
+        "generated report/advice text is cached and reused on a memo hit",
+        "annotated and improvement images are rendered for every request",
+        "PDF bytes are generated on demand and are not persisted or cached",
+        "TTL",
+        "maximum item count",
+        "process-local",
+        "not persistent",
+        "not shared across worker processes",
+    ):
+        assert required.casefold() in lowered
+    for forbidden in (
+        "per-request render and report",
+        "report text is generated for every request",
+        "reports are generated per request",
+    ):
+        assert forbidden not in lowered
+
+
+def test_initial_release_gate_records_only_current_truth_and_future_evidence_fields() -> None:
+    release_gate = _document("release/sumaiguard-v1.0-app-store-release-gate.md")
+    normalized = _normalized(release_gate)
+
+    expected_rows = {
+        "Source implementation": "IN PROGRESS",
+        "Source push": "NOT STARTED",
+        "Exact-head CI": "NOT STARTED",
+        "Cloud Build candidate": "NOT STARTED",
+        "Real-device App Attest": "NOT STARTED",
+        "Production promotion": "NOT STARTED",
+        "Production state": "BLOCKED",
+        "Archive and signing": "NOT STARTED",
+        "TestFlight upload": "NOT STARTED",
+        "App Review submission": "NOT STARTED",
+        "App Review approval": "NOT STARTED",
+        "Manual release": "NOT STARTED",
+        "Storefront visibility": "NOT STARTED",
+    }
+    for gate, status_value in expected_rows.items():
+        assert re.search(
+            rf"\|\s*{re.escape(gate)}\s*\|\s*{re.escape(status_value)}\s*\|",
+            release_gate,
+        )
+
+    for required in (
+        "a84e85c",
+        "9d87169" + "35299bbaa0bf87e" + "647849fd1182d61d74",
+        "superseded evidence",
+        "Task 6 implementation is committed locally on `main`",
+        "current release source is the containing repository HEAD",
+        "embedding a commit's own SHA is self-referential",
+        "exact release SHA will be fixed and externally recorded only after push",
+        "no exact-head CI run exists for the containing repository HEAD",
+        "production mutation by this task: none; live state: unverified",
+        "Exact source SHA",
+        "Exact CI run",
+        "Exact Cloud Build",
+        "Exact candidate evidence",
+        "Exact agent revision",
+        "Exact web revision",
+        "Exact device evidence",
+        "Exact promotion evidence",
+        "Exact archive evidence",
+        "Exact review evidence",
+        "Exact release evidence",
+        "Exact storefront evidence",
+    ):
+        assert required.casefold() in normalized.casefold()
+
+    for forbidden in (
+        "final implementation commit has not yet been created",
+        "No final Task 6 SHA exists at snapshot time",
+        "next action is to create and review the exact Task 6 commit",
+    ):
+        assert forbidden not in release_gate
+
+    assert "TBD" not in release_gate.upper()
+    assert "TODO" not in release_gate.upper()
+    assert not re.search(r"https?://", release_gate)
+    assert not re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", release_gate, re.I)
+    allowed_statuses = {
+        "NOT STARTED",
+        "IN PROGRESS",
+        "BLOCKED",
+        "SKIPPED",
+        "PASS",
+    }
+    statuses = re.findall(r"^\|\s*[^|]+\|\s*([^|]+?)\s*\|", release_gate, re.M)
+    statuses = [
+        status_value.strip()
+        for status_value in statuses
+        if status_value.strip() != "Status"
+        and set(status_value.strip()) != {"-"}
+    ]
+    assert statuses
+    assert set(statuses).issubset(allowed_statuses)

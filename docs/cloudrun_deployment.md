@@ -1,179 +1,178 @@
-# Cloud Run Deployment Guide
+# Cloud Run Candidate And Release Evidence
 
-## Prerequisites
+This is an operator contract for evidence collection. It does not claim that a
+candidate exists, that production matches this repository, or that any Cloud
+Run or Apple gate has passed.
 
-1. Google Cloud project with billing enabled.
-2. `gcloud` CLI installed and authenticated (`gcloud auth login`).
-3. Cloud Run API enabled:
-   ```bash
-   gcloud services enable run.googleapis.com --project YOUR_PROJECT_ID
-   ```
-4. (Optional) Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+## Release topology
 
-## Quick Deploy
+The release flow is deliberately split:
 
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project-id
-export GEMINI_API_KEY=your-key-here  # optional
+1. **Source:** create one exact implementation SHA and push it.
+2. **CI:** obtain passing CI evidence bound to that exact SHA.
+3. **Candidate:** run Cloud Build for that SHA. Cloud Build tests first, builds
+   both containers, resolves each immutable digest, and creates uniquely tagged
+   agent and web candidate revisions at 0% production traffic. It must prove
+   that both production predecessors are unchanged and emit sanitized,
+   identity-bound candidate evidence.
+4. **Device:** use a real iPhone with `AppAttestProvider` and the approved
+   synthetic sample. Bind the result to the exact agent candidate revision and
+   retain only the sanitized device evidence contract.
+5. **Promotion:** run the separate promotion checkpoint. Its default dry-run
+   revalidates the source, candidate, immutable artifacts, service state,
+   candidate probes, and real-device App Attest evidence without mutation.
+6. **Production:** only an explicitly authorized apply run may change traffic.
+   Re-probe both stable services and retain sanitized promotion evidence.
+7. **Apple:** archive/signing, TestFlight processing, App Review submission,
+   approval, manual release, propagation, and storefront visibility remain
+   independent gates.
 
-./scripts/deploy_all_cloudrun.sh
-```
+Candidate PASS is not promotion authorization. Production PASS is not archive,
+review, release, or storefront PASS.
 
-This deploys both services in order:
-1. `sumai-agent` → FastAPI backend
-2. `sumai-web` → FastAPI web service serving the embedded HTML/CSS/vanilla JavaScript frontend (with agent URL auto-configured)
+## Candidate configuration contract
 
-## Individual Deployment
+The candidate is fail-closed and cannot use fallback analysis:
 
-### Deploy Agent Only
+- the agent image and web image are deployed by immutable digest;
+- each candidate tag remains at 0% production traffic;
+- agent `APP_CHECK_REQUIRED=true`;
+- agent `REQUIRE_REAL_GEMINI=true` and `MOCK_MODE=false`;
+- web `PUBLIC_WEB_ANALYSIS_ENABLED=false`;
+- the agent validates App Check before reading the multipart body;
+- Gemini credentials use the pinned secret-backed source contract and are
+  never copied into evidence; and
+- candidate evidence contains only allowlisted identity, digest, revision,
+  resource-version, predecessor, service-account, build, and status fields.
 
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project-id
-./scripts/deploy_sumai_agent.sh
-```
+Local mock mode remains available through `.env.example` and Docker Compose.
+It needs no Google or Firebase credentials and is not candidate or production
+evidence.
 
-### Deploy Web Only
+## Candidate evidence acceptance
 
-Requires agent to be deployed first (fetches URL automatically):
+Before recording the candidate gate as PASS, the sanitized evidence must bind:
 
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project-id
-./scripts/deploy_sumai_web.sh
-```
+- exact source SHA and Cloud Build record;
+- exact agent and web immutable digests;
+- exact agent and web candidate revisions and candidate URLs;
+- candidate tag and 0% traffic for both candidates;
+- agent and web production predecessors before the build;
+- unchanged production predecessors after candidate creation and probes;
+- service resource versions before and after candidate creation;
+- service-account identities matching the expected predecessor identities;
+- agent `/health` and `/ready` returning the expected 200 JSON contracts;
+- web `/`, `/ready`, `/privacy`, and `/support` returning 200, with
+  `Cache-Control: no-store` on `/privacy` and `/support`;
+- an unauthenticated native analysis attempt rejected by App Check before any
+  request body is processed; and
+- strict Gemini and disabled public web analysis read back from the candidate
+  configuration without copying values or credential references into release
+  documentation.
 
-## Check Status
+Cloud Build candidate success changes no production traffic and does not
+perform a real-device call.
 
-```bash
-export GOOGLE_CLOUD_PROJECT=your-project-id
-./scripts/check_cloudrun.sh
-```
+## Real-device gate
 
-## Secrets Management
+Device evidence must come from the native app on a real iPhone, use
+`AppAttestProvider`, target the exact candidate agent URL and revision, return
+the expected successful native response for the approved synthetic image, and
+record an observation time plus the synthetic sample SHA-256. Simulator,
+browser, curl, historic device, different revision, or user-skipped evidence is
+not PASS.
 
-### Option 1: Environment Variables (hackathon/quick setup)
+The device evidence file must conform exactly to the promotion script's
+allowlist. It must not contain tokens, headers, request/response bodies, image
+content, report/action content, personal material, account identities, or
+credentials.
 
-Set `GEMINI_API_KEY` before running deploy scripts:
+## Separate promotion checkpoint
 
-```bash
-export GEMINI_API_KEY=your-key-here
-./scripts/deploy_sumai_agent.sh
-```
+`scripts/promote-verified-candidate.sh` is the only promotion entrypoint. It
+requires both candidate and device evidence even in default dry-run mode. The
+dry run verifies exact `origin/main` binding, immutable artifact identity,
+candidate and predecessor state, 0% candidate traffic, configuration shape,
+candidate probes, and device freshness, then prints `mutation=NONE`.
 
-### Option 2: Secret Manager (recommended for production)
+Apply mode requires dual confirmation:
 
-```bash
-# Create secret
-echo -n "your-api-key" | gcloud secrets create gemini-api-key \
-    --data-file=- --project YOUR_PROJECT_ID
+- `SUMAI_PROMOTE_APPLY=true`; and
+- `SUMAI_PROMOTE_CONFIRM=PROMOTE_VERIFIED_SUMAI_CANDIDATE`.
 
-# Grant Cloud Run access
-gcloud secrets add-iam-policy-binding gemini-api-key \
-    --member="serviceAccount:YOUR_PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-    --role="roles/secretmanager.secretAccessor" \
-    --project YOUR_PROJECT_ID
+It also requires an explicit safe output path for sanitized promotion evidence.
+The apply path claims both services using the Cloud Run Admin API with the
+current `resourceVersion`, making concurrent changes fail as a compare-and-swap
+conflict. It rechecks ownership and source identity before each traffic change,
+promotes the agent, probes its stable URL, creates a final web revision bound to
+that stable agent URL, probes it at 0%, then promotes the web revision. On an
+owned failure it attempts ownership-aware rollback; it refuses rollback when a
+foreign lock, revision, or service identity makes mutation unsafe.
 
-# Update service to use secret
-gcloud run services update sumai-agent \
-    --region asia-northeast1 \
-    --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
-    --project YOUR_PROJECT_ID
-```
+Promotion execution is outside this documentation task. Never infer an apply
+run from source tests, dry-run output, candidate evidence, or an old production
+revision.
 
-## GitHub Actions Deployment
+## Strict read-only inspection
 
-See `.github/workflows/deploy-cloudrun.yml`.
+`scripts/check_cloudrun.sh` is not a deployment or promotion tool. All four
+inspection targets are mandatory and must be supplied explicitly:
+`GOOGLE_CLOUD_PROJECT`, `SUMAI_REGION`, `SUMAI_AGENT_SERVICE`, and
+`SUMAI_WEB_SERVICE`. There are no region or service-name defaults. Every target
+is validated before any `gcloud` or curl call. The script:
 
-Required GitHub Secrets:
+- calls only `gcloud run services describe` for the two validated services;
+- summarizes sanitized service URLs, revision traffic percentages, latest
+  created/ready revision names, bounded runtime shape, hashed service-account
+  identities, and whether those identities are equal;
+- sends GET only to agent `/health` and `/ready`, and web `/`, `/ready`,
+  `/privacy`, and `/support`; each curl invocation starts by disabling user
+  configuration, permits HTTPS only, follows no redirects, and sends no
+  authorization header;
+- requires HTTP 200, agent `/health` status `ok`, agent `/ready` status `ready`,
+  and web `/ready` status `ok`;
+- requires `Cache-Control: no-store` on `/privacy` and `/support`;
+- never calls analysis, status aliases, logs, revision/secret/config listing,
+  deployment, update, replacement, or traffic commands; and
+- fails with a fixed safe error when a service is private, unreachable,
+  malformed, or returns an unexpected contract.
 
-| Secret | Description |
-|--------|-------------|
-| `GCP_PROJECT_ID` | Google Cloud project ID |
-| `GCP_SA_KEY` | Service account JSON key with Cloud Run Admin role |
-| `GEMINI_API_KEY` | (Optional) Gemini API key |
-
-### Create a Service Account for CI/CD
-
-```bash
-PROJECT_ID=your-project-id
-
-# Create service account
-gcloud iam service-accounts create github-actions \
-    --display-name="GitHub Actions" \
-    --project $PROJECT_ID
-
-# Grant roles
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/run.admin"
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/storage.admin"
-
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:github-actions@${PROJECT_ID}.iam.gserviceaccount.com" \
-    --role="roles/iam.serviceAccountUser"
-
-# Create key
-gcloud iam service-accounts keys create key.json \
-    --iam-account=github-actions@${PROJECT_ID}.iam.gserviceaccount.com
-
-# Add key.json contents as GCP_SA_KEY secret in GitHub repo settings
-# Then delete the key file
-rm key.json
-```
-
-## Configuration
-
-### Cloud Run Service Settings
-
-| Setting | Agent | Web |
-|---------|-------|-----|
-| Memory | 1 GiB | 1 GiB |
-| CPU | 1 | 1 |
-| Timeout | 120s | 120s |
-| Auth | Unauthenticated | Unauthenticated |
-| Region | asia-northeast1 | asia-northeast1 |
-
-### Environment Variables on Cloud Run
-
-| Variable | Agent | Web |
-|----------|-------|-----|
-| `MOCK_MODE` | `false` | `false` |
-| `GEMINI_API_KEY` | Set via env/secret | — |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | — |
-| `SUMAI_AGENT_URL` | — | Auto-set from agent URL |
-| `SUMAI_WEB_PORT` | — | `8080` |
-| `LOG_LEVEL` | `INFO` | `INFO` |
-
-## Troubleshooting
-
-### Agent health check fails
+Example read-only invocation (do not paste real target values into tracked
+files):
 
 ```bash
-curl -s https://sumai-agent-XXXX.asia-northeast1.run.app/healthz
+GOOGLE_CLOUD_PROJECT=owner-approved-project SUMAI_REGION=owner-approved-region SUMAI_AGENT_SERVICE=owner-approved-agent-service SUMAI_WEB_SERVICE=owner-approved-web-service ./scripts/check_cloudrun.sh
 ```
 
-Check:
-- Service is deployed: `gcloud run services list --region asia-northeast1`
-- Logs: `gcloud run services logs read sumai-agent --region asia-northeast1 --limit 50`
+Its output is inspection evidence only. It does not establish that App Check,
+strict Gemini, or public web analysis settings match the candidate contract,
+because the checker deliberately does not print environment values or secret
+references. Those checks belong to sanitized Cloud Build candidate evidence.
 
-### Web can't reach agent
+## Retired direct mechanics and operational compatibility wrappers
 
-- Verify `SUMAI_AGENT_URL` is set correctly on the web service.
-- Redeploy web: `./scripts/deploy_sumai_web.sh`
+Direct legacy deployment paths are retired: ad-hoc `gcloud run deploy`, service
+update/replace, traffic update, mutable image tags, plaintext keys, and the
+retired source-deployment workflow fail closed and are not release paths.
 
-### Gemini returns mock results on Cloud Run
+The compatibility wrappers remain operational.
+`scripts/deploy_sumai_agent.sh` and `scripts/deploy_sumai_web.sh` reject partial
+arguments and delegate to `scripts/deploy_all_cloudrun.sh`; they do not perform
+an agent-only or web-only deployment. The paired entrypoint validates every
+required input and a clean exact `main` and `origin/main`, then uses approved
+WIF or otherwise valid `gcloud` authentication to submit a paired candidate-only
+Cloud Build from the immutable source archive and exact `cloudbuild.yaml`. This is an
+external candidate deployment: it can create both tagged 0% candidate
+revisions and sanitized evidence. It does not change production traffic or
+replace the separate device and promotion gates, but it still requires explicit
+authorization before execution.
 
-- Check `GEMINI_API_KEY` is set: healthz should show `mock_mode: false`.
-- Check logs for `gemini_fallback` entries.
+## Evidence hygiene
 
-### Cold start is slow
-
-Cloud Run cold starts can take 5-10 seconds. Use minimum instances to avoid:
-
-```bash
-gcloud run services update sumai-agent --min-instances 1 --region asia-northeast1
-```
-
-Note: This increases cost.
+Release documentation may record sanitized hashes, immutable digests,
+revisions, percentages, status, and evidence artifact hashes. Do not record
+credentials, access or App Check tokens, service-account addresses, personal
+email addresses, project numbers, Firebase app IDs, request/response bodies,
+image or report content, private log material, signed URLs, or invented service
+URLs. Cloud Logging retention and the owner-approved support contact must be
+observed separately before privacy publication.

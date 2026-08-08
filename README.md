@@ -107,9 +107,10 @@ orchestrator upload reads after App Check; it is not a limit on the entire
 multipart request. The decoded-image guard separately permits at most
 25,000,000 decoded source pixels.
 
-Release probes are `GET /health` for liveness and `GET /ready` for readiness.
-`/healthz` is a local compatibility alias. The public web service exposes
-`GET /privacy` and `GET /support`.
+Release probes are `GET /health` for agent liveness and `GET /ready` for
+readiness. The agent readiness JSON status is `ready`; the web readiness JSON
+status is `ok`. `/healthz` is a local compatibility alias. The public web
+service exposes `GET /privacy` and `GET /support`.
 
 Analysis failures use only the following flat JSON contract. Responses do not
 expose provider payloads, tokens, exception strings, image content, or debug
@@ -188,18 +189,73 @@ In strict Gemini mode:
 
 See [docs/gemini_integration.md](docs/gemini_integration.md) for details.
 
-## Phase And Release Boundary
+## Candidate And Release Boundary
 
-Phase 1 is source-only: Phase 1 makes no deployment, traffic, Firebase console,
-or App Store changes. Passing source tests does not prove a configured Firebase
-project, a deployed candidate, production traffic, an uploaded build, review,
-release, propagation, or storefront availability.
+The release path keeps source, CI, candidate, device, promotion, production,
+archive, review, release, and storefront gates separate. Passing one gate does
+not imply any later gate:
 
-The existing `scripts/deploy_*.sh`, `scripts/check_cloudrun.sh`,
-`docs/cloudrun_deployment.md`, and GitHub source-deployment workflow are legacy
-and non-release tooling. They must not be used for an App Store release. Phase 3
-replaces or converges those paths into the approved candidate-only release gate
-with current configuration and acceptance evidence.
+1. **Source and exact-head CI:** tests must bind to the exact source SHA.
+2. **Cloud Build candidate:** Cloud Build tests the source, builds agent and web
+   images, resolves each immutable digest, and deploys tagged candidate
+   revisions at 0% production traffic. Production predecessors must remain
+   unchanged. Sanitized candidate evidence binds the SHA, build, digests,
+   revisions, resource versions, service-account identities, and predecessor
+   revisions without request bodies, images, tokens, report content, or
+   credentials.
+3. **Candidate security:** the agent uses `APP_CHECK_REQUIRED=true` and
+   `REQUIRE_REAL_GEMINI=true`; App Check before reading the multipart body keeps
+   an unattested upload from being consumed. The web candidate uses
+   `PUBLIC_WEB_ANALYSIS_ENABLED=false`. The local mock mode remains available for
+   credential-free local work and is not production evidence.
+4. **Device:** a real iPhone must produce current App Attest evidence against
+   the exact candidate revision using the approved synthetic sample.
+5. **Separate promotion checkpoint:**
+   `scripts/promote-verified-candidate.sh` has default dry-run behavior and
+   validates both candidate evidence and real-device App Attest evidence.
+   Apply mode uses dual confirmation: `SUMAI_PROMOTE_APPLY=true` plus the exact
+   `SUMAI_PROMOTE_CONFIRM` phrase. It revalidates identity before mutation,
+   uses the Cloud Run Admin API with `resourceVersion` compare-and-swap
+   semantics, and performs ownership-aware rollback. Promotion evidence is a
+   separate artifact.
+6. **Apple:** archive/signing, TestFlight processing, App Review submission,
+   approval, manual release, propagation, and storefront visibility remain
+   independent gates after backend promotion.
+
+Direct legacy deployment paths are retired: direct/source `gcloud run deploy`,
+service update/replace, and traffic mechanics fail closed, and the retired
+source-deployment workflow is not an App Store release path. The compatibility
+wrappers remain operational: `scripts/deploy_sumai_agent.sh` and
+`scripts/deploy_sumai_web.sh` reject partial arguments and delegate to
+`scripts/deploy_all_cloudrun.sh`. That paired entrypoint submits one paired
+candidate-only Cloud Build only after all required inputs, clean exact
+`main`/`origin/main` state, and approved WIF or otherwise valid `gcloud`
+authentication are available.
+This is an external candidate deployment. It changes no production traffic,
+but it creates external 0% candidate revisions and therefore requires explicit
+authorization.
+
+`scripts/check_cloudrun.sh` is now a strict read-only inspector. All four
+targets are mandatory and explicit:
+
+```bash
+GOOGLE_CLOUD_PROJECT=owner-approved-project SUMAI_REGION=owner-approved-region SUMAI_AGENT_SERVICE=owner-approved-agent-service SUMAI_WEB_SERVICE=owner-approved-web-service ./scripts/check_cloudrun.sh
+```
+
+The inspector describes only the two named services and performs safe GET
+probes for agent `/health` and `/ready`, plus web `/`, `/ready`, `/privacy`, and
+`/support`. It requires agent `/ready` to report status `ready` and web `/ready`
+to report status `ok`. Each curl invocation ignores user configuration, permits
+HTTPS only, and follows no redirects. The inspector prints a bounded runtime
+shape summary such as container count, timeout, and concurrency, plus a traffic
+and service identity summary. It never prints environment values, secret
+references, tokens, or credential/provider details. It cannot deploy, change
+traffic, inspect logs, or analyze an image.
+See
+[docs/cloudrun_deployment.md](docs/cloudrun_deployment.md) for the evidence
+workflow and
+[the v1.0 release gate](docs/release/sumaiguard-v1.0-app-store-release-gate.md)
+for current gate status.
 
 CI runs on pushes and pull requests to `main`:
 
@@ -227,28 +283,35 @@ CI runs on pushes and pull requests to `main`:
 | `SUMAI_WEB_PORT` | `8081` | Frontend local port |
 | `LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARNING, ERROR) |
 | `ANALYSIS_TIMEOUT` | `120` | Gemini API timeout in seconds |
-| `GOOGLE_CLOUD_PROJECT` | (empty) | Legacy deploy tooling only; not for App Store release |
+| `GOOGLE_CLOUD_PROJECT` | (empty) | Explicit target for the read-only Cloud Run inspector; never release authorization |
+| `SUMAI_REGION` | (empty for inspector) | Required explicit read-only inspection region |
+| `SUMAI_AGENT_SERVICE` | (empty for inspector) | Required explicit read-only inspection agent service |
+| `SUMAI_WEB_SERVICE` | (empty for inspector) | Required explicit read-only inspection web service |
 
 Never hardcode secrets.
 
 ## Privacy And Operator Publication Gates
 
 The structured semantic result, including generated report/advice text, may be
-held and reused briefly in the bounded process-local TTL memo. The uploaded
+held and reused briefly in the bounded process-local TTL memo. Generated
+report/advice text is cached and reused on a memo hit. Annotated and improvement
+images are rendered for every request. The uploaded
 image bytes, the sanitized PNG, annotated image bytes, and PDF bytes are not
 stored in the memo; improvement image bytes are likewise outside it. PDF bytes
 are generated on demand and are not persisted or cached. The service does not
 persist uploaded images or account history.
 
-The memo has no database or account history, is not shared across workers, and
-is cleared when the worker process restarts. The operational logs are a separate
+The memo has no database or account history, is process-local, not persistent,
+not shared across worker processes, and is cleared when the worker process
+restarts. Its TTL and maximum item count are environment-configurable. The
+operational logs are a separate
 surface and may contain safe request metadata, status, timings, and stable error
 codes, but must not contain photos, raw model output, reports, App Check tokens,
 credentials, or provider exception strings.
 
 Both memo limits are environment-configurable. The memo holds structured
 semantic results and generated report/advice text only, never image or PDF
-bytes. Phase 3 must observe the deployed memo values before final privacy
+bytes. The release process must observe the deployed memo values before final privacy
 publication; source defaults are not evidence of deployed settings.
 
 Cloud Logging retention must be observed in the target environment before
@@ -256,13 +319,6 @@ publication; no duration may be inferred from source or invented. An
 owner-approved support/operator contact must be confirmed before publication;
 do not invent an email address, operator identity, response promise, project
 identifier, or public service URL.
-
-### Temporary Status Endpoint (`/status`)
-
-`/status` remains temporary only because the current Cloud Build path consumes
-it. It is not a native-client API, release probe, or publication contract. When
-Phase 3 Cloud Build uses control-plane verification, remove `/status` rather
-than extending or documenting it for iOS.
 
 ### Debug Query Parameter (`?debug=1`)
 Open the frontend web application with `?debug=1` appended to the URL (e.g., `http://localhost:8081/?debug=1` or your Cloud Run URL).
@@ -328,7 +384,7 @@ See [docs/demo_script.md](docs/demo_script.md) for the full 3-minute demo script
 - [x] Japanese UI
 - [x] Mock mode for offline demo
 - [x] Gemini integration for real analysis
-- [x] Legacy Cloud Run scripts exist (not release evidence)
+- [x] Candidate-only Cloud Build source path exists (not deployment evidence)
 - [x] GitHub Actions CI exists
 - [x] No elderly questionnaire
 - [x] No authentication/user accounts
@@ -350,5 +406,6 @@ See [docs/demo_script.md](docs/demo_script.md) for the full 3-minute demo script
 - [Risk Policy](docs/risk_policy.md)
 - [Demo Script](docs/demo_script.md)
 - [Product Decisions](docs/decisions.md)
-- [Cloud Run Deployment — legacy/non-release; do not use for App Store release](docs/cloudrun_deployment.md)
+- [Cloud Run candidate and release evidence](docs/cloudrun_deployment.md)
+- [v1.0 App Store release gate](docs/release/sumaiguard-v1.0-app-store-release-gate.md)
 - [Gemini Integration](docs/gemini_integration.md)
