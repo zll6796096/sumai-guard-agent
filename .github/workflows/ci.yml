@@ -33,7 +33,7 @@ jobs:
       - name: Validate release control contracts
         run: |
           python scripts/test_cloudbuild_config.py
-          python -m pytest scripts/test_promote_verified_candidate.py scripts/test_deployment_entrypoints.py -v
+          python -m pytest scripts/test_promote_verified_candidate.py scripts/test_deployment_entrypoints.py scripts/test_install_firebase_ios_config.py scripts/test_ios_ci_workflow.py scripts/test_validate_ios_release.py -v
           bash -n scripts/promote-verified-candidate.sh scripts/check_cloudrun.sh scripts/deploy_all_cloudrun.sh scripts/deploy_sumai_agent.sh scripts/deploy_sumai_web.sh
 
       - name: Frontend import check
@@ -51,3 +51,61 @@ jobs:
 
       - name: Validate docker compose config
         run: docker compose config
+
+  ios-test:
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install native release validator dependencies
+        run: python -m pip install Pillow PyYAML pytest
+
+      - name: Create non-production Firebase structure fixture
+        run: |
+          python - <<'PY'
+          import plistlib
+          from pathlib import Path
+
+          destination = Path(
+              "ios/SumaiGuard/Resources/GoogleService-Info.plist"
+          )
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          with destination.open("wb") as stream:
+              plistlib.dump(
+                  {
+                      "API_KEY": "NON_PRODUCTION_CI_FIXTURE",
+                      "BUNDLE_ID": "com.zll.sumaiguard",
+                      "GCM_SENDER_ID": "123456789",
+                      "GOOGLE_APP_ID": (
+                          "1:123456789:ios:abcdef0123456789"
+                      ),
+                      "PROJECT_ID": "sumai-ci-project",
+                  },
+                  stream,
+              )
+          PY
+
+      - name: Validate native release contracts
+        run: |
+          python scripts/validate_ios_release.py \
+            --allow-invalid-api-origin-for-ci \
+            --expected-firebase-app-id \
+            1:123456789:ios:abcdef0123456789
+
+      - name: Run native iOS tests
+        run: |
+          SIMULATOR_ID="$(xcrun simctl list devices available -j | python -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(device["udid"] for rows in devices.values() for device in rows if device.get("isAvailable") and device["name"].startswith("iPhone")))')"
+          xcodebuild -quiet \
+            -project ios/SumaiGuard.xcodeproj \
+            -scheme SumaiGuard \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
+            test \
+            CODE_SIGNING_ALLOWED=NO

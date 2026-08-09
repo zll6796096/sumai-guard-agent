@@ -46,6 +46,9 @@ PATHS = {
         "ios/SumaiGuard.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/"
         "Package.resolved"
     ),
+    "firebase_config": (
+        "ios/SumaiGuard/Resources/GoogleService-Info.plist"
+    ),
     "icon": "ios/SumaiGuard/Resources/Assets.xcassets/AppIcon.appiconset",
 }
 
@@ -81,6 +84,11 @@ RULES = {
     "DEPLOYMENT_TARGET_TOO_LOW": "deployment target must be iOS 17 or later",
     "FIREBASE_NOT_EXACTLY_PINNED": "Firebase dependency must use exactVersion",
     "FIREBASE_PIN_MISMATCH": "Firebase pins are inconsistent",
+    "FIREBASE_CONFIG_MISSING": "Firebase iOS client configuration is missing",
+    "FIREBASE_CONFIG_INVALID": "Firebase iOS client configuration is invalid",
+    "FIREBASE_CONFIG_IDENTITY_MISMATCH": (
+        "Firebase iOS client configuration does not match the release identity"
+    ),
 }
 
 MAX_TEXT_BYTES = 8 * 1024 * 1024
@@ -97,9 +105,20 @@ class Finding:
 
 
 class Validator:
-    def __init__(self, root: Path, *, allow_invalid_api_origin_for_ci: bool) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        allow_invalid_api_origin_for_ci: bool,
+        allow_missing_firebase_config_for_ci: bool,
+        expected_firebase_app_id: str,
+    ) -> None:
         self.root = root.resolve()
         self.allow_invalid_api_origin_for_ci = allow_invalid_api_origin_for_ci
+        self.allow_missing_firebase_config_for_ci = (
+            allow_missing_firebase_config_for_ci
+        )
+        self.expected_firebase_app_id = expected_firebase_app_id
         self.findings: set[Finding] = set()
 
     def add(self, code: str, path_key: str) -> None:
@@ -183,6 +202,7 @@ class Validator:
         self.validate_project_identity(project, info, pbx)
         self.validate_entitlements(entitlements)
         self.validate_firebase(project, pbx, resolved)
+        self.validate_firebase_client_config()
         self.validate_release_settings(release)
         self.validate_release_sources()
         self.validate_icons()
@@ -370,6 +390,51 @@ class Validator:
                     or re.fullmatch(r"[0-9a-f]{40}", str(state.get("revision", ""))) is None
                 ):
                     self.add("FIREBASE_PIN_MISMATCH", "resolved")
+
+    def validate_firebase_client_config(self) -> None:
+        config_path = self.file("firebase_config")
+        try:
+            payload = config_path.read_bytes()
+        except FileNotFoundError:
+            if not self.allow_missing_firebase_config_for_ci:
+                self.add("FIREBASE_CONFIG_MISSING", "firebase_config")
+            return
+        except OSError:
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+        if not payload or len(payload) > MAX_TEXT_BYTES:
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+        try:
+            config = plistlib.loads(payload)
+        except (plistlib.InvalidFileException, ValueError, TypeError, OverflowError):
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+        if not isinstance(config, dict):
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+
+        app_id = config.get("GOOGLE_APP_ID")
+        sender_id = config.get("GCM_SENDER_ID")
+        required_strings = (
+            config.get("API_KEY"),
+            config.get("PROJECT_ID"),
+            sender_id,
+            app_id,
+        )
+        if any(not isinstance(value, str) or not value for value in required_strings):
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+        app_id_match = re.fullmatch(r"1:([0-9]+):ios:[0-9a-f]+", app_id)
+        if app_id_match is None or app_id_match.group(1) != sender_id:
+            self.add("FIREBASE_CONFIG_INVALID", "firebase_config")
+            return
+        if (
+            config.get("BUNDLE_ID") != EXPECTED["bundle"]
+            or not self.expected_firebase_app_id
+            or app_id != self.expected_firebase_app_id
+        ):
+            self.add("FIREBASE_CONFIG_IDENTITY_MISMATCH", "firebase_config")
 
     def validate_release_settings(self, release: str | None) -> None:
         if release is None:
@@ -601,10 +666,16 @@ def validate_repository(
     root: Path,
     *,
     allow_invalid_api_origin_for_ci: bool = False,
+    allow_missing_firebase_config_for_ci: bool = False,
+    expected_firebase_app_id: str = "",
 ) -> list[Finding]:
     return Validator(
         root,
         allow_invalid_api_origin_for_ci=allow_invalid_api_origin_for_ci,
+        allow_missing_firebase_config_for_ci=(
+            allow_missing_firebase_config_for_ci
+        ),
+        expected_firebase_app_id=expected_firebase_app_id,
     ).run()
 
 
@@ -621,6 +692,19 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="store_true",
         help="Allow only the committed invalid.invalid API-origin placeholder for CI",
     )
+    parser.add_argument(
+        "--allow-missing-firebase-config-for-ci",
+        action="store_true",
+        help=(
+            "Allow only the untracked Firebase client configuration to be "
+            "absent in CI"
+        ),
+    )
+    parser.add_argument(
+        "--expected-firebase-app-id",
+        default="",
+        help=argparse.SUPPRESS,
+    )
     return parser.parse_args(argv)
 
 
@@ -630,6 +714,10 @@ def main(argv: list[str] | None = None) -> int:
         findings = validate_repository(
             args.root,
             allow_invalid_api_origin_for_ci=args.allow_invalid_api_origin_for_ci,
+            allow_missing_firebase_config_for_ci=(
+                args.allow_missing_firebase_config_for_ci
+            ),
+            expected_firebase_app_id=args.expected_firebase_app_id,
         )
     except Exception:
         findings = [Finding("INPUT_PARSE_FAILED", PATHS["project"])]

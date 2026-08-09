@@ -12,6 +12,7 @@ from PIL import Image
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = REPOSITORY_ROOT / "scripts" / "validate_ios_release.py"
+FIREBASE_APP_ID = "1:123456789:ios:abcdef0123456789"
 
 
 class ReleaseFixture:
@@ -20,6 +21,13 @@ class ReleaseFixture:
         self.project = root / "ios" / "project.yml"
         self.info = root / "ios" / "SumaiGuard" / "Info.plist"
         self.entitlements = root / "ios" / "SumaiGuard" / "SumaiGuard.entitlements"
+        self.google_config = (
+            root
+            / "ios"
+            / "SumaiGuard"
+            / "Resources"
+            / "GoogleService-Info.plist"
+        )
         self.release_config = root / "ios" / "SumaiGuard" / "Config" / "Release.xcconfig"
         self.source = root / "ios" / "SumaiGuard" / "Services" / "AppCheckBootstrap.swift"
         self.pbx = root / "ios" / "SumaiGuard.xcodeproj" / "project.pbxproj"
@@ -111,6 +119,16 @@ targets:
         fixture.entitlements,
         {"com.apple.developer.devicecheck.appattest-environment": "production"},
     )
+    fixture.write_plist(
+        fixture.google_config,
+        {
+            "API_KEY": "test-client-key",
+            "BUNDLE_ID": "com.zll.sumaiguard",
+            "GCM_SENDER_ID": "123456789",
+            "GOOGLE_APP_ID": FIREBASE_APP_ID,
+            "PROJECT_ID": "sumai-test-project",
+        },
+    )
     fixture.write_text(
         fixture.release_config,
         "SUMAI_API_ORIGIN = https:/$()/api.sumaiguard.example\n"
@@ -199,10 +217,23 @@ def run_validator(
     fixture: ReleaseFixture,
     *,
     allow_invalid_origin: bool = False,
+    allow_missing_firebase_config: bool = False,
+    expected_firebase_app_id: str | None = FIREBASE_APP_ID,
 ) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, str(VALIDATOR), "--root", str(fixture.root)]
+    command = [
+        sys.executable,
+        str(VALIDATOR),
+        "--root",
+        str(fixture.root),
+    ]
     if allow_invalid_origin:
         command.append("--allow-invalid-api-origin-for-ci")
+    if allow_missing_firebase_config:
+        command.append("--allow-missing-firebase-config-for-ci")
+    if expected_firebase_app_id is not None:
+        command.extend(
+            ["--expected-firebase-app-id", expected_firebase_app_id]
+        )
     return subprocess.run(command, capture_output=True, text=True, check=False)
 
 
@@ -217,6 +248,62 @@ def test_accepts_complete_production_release(release_fixture: ReleaseFixture) ->
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == "PASS IOS_RELEASE_VALIDATION\n"
     assert result.stderr == ""
+
+
+def test_rejects_missing_firebase_client_configuration(
+    release_fixture: ReleaseFixture,
+) -> None:
+    release_fixture.google_config.unlink()
+
+    assert_failed_with(run_validator(release_fixture), "FIREBASE_CONFIG_MISSING")
+
+
+def test_ci_may_bypass_only_an_absent_firebase_client_configuration(
+    release_fixture: ReleaseFixture,
+) -> None:
+    release_fixture.google_config.unlink()
+
+    result = run_validator(
+        release_fixture,
+        allow_missing_firebase_config=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("BUNDLE_ID", "com.example.other"),
+        ("GOOGLE_APP_ID", "1:123456789:ios:ffffffffffffffff"),
+    ],
+)
+def test_rejects_firebase_client_identity_mismatch(
+    release_fixture: ReleaseFixture,
+    key: str,
+    value: str,
+) -> None:
+    with release_fixture.google_config.open("rb") as stream:
+        config = plistlib.load(stream)
+    config[key] = value
+    release_fixture.write_plist(release_fixture.google_config, config)
+
+    assert_failed_with(
+        run_validator(release_fixture),
+        "FIREBASE_CONFIG_IDENTITY_MISMATCH",
+    )
+
+
+def test_rejects_firebase_config_without_expected_app_identity(
+    release_fixture: ReleaseFixture,
+) -> None:
+    assert_failed_with(
+        run_validator(
+            release_fixture,
+            expected_firebase_app_id=None,
+        ),
+        "FIREBASE_CONFIG_IDENTITY_MISMATCH",
+    )
 
 
 def test_rejects_absent_app_store_icon(release_fixture: ReleaseFixture) -> None:
@@ -494,5 +581,9 @@ def test_errors_never_echo_secret_values_or_google_plist_contents(
     assert result.returncode == 1
     assert secret not in combined
     assert "private-bundle-value" not in combined
-    assert "GoogleService-Info.plist" not in combined
+    assert (
+        "ERROR FIREBASE_CONFIG_INVALID "
+        "ios/SumaiGuard/Resources/GoogleService-Info.plist "
+        in result.stdout
+    )
     assert "ERROR RELEASE_DEBUG_TOKEN ios/SumaiGuard/Config/Release.xcconfig " in result.stdout
