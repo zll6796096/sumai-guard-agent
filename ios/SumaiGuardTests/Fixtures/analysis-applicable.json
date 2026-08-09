@@ -1,0 +1,125 @@
+{
+  "analysis_id": "analysis-fixture-001",
+  "room_type": "genkan",
+  "overall_risk_level": "high",
+  "findings": [
+    {
+      "id": "risk-fixture-001",
+      "risk_type": "loose_mat",
+      "label_ja": "架空のマットのめくれ",
+      "description_ja": "合成画像上で、架空のマットの端が浮いて見えます。",
+      "severity": 4,
+      "confidence": 0.94,
+      "bbox": {
+        "x": 0.1,
+        "y": 0.55,
+        "w": 0.3,
+        "h": 0.2
+      },
+      "display_bbox": {
+        "x": 0.08,
+        "y": 0.53,
+        "w": 0.34,
+        "h": 0.24
+      },
+      "evidence_source_ids": [
+        "entity-mat-1"
+      ],
+      "evidence_ja": "合成画像の玄関床にある架空のマット端を根拠にしています。",
+      "basis_label_ja": "見える段差候補",
+      "basis_summary_ja": "写真で確認できる範囲に小さな段差候補があります。",
+      "needs_human_confirmation": true,
+      "ontology_key": "floor.loose_mat",
+      "ontology_rule_kind": "visible_hazard"
+    },
+    {
+      "id": "risk-fixture-002",
+      "risk_type": "expected_handrail",
+      "label_ja": "手すりの現地確認候補",
+      "description_ja": "合成画像だけでは手すりの状態を確定できません。",
+      "severity": 2,
+      "confidence": 0.61,
+      "bbox": {
+        "x": 0.7,
+        "y": 0.15,
+        "w": 0.15,
+        "h": 0.5
+      },
+      "display_bbox": null,
+      "evidence_source_ids": [
+        "region-wall-1"
+      ],
+      "evidence_ja": "合成画像の壁面範囲を根拠にしています。",
+      "basis_label_ja": "設備の確認候補",
+      "basis_summary_ja": "必要性や設置可否は写真だけでは判断できません。",
+      "needs_human_confirmation": true,
+      "ontology_key": "entrance.handrail",
+      "ontology_rule_kind": "expected_feature"
+    }
+  ],
+  "action_plan": {
+    "family_no_cost": [
+      {
+        "id": "action-fixture-family",
+        "risk_id": "risk-fixture-001",
+        "tier": "FAMILY_NO_COST",
+        "title_ja": "架空のマットを一時的に外す",
+        "description_ja": "家族で動かせる場合だけ、通路から架空のマットを外します。",
+        "why_ja": "見えている段差候補を減らすためです。",
+        "cost_level": "ZERO",
+        "requires_professional": false,
+        "disclaimer_ja": "無理に動かさず、現地の状態を確認してください。"
+      }
+    ],
+    "care_manager_purchase": [
+      {
+        "id": "action-fixture-care",
+        "risk_id": "risk-fixture-001",
+        "tier": "CARE_MANAGER_PURCHASE",
+        "title_ja": "滑り止め用品を相談する",
+        "description_ja": "購入や福祉用具の適否をケアマネジャー等に相談します。",
+        "why_ja": "使用環境に合う用品か写真だけでは判断できないためです。",
+        "cost_level": "LOW",
+        "requires_professional": true,
+        "disclaimer_ja": "製品の適合性は専門職に確認してください。"
+      }
+    ],
+    "contractor_construction": [
+      {
+        "id": "action-fixture-contractor",
+        "risk_id": "risk-fixture-002",
+        "tier": "CONTRACTOR_CONSTRUCTION",
+        "title_ja": "手すり設置の現地確認を依頼する",
+        "description_ja": "壁の下地や動線を専門施工者に現地確認してもらいます。",
+        "why_ja": "施工可否と位置は一枚の写真では判断できないためです。",
+        "cost_level": "HIGH",
+        "requires_professional": true,
+        "disclaimer_ja": "施工判断や見積もりは専門事業者に依頼してください。"
+      }
+    ]
+  },
+  "annotated_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQtzUCAAD1AIeGlNxsAAAAAElFTkSuQmCC",
+  "improvement_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQtzUCAAD1AIeGlNxsAAAAAElFTkSuQmCC",
+  "risk_summary_markdown": "## 写真で確認できた架空の注意候補\n\nマットの端と壁面を確認してください。",
+  "family_actions_markdown": "## 家族で今日できること\n\n架空のマットを安全に外せるか確認します。",
+  "care_manager_actions_markdown": "## ケアマネ・福祉用具に相談\n\n滑り止め用品の適否を相談します。",
+  "contractor_actions_markdown": "## 専門施工・現地確認\n\n手すり設置の可否を現地で確認します。",
+  "disclaimer_ja": "この結果は医療・介護認定・保険・法令適合・施工可否・見積もりの判断に代わるものではありません。",
+  "mode": "fixture",
+  "is_home_environment": true,
+  "is_not_applicable": false,
+  "not_applicable_reason_ja": null,
+  "model": "fictional-vision-model",
+  "result_key": "fixture-result-key",
+  "semantic_hash": "fixture-semantic-hash",
+  "schema_version": "2.0.0",
+  "ontology_version": "1.0.0",
+  "preprocess_version": "1.0.0",
+  "inference_config_version": "1.0.0",
+  "stage_timings_ms": {
+    "preprocess": 20,
+    "inference": 80,
+    "policy": 20,
+    "total": 120
+  }
+}

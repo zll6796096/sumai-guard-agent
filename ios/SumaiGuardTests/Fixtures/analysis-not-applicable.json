@@ -1,0 +1,35 @@
+{
+  "analysis_id": "analysis-fixture-not-applicable",
+  "room_type": "auto",
+  "overall_risk_level": "low",
+  "findings": [],
+  "action_plan": {
+    "family_no_cost": [],
+    "care_manager_purchase": [],
+    "contractor_construction": []
+  },
+  "annotated_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQtzUCAAD1AIeGlNxsAAAAAElFTkSuQmCC",
+  "improvement_image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGMQtzUCAAD1AIeGlNxsAAAAAElFTkSuQmCC",
+  "risk_summary_markdown": "",
+  "family_actions_markdown": "",
+  "care_manager_actions_markdown": "",
+  "contractor_actions_markdown": "",
+  "disclaimer_ja": "この結果は医療・介護認定・保険・法令適合・施工可否・見積もりの判断に代わるものではありません。",
+  "mode": "fixture",
+  "is_home_environment": false,
+  "is_not_applicable": true,
+  "not_applicable_reason_ja": "住まいの室内を確認できる写真ではありません。",
+  "model": "fictional-vision-model",
+  "result_key": "fixture-not-applicable-key",
+  "semantic_hash": "fixture-not-applicable-hash",
+  "schema_version": "2.0.0",
+  "ontology_version": "1.0.0",
+  "preprocess_version": "1.0.0",
+  "inference_config_version": "1.0.0",
+  "stage_timings_ms": {
+    "preprocess": 8,
+    "inference": 34,
+    "policy": 3,
+    "total": 45
+  }
+}

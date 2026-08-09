@@ -1,0 +1,773 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		028FF3694117DB082BC36AFC /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = A30FA7C11DA666D3A9468E21 /* FirebaseAppCheck */; };
+		05485471E5B8F7B7FD6AD70E /* SafetyPDFRendererTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D03D3B74E44D0B9F59B476E /* SafetyPDFRendererTests.swift */; };
+		0D8365321B47C0E09DE7F435 /* NotApplicableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C303633CD456FF97785BB46 /* NotApplicableView.swift */; };
+		0F717AB3E85ED801E50CB2FE /* NoFindingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 74C0600CB26A06D9DF7D0509 /* NoFindingsView.swift */; };
+		19DC95AFC7D36E413FF19415 /* error-app-check.json in Resources */ = {isa = PBXBuildFile; fileRef = F8827A386EDEC248B85AC3CD /* error-app-check.json */; };
+		2C53C8455C533FC103101D35 /* ImageSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767CE7297C052E8BC830882F /* ImageSanitizer.swift */; };
+		3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700B53EC57194F309C61E141 /* APIError.swift */; };
+		455D9D7140BE2F1639630914 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AE8EF00D24C3F4CAF4405E /* APIClient.swift */; };
+		492ECDBCAEAD6A14FA177D6B /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */; };
+		4C13A6D8284CFA2BAC53EE2F /* ConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82DE34A1530D14058E5C9405 /* ConsentView.swift */; };
+		55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100AF3AD82A99C7BA36A14 /* AppCheckBootstrap.swift */; };
+		6975E5D30719EE9944A15E64 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CF0ECA4B6925990B968821B /* CaptureView.swift */; };
+		6BC11F4F553AF8D1AF4D9D08 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */; };
+		6E19AF90E0D2C11115027C7E /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */; };
+		799EB84CD48D887F87F98331 /* AppAttestDeviceSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 498A43BA238DCD6C211777E2 /* AppAttestDeviceSmokeTests.swift */; };
+		855365A44FAD2567D45A531A /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 032DA5048FCDEBEB2A4EC530 /* ErrorView.swift */; };
+		878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */; };
+		89E4B8E36B4A025DAB860056 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD4B13B23263B5B5715EEA52 /* FirebaseCore */; };
+		8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */; };
+		908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */; };
+		91B23296ABAD0237ABB32CEA /* SafetyPDFRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04DC5D98D2FD883D4F275B2B /* SafetyPDFRenderer.swift */; };
+		A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574F946E01B468839D87F543 /* AnalysisResponseTests.swift */; };
+		A29BEA03F064FC52E37F7207 /* CameraPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */; };
+		AFB89256916AAF93A875E867 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 4578F103A852C615834FB029 /* GoogleService-Info.plist */; };
+		B34500C92421DD90EBAD9DB9 /* CaptureConsentViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */; };
+		CCAA3A9119AA5DB315DB53D7 /* AdviceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0FB81F8C1BDE9B870B9A63CD /* AdviceView.swift */; };
+		D3112737EB9619B8F9F410E8 /* RemoteResultImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24CD7D4D07F3E07F46FD895 /* RemoteResultImage.swift */; };
+		D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */; };
+		E85457627ADBA35C094F8FBF /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F57D8B7772DA87A0E99629D /* ShareSheet.swift */; };
+		EE5E71726B14308D003961A6 /* ResultStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FEAC80B9EBAD0ADF7BB180 /* ResultStateTests.swift */; };
+		EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */; };
+		F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */; };
+		F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */; };
+		F558B65AE8666CC862AD5BB0 /* PrivacySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */; };
+		F99B7B5458AECF44D5182AD9 /* analysis-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E729575DEE08118605FF942E /* analysis-applicable.json */; };
+		FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */; };
+		FBA9BEF213153F31184D3633 /* ResultView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D5CEDCFB611515E6A0A5C9F /* ResultView.swift */; };
+		FBF273F29116EA859DA7A387 /* AccessibilityContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE21417AF2786664F3D350BA /* AccessibilityContractTests.swift */; };
+		FE3E14A0FE79B5D21A82AD49 /* ProcessingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E403570544EC4771CF39E4C2 /* ProcessingView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5E8A168755B07C3F54C9C8A1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2CE797727B2AEDB02ACC72DF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 212BA84CE6E74C433E6FEC99;
+			remoteInfo = SumaiGuard;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		032DA5048FCDEBEB2A4EC530 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
+		04DC5D98D2FD883D4F275B2B /* SafetyPDFRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyPDFRenderer.swift; sourceTree = "<group>"; };
+		0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCheckBootstrapTests.swift; sourceTree = "<group>"; };
+		0FB81F8C1BDE9B870B9A63CD /* AdviceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdviceView.swift; sourceTree = "<group>"; };
+		3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponse.swift; sourceTree = "<group>"; };
+		412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinatorTests.swift; sourceTree = "<group>"; };
+		4578F103A852C615834FB029 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		498A43BA238DCD6C211777E2 /* AppAttestDeviceSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAttestDeviceSmokeTests.swift; sourceTree = "<group>"; };
+		53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
+		574F946E01B468839D87F543 /* AnalysisResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponseTests.swift; sourceTree = "<group>"; };
+		5D03D3B74E44D0B9F59B476E /* SafetyPDFRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyPDFRendererTests.swift; sourceTree = "<group>"; };
+		5F57D8B7772DA87A0E99629D /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
+		63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySheet.swift; sourceTree = "<group>"; };
+		6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizerTests.swift; sourceTree = "<group>"; };
+		6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConsentViewTests.swift; sourceTree = "<group>"; };
+		700B53EC57194F309C61E141 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
+		74C0600CB26A06D9DF7D0509 /* NoFindingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoFindingsView.swift; sourceTree = "<group>"; };
+		767CE7297C052E8BC830882F /* ImageSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizer.swift; sourceTree = "<group>"; };
+		7C303633CD456FF97785BB46 /* NotApplicableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotApplicableView.swift; sourceTree = "<group>"; };
+		81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SumaiGuard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		82DE34A1530D14058E5C9405 /* ConsentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentView.swift; sourceTree = "<group>"; };
+		852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinator.swift; sourceTree = "<group>"; };
+		8CF0ECA4B6925990B968821B /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
+		8D5CEDCFB611515E6A0A5C9F /* ResultView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultView.swift; sourceTree = "<group>"; };
+		92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SumaiGuardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SumaiGuardApp.swift; sourceTree = "<group>"; };
+		AE21417AF2786664F3D350BA /* AccessibilityContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityContractTests.swift; sourceTree = "<group>"; };
+		B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContractTests.swift; sourceTree = "<group>"; };
+		B9AE8EF00D24C3F4CAF4405E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		B9FEAC80B9EBAD0ADF7BB180 /* ResultStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResultStateTests.swift; sourceTree = "<group>"; };
+		BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
+		CF15A45E467EFB128F3BF93E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		E403570544EC4771CF39E4C2 /* ProcessingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessingView.swift; sourceTree = "<group>"; };
+		E729575DEE08118605FF942E /* analysis-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-applicable.json"; sourceTree = "<group>"; };
+		E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-not-applicable.json"; sourceTree = "<group>"; };
+		EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		F24CD7D4D07F3E07F46FD895 /* RemoteResultImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteResultImage.swift; sourceTree = "<group>"; };
+		F4100AF3AD82A99C7BA36A14 /* AppCheckBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCheckBootstrap.swift; sourceTree = "<group>"; };
+		F8827A386EDEC248B85AC3CD /* error-app-check.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-app-check.json"; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		4D262EE5BE43BCE377E119E0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				89E4B8E36B4A025DAB860056 /* FirebaseCore in Frameworks */,
+				028FF3694117DB082BC36AFC /* FirebaseAppCheck in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		163C31DA4C6DD7132DDBFDED /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */,
+				4578F103A852C615834FB029 /* GoogleService-Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		1C61DE370ECB24BA31E1185A /* Fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				E729575DEE08118605FF942E /* analysis-applicable.json */,
+				E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */,
+				F8827A386EDEC248B85AC3CD /* error-app-check.json */,
+			);
+			path = Fixtures;
+			sourceTree = "<group>";
+		};
+		32D2BF15B673A5EE9F964BB4 /* SumaiGuard */ = {
+			isa = PBXGroup;
+			children = (
+				E81C528F8B9DFC2ED0B6B611 /* App */,
+				E6EB9EA057A43B578B634FD6 /* Models */,
+				163C31DA4C6DD7132DDBFDED /* Resources */,
+				9ECFCECD3A108362C3C37009 /* Services */,
+				4317E3EE1480E644EA390AF2 /* ViewModels */,
+				D10EA0BDF46647CE69E7D65A /* Views */,
+			);
+			path = SumaiGuard;
+			sourceTree = "<group>";
+		};
+		3D1FA6A54216D1169E58D1EB = {
+			isa = PBXGroup;
+			children = (
+				B16A26B9497077EDEEC420B8 /* Config */,
+				32D2BF15B673A5EE9F964BB4 /* SumaiGuard */,
+				BAE245C590CFDEABE7241EEF /* SumaiGuardTests */,
+				F3F2CA10E8324869AC5E53A2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		4317E3EE1480E644EA390AF2 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		9ECFCECD3A108362C3C37009 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				B9AE8EF00D24C3F4CAF4405E /* APIClient.swift */,
+				F4100AF3AD82A99C7BA36A14 /* AppCheckBootstrap.swift */,
+				767CE7297C052E8BC830882F /* ImageSanitizer.swift */,
+				04DC5D98D2FD883D4F275B2B /* SafetyPDFRenderer.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		B16A26B9497077EDEEC420B8 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */,
+				CF15A45E467EFB128F3BF93E /* Release.xcconfig */,
+			);
+			name = Config;
+			path = SumaiGuard/Config;
+			sourceTree = "<group>";
+		};
+		BAE245C590CFDEABE7241EEF /* SumaiGuardTests */ = {
+			isa = PBXGroup;
+			children = (
+				AE21417AF2786664F3D350BA /* AccessibilityContractTests.swift */,
+				574F946E01B468839D87F543 /* AnalysisResponseTests.swift */,
+				53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */,
+				498A43BA238DCD6C211777E2 /* AppAttestDeviceSmokeTests.swift */,
+				0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */,
+				412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */,
+				6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */,
+				6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */,
+				B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */,
+				B9FEAC80B9EBAD0ADF7BB180 /* ResultStateTests.swift */,
+				5D03D3B74E44D0B9F59B476E /* SafetyPDFRendererTests.swift */,
+				1C61DE370ECB24BA31E1185A /* Fixtures */,
+			);
+			path = SumaiGuardTests;
+			sourceTree = "<group>";
+		};
+		D10EA0BDF46647CE69E7D65A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				0FB81F8C1BDE9B870B9A63CD /* AdviceView.swift */,
+				BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */,
+				8CF0ECA4B6925990B968821B /* CaptureView.swift */,
+				82DE34A1530D14058E5C9405 /* ConsentView.swift */,
+				032DA5048FCDEBEB2A4EC530 /* ErrorView.swift */,
+				74C0600CB26A06D9DF7D0509 /* NoFindingsView.swift */,
+				7C303633CD456FF97785BB46 /* NotApplicableView.swift */,
+				63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */,
+				E403570544EC4771CF39E4C2 /* ProcessingView.swift */,
+				F24CD7D4D07F3E07F46FD895 /* RemoteResultImage.swift */,
+				8D5CEDCFB611515E6A0A5C9F /* ResultView.swift */,
+				F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */,
+				5F57D8B7772DA87A0E99629D /* ShareSheet.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		E6EB9EA057A43B578B634FD6 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */,
+				700B53EC57194F309C61E141 /* APIError.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		E81C528F8B9DFC2ED0B6B611 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		F3F2CA10E8324869AC5E53A2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */,
+				92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		212BA84CE6E74C433E6FEC99 /* SumaiGuard */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 61F549DD2CF55DE0C59D2006 /* Build configuration list for PBXNativeTarget "SumaiGuard" */;
+			buildPhases = (
+				25E926A965819466D8F0607E /* Sources */,
+				E0B3CAD41887FB6032BC0CB7 /* Resources */,
+				4D262EE5BE43BCE377E119E0 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SumaiGuard;
+			packageProductDependencies = (
+				CD4B13B23263B5B5715EEA52 /* FirebaseCore */,
+				A30FA7C11DA666D3A9468E21 /* FirebaseAppCheck */,
+			);
+			productName = SumaiGuard;
+			productReference = 81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CC0262E62E5B77F6326BEA68 /* SumaiGuardTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 94CCC071B61100BA64E64867 /* Build configuration list for PBXNativeTarget "SumaiGuardTests" */;
+			buildPhases = (
+				1E619CA10907FBC5C4BDDEF3 /* Sources */,
+				230AE1720CFCD7F69DDE1FD0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8EEDAC0F2BBE43495B8712CB /* PBXTargetDependency */,
+			);
+			name = SumaiGuardTests;
+			packageProductDependencies = (
+			);
+			productName = SumaiGuardTests;
+			productReference = 92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		2CE797727B2AEDB02ACC72DF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					212BA84CE6E74C433E6FEC99 = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C38256CB6A3924CABAE16C38 /* Build configuration list for PBXProject "SumaiGuard" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 3D1FA6A54216D1169E58D1EB;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				92062C1A407B171D0243F670 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = F3F2CA10E8324869AC5E53A2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				212BA84CE6E74C433E6FEC99 /* SumaiGuard */,
+				CC0262E62E5B77F6326BEA68 /* SumaiGuardTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		230AE1720CFCD7F69DDE1FD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F99B7B5458AECF44D5182AD9 /* analysis-applicable.json in Resources */,
+				F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */,
+				19DC95AFC7D36E413FF19415 /* error-app-check.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E0B3CAD41887FB6032BC0CB7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6BC11F4F553AF8D1AF4D9D08 /* Assets.xcassets in Resources */,
+				AFB89256916AAF93A875E867 /* GoogleService-Info.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1E619CA10907FBC5C4BDDEF3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6E19AF90E0D2C11115027C7E /* APIClientTests.swift in Sources */,
+				FBF273F29116EA859DA7A387 /* AccessibilityContractTests.swift in Sources */,
+				A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */,
+				799EB84CD48D887F87F98331 /* AppAttestDeviceSmokeTests.swift in Sources */,
+				878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */,
+				8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */,
+				B34500C92421DD90EBAD9DB9 /* CaptureConsentViewTests.swift in Sources */,
+				EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */,
+				F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */,
+				EE5E71726B14308D003961A6 /* ResultStateTests.swift in Sources */,
+				05485471E5B8F7B7FD6AD70E /* SafetyPDFRendererTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		25E926A965819466D8F0607E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				455D9D7140BE2F1639630914 /* APIClient.swift in Sources */,
+				3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */,
+				CCAA3A9119AA5DB315DB53D7 /* AdviceView.swift in Sources */,
+				FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */,
+				55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */,
+				908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */,
+				A29BEA03F064FC52E37F7207 /* CameraPicker.swift in Sources */,
+				6975E5D30719EE9944A15E64 /* CaptureView.swift in Sources */,
+				4C13A6D8284CFA2BAC53EE2F /* ConsentView.swift in Sources */,
+				855365A44FAD2567D45A531A /* ErrorView.swift in Sources */,
+				2C53C8455C533FC103101D35 /* ImageSanitizer.swift in Sources */,
+				0F717AB3E85ED801E50CB2FE /* NoFindingsView.swift in Sources */,
+				0D8365321B47C0E09DE7F435 /* NotApplicableView.swift in Sources */,
+				F558B65AE8666CC862AD5BB0 /* PrivacySheet.swift in Sources */,
+				FE3E14A0FE79B5D21A82AD49 /* ProcessingView.swift in Sources */,
+				D3112737EB9619B8F9F410E8 /* RemoteResultImage.swift in Sources */,
+				FBA9BEF213153F31184D3633 /* ResultView.swift in Sources */,
+				492ECDBCAEAD6A14FA177D6B /* RootView.swift in Sources */,
+				91B23296ABAD0237ABB32CEA /* SafetyPDFRenderer.swift in Sources */,
+				E85457627ADBA35C094F8FBF /* ShareSheet.swift in Sources */,
+				D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8EEDAC0F2BBE43495B8712CB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 212BA84CE6E74C433E6FEC99 /* SumaiGuard */;
+			targetProxy = 5E8A168755B07C3F54C9C8A1 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		208D069992B9765C9C90D560 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = CF15A45E467EFB128F3BF93E /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = SumaiGuard/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		3CE8B6BA9BD2268CD5F24A93 /* DeviceSmoke */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = CF15A45E467EFB128F3BF93E /* Release.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
+				INFOPLIST_FILE = SumaiGuard/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = DeviceSmoke;
+		};
+		4BDFEB415B5387DD351607E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6AE3145A3B8C262ED372FFA0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				INFOPLIST_FILE = SumaiGuard/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		711EDC868464D9514A275FAD /* DeviceSmoke */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SumaiGuard.app/SumaiGuard";
+			};
+			name = DeviceSmoke;
+		};
+		A2D5A3DA251AB6D86DB1BEC5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		AAD8CF3A052CDD9172228645 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SumaiGuard.app/SumaiGuard";
+			};
+			name = Release;
+		};
+		B517742D4B543BD4A71E1309 /* DeviceSmoke */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = DeviceSmoke;
+		};
+		C8D5D86584CE1F8D22F33283 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SumaiGuard.app/SumaiGuard";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		61F549DD2CF55DE0C59D2006 /* Build configuration list for PBXNativeTarget "SumaiGuard" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6AE3145A3B8C262ED372FFA0 /* Debug */,
+				3CE8B6BA9BD2268CD5F24A93 /* DeviceSmoke */,
+				208D069992B9765C9C90D560 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		94CCC071B61100BA64E64867 /* Build configuration list for PBXNativeTarget "SumaiGuardTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C8D5D86584CE1F8D22F33283 /* Debug */,
+				711EDC868464D9514A275FAD /* DeviceSmoke */,
+				AAD8CF3A052CDD9172228645 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		C38256CB6A3924CABAE16C38 /* Build configuration list for PBXProject "SumaiGuard" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4BDFEB415B5387DD351607E8 /* Debug */,
+				B517742D4B543BD4A71E1309 /* DeviceSmoke */,
+				A2D5A3DA251AB6D86DB1BEC5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		92062C1A407B171D0243F670 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk.git";
+			requirement = {
+				kind = exactVersion;
+				version = 12.17.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A30FA7C11DA666D3A9468E21 /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 92062C1A407B171D0243F670 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
+		};
+		CD4B13B23263B5B5715EEA52 /* FirebaseCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 92062C1A407B171D0243F670 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 2CE797727B2AEDB02ACC72DF /* Project object */;
+}

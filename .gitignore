@@ -10,3 +10,4 @@ outputs/
 *.key
 *.json.bak
 key.json
+ios/SumaiGuard/Resources/GoogleService-Info.plist

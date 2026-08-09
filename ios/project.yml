@@ -1,0 +1,105 @@
+name: SumaiGuard
+
+options:
+  minimumXcodeGenVersion: 2.45.4
+  deploymentTarget:
+    iOS: "17.0"
+
+configs:
+  Debug: debug
+  Release: release
+  DeviceSmoke: release
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk.git
+    exactVersion: 12.17.0
+
+targets:
+  SumaiGuard:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SumaiGuard
+        excludes:
+          - Config
+          - Info.plist
+          - SumaiGuard.entitlements
+    configFiles:
+      Debug: SumaiGuard/Config/Debug.xcconfig
+      Release: SumaiGuard/Config/Release.xcconfig
+      DeviceSmoke: SumaiGuard/Config/Release.xcconfig
+    settings:
+      base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 1
+        INFOPLIST_FILE: SumaiGuard/Info.plist
+        MARKETING_VERSION: "1.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        DeviceSmoke:
+          ENABLE_TESTABILITY: "YES"
+    dependencies:
+      - package: Firebase
+        product: FirebaseCore
+      - package: Firebase
+        product: FirebaseAppCheck
+
+  SumaiGuardTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: SumaiGuardTests
+    dependencies:
+      - target: SumaiGuard
+    settings:
+      base:
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard.tests
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SumaiGuard.app/SumaiGuard"
+
+schemes:
+  SumaiGuard:
+    build:
+      targets:
+        SumaiGuard: all
+        SumaiGuardTests:
+          - test
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - name: SumaiGuardTests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  SumaiGuardDeviceSmoke:
+    build:
+      targets:
+        SumaiGuard: all
+        SumaiGuardTests:
+          - test
+    test:
+      config: DeviceSmoke
+      targets:
+        - name: SumaiGuardTests
+          selectedTests:
+            - AppAttestDeviceSmokeTests/testPhysicalDeviceAppAttestCandidateRoundTrip
+      environmentVariables:
+        - variable: SUMAI_APP_ATTEST_DEVICE_SMOKE
+          value: "YES"
+          isEnabled: true

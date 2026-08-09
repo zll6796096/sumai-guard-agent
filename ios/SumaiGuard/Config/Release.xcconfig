@@ -1,0 +1,2 @@
+SUMAI_API_ORIGIN = https:/$()/sumai-agent-sxielk4wua-an.a.run.app
+CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements
