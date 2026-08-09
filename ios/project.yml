@@ -77,3 +77,20 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  SumaiGuardDeviceSmoke:
+    build:
+      targets:
+        SumaiGuard: all
+        SumaiGuardTests:
+          - test
+    test:
+      config: Release
+      targets:
+        - name: SumaiGuardTests
+          selectedTests:
+            - AppAttestDeviceSmokeTests/testPhysicalDeviceAppAttestCandidateRoundTrip
+      environmentVariables:
+        - variable: SUMAI_APP_ATTEST_DEVICE_SMOKE
+          value: "YES"
+          isEnabled: true

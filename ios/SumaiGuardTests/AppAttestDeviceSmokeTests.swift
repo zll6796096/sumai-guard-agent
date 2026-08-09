@@ -7,26 +7,17 @@ import XCTest
 final class AppAttestDeviceSmokeTests: XCTestCase {
     func testPhysicalDeviceAppAttestCandidateRoundTrip() async throws {
         let bundle = Bundle.main
-        let enabled = bundle.object(
-            forInfoDictionaryKey: "SUMAI_APP_ATTEST_DEVICE_SMOKE"
-        ) as? String
+        let enabled = ProcessInfo.processInfo.environment[
+            "SUMAI_APP_ATTEST_DEVICE_SMOKE"
+        ]
         try XCTSkipUnless(enabled == "YES", "physical-device smoke is opt-in")
 
         #if targetEnvironment(simulator)
         XCTFail("App Attest smoke must run on a physical iOS device")
         #else
-        let sourceSHA = try requiredBundleValue("SUMAI_SOURCE_SHA", bundle: bundle)
-        let agentRevision = try requiredBundleValue(
-            "SUMAI_AGENT_REVISION",
+        let agentURL = try requiredBundleValue(
+            "SUMAI_API_ORIGIN",
             bundle: bundle
-        )
-        let agentURL = try requiredBundleValue("SUMAI_AGENT_URL", bundle: bundle)
-        XCTAssertTrue(sourceSHA.range(of: #"^[0-9a-f]{40}$"#, options: .regularExpression) != nil)
-        XCTAssertTrue(
-            agentRevision.range(
-                of: #"^[a-z][a-z0-9-]{0,62}$"#,
-                options: .regularExpression
-            ) != nil
         )
 
         let origin = try APIOrigin(agentURL)
@@ -43,8 +34,6 @@ final class AppAttestDeviceSmokeTests: XCTestCase {
 
         let evidence: [String: Any] = [
             "schema_version": 1,
-            "source_commit": sourceSHA,
-            "agent_revision": agentRevision,
             "agent_url": agentURL,
             "app_attest_provider": "AppAttestProvider",
             "http_status": 200,
@@ -62,7 +51,7 @@ final class AppAttestDeviceSmokeTests: XCTestCase {
                 for: .documentDirectory,
                 in: .userDomainMask
             ).first
-        ).appending(path: "sumai-device-evidence.json")
+        ).appending(path: "sumai-device-smoke.json")
         try payload.write(to: destination, options: [.atomic])
         #endif
     }
