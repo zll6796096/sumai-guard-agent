@@ -118,6 +118,17 @@ if [[ "${apply_mode}" == true ]]; then
   validate_output_path "${promotion_evidence_path}"
 fi
 
+project_number=""
+if ! project_number="$(gcloud projects describe "${GOOGLE_CLOUD_PROJECT}" \
+  --format='value(projectNumber)')"; then
+  printf 'project_identity=UNAVAILABLE\n' >&2
+  exit 1
+fi
+if [[ ! "${project_number}" =~ ^[0-9]{6,20}$ ]]; then
+  printf 'project_identity=INVALID\n' >&2
+  exit 1
+fi
+
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/sumai-promotion.XXXXXX")"
 promotion_lock="$(python3 - <<'PY'
 import secrets
@@ -704,7 +715,9 @@ validate_initial_state() {
     "${agent_predecessor_json}" \
     "${web_predecessor_json}" \
     "${agent_artifact_json}" \
-    "${web_artifact_json}" <<'PY'
+    "${web_artifact_json}" \
+    "${project_number}" <<'PY'
+import copy
 import json
 import re
 import sys
@@ -721,6 +734,7 @@ from urllib.parse import urlsplit
     web_predecessor_path,
     agent_artifact_path,
     web_artifact_path,
+    project_number,
 ) = sys.argv[1:]
 
 def load(path: str) -> dict:
@@ -839,7 +853,10 @@ def verify_service(
     revision_value: dict,
 ) -> None:
     metadata = service.get("metadata", {})
-    if metadata.get("name") != name or metadata.get("namespace") != candidate["project_id"]:
+    if (
+        metadata.get("name") != name
+        or metadata.get("namespace") != project_number
+    ):
         fail("candidate_state=INVALID")
     labels = metadata.get("labels", {})
     if (
@@ -862,15 +879,33 @@ def verify_service(
     if (
         len(spec_matches) != 1
         or spec_matches[0].get("revisionName") != revision_name
-        or spec_matches[0].get("percent") != 0
+        or spec_matches[0].get("percent", 0) != 0
         or len(status_matches) != 1
         or status_matches[0].get("revisionName") != revision_name
-        or status_matches[0].get("percent") != 0
+        or status_matches[0].get("percent", 0) != 0
         or status_matches[0].get("url") != revision_url
     ):
         fail("candidate_state=INVALID")
     template_spec = service.get("spec", {}).get("template", {}).get("spec")
-    if template_spec != revision_value.get("spec"):
+    revision_spec = revision_value.get("spec")
+    if not isinstance(template_spec, dict) or not isinstance(revision_spec, dict):
+        fail("candidate_state=INVALID")
+    comparable_revision_spec = copy.deepcopy(revision_spec)
+    template_containers = template_spec.get("containers")
+    revision_containers = comparable_revision_spec.get("containers")
+    if (
+        isinstance(template_containers, list)
+        and len(template_containers) == 1
+        and isinstance(template_containers[0], dict)
+        and "name" not in template_containers[0]
+        and isinstance(revision_containers, list)
+        and len(revision_containers) == 1
+        and isinstance(revision_containers[0], dict)
+        and isinstance(revision_containers[0].get("name"), str)
+        and revision_containers[0]["name"]
+    ):
+        revision_containers[0].pop("name")
+    if template_spec != comparable_revision_spec:
         fail("candidate_state=INVALID")
 
 verify_service(
@@ -1140,7 +1175,14 @@ def verify_runtime_spec(spec: object) -> dict:
         fail("candidate_state=INVALID")
     if not nonempty_string(container["image"]):
         fail("candidate_state=INVALID")
-    if "name" in container and not nonempty_string(container["name"]):
+    if "name" in container and (
+        type(container["name"]) is not str
+        or re.fullmatch(
+            r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?",
+            container["name"],
+        )
+        is None
+    ):
         fail("candidate_state=INVALID")
     for key in ("command", "args"):
         if key in container and (
@@ -1526,7 +1568,7 @@ def validate(path, expected_rv, expected_production, candidate, candidate_percen
         seen_tags = set()
         values = []
         for row in rows:
-            percent = row.get("percent")
+            percent = row.get("percent", 0)
             tag = row.get("tag")
             if percent not in (0, 100) or (percent == 0 and not tag):
                 raise SystemExit("owned service traffic is invalid")
@@ -1682,8 +1724,8 @@ spec = copy.deepcopy(service.get("spec", {}))
 source_traffic = spec.get("traffic", [])
 if not isinstance(source_traffic, list):
     raise SystemExit("service traffic is invalid")
-positive = [row for row in source_traffic if row.get("percent") == 100]
-if len(positive) != 1 or any(row.get("percent") not in (0, 100) for row in source_traffic):
+positive = [row for row in source_traffic if row.get("percent", 0) == 100]
+if len(positive) != 1 or any(row.get("percent", 0) not in (0, 100) for row in source_traffic):
     raise SystemExit("service traffic has an unexpected positive target")
 traffic = []
 target_count = 0
@@ -1691,7 +1733,7 @@ seen_tags = set()
 for source_row in source_traffic:
     tag = source_row.get("tag")
     if tag is None:
-        if source_row.get("percent") != 100:
+        if source_row.get("percent", 0) != 100:
             raise SystemExit("untagged zero traffic target is unsafe")
         continue
     if not isinstance(tag, str) or not tag or tag in seen_tags:
@@ -1739,7 +1781,7 @@ conditional_put() {
 
   if ! service_name="$(python3 - \
     "${payload_path}" \
-    "${GOOGLE_CLOUD_PROJECT}" \
+    "${project_number}" \
     "${agent_service}" \
     "${web_service}" <<'PY'
 import json
@@ -1747,7 +1789,7 @@ import re
 import sys
 from pathlib import Path
 
-payload_path, project, agent_service, web_service = sys.argv[1:]
+payload_path, project_number, agent_service, web_service = sys.argv[1:]
 try:
     payload = json.loads(Path(payload_path).read_text(encoding="utf-8"))
 except (OSError, ValueError):
@@ -1756,7 +1798,7 @@ metadata = payload.get("metadata", {})
 name = metadata.get("name")
 if (
     name not in {agent_service, web_service}
-    or metadata.get("namespace") != project
+    or metadata.get("namespace") != project_number
     or not isinstance(metadata.get("resourceVersion"), str)
     or not metadata["resourceVersion"]
 ):
@@ -1832,7 +1874,7 @@ wait_for_traffic_convergence() {
         "${service_path}" \
         "${expected_payload_path}" \
         "${service_name}" \
-        "${GOOGLE_CLOUD_PROJECT}" \
+        "${project_number}" \
         "${source_sha}" \
         "${previous_resource_version}" \
         "${expected_lock}" \
@@ -1845,7 +1887,7 @@ from pathlib import Path
     service_path,
     expected_path,
     service_name,
-    project,
+    project_number,
     source_sha,
     previous_rv,
     expected_lock,
@@ -1875,7 +1917,7 @@ required_identity = (
     "serving.knative.dev/v1",
     "Service",
     service_name,
-    project,
+    project_number,
 )
 if expected_identity != required_identity or current_identity != required_identity:
     print("INVALID")
@@ -1928,7 +1970,7 @@ def normalized_traffic(value, location):
         if not isinstance(row, dict):
             return None
         revision = row.get("revisionName")
-        percent = row.get("percent")
+        percent = row.get("percent", 0)
         tag = row.get("tag")
         if (
             not isinstance(revision, str)
@@ -2030,6 +2072,7 @@ validate_agent_promoted() {
     "${agent_service_account}" \
     "${previous_resource_version}" \
     "${promotion_lock}" <<'PY'
+import copy
 import json
 import sys
 from pathlib import Path
@@ -2067,13 +2110,13 @@ def traffic_identity(rows):
     result = []
     seen_tags = set()
     for row in rows:
-        if not isinstance(row, dict) or row.get("percent") not in (0, 100):
+        if not isinstance(row, dict) or row.get("percent", 0) not in (0, 100):
             raise SystemExit("agent promotion traffic is invalid")
         tag_value = row.get("tag")
         if not isinstance(tag_value, str) or not tag_value or tag_value in seen_tags:
             raise SystemExit("agent promotion traffic tag is invalid")
         seen_tags.add(tag_value)
-        result.append((tag_value, row.get("revisionName"), row.get("percent")))
+        result.append((tag_value, row.get("revisionName"), row.get("percent", 0)))
     production = [item for item in result if item[2] == 100]
     if production != [(tag, revision_name, 100)]:
         raise SystemExit("agent promotion traffic target is invalid")
@@ -2083,7 +2126,26 @@ if traffic_identity(service.get("spec", {}).get("traffic", [])) != traffic_ident
     service.get("status", {}).get("traffic", [])
 ):
     raise SystemExit("agent promotion status traffic is invalid")
-if service.get("spec", {}).get("template", {}).get("spec") != revision.get("spec"):
+template_spec = service.get("spec", {}).get("template", {}).get("spec")
+revision_spec = revision.get("spec")
+if not isinstance(template_spec, dict) or not isinstance(revision_spec, dict):
+    raise SystemExit("agent promotion changed the candidate template")
+comparable_revision_spec = copy.deepcopy(revision_spec)
+template_containers = template_spec.get("containers")
+revision_containers = comparable_revision_spec.get("containers")
+if (
+    isinstance(template_containers, list)
+    and len(template_containers) == 1
+    and isinstance(template_containers[0], dict)
+    and "name" not in template_containers[0]
+    and isinstance(revision_containers, list)
+    and len(revision_containers) == 1
+    and isinstance(revision_containers[0], dict)
+    and isinstance(revision_containers[0].get("name"), str)
+    and revision_containers[0]["name"]
+):
+    revision_containers[0].pop("name")
+if template_spec != comparable_revision_spec:
     raise SystemExit("agent promotion changed the candidate template")
 spec = revision.get("spec", {})
 containers = spec.get("containers", [])
@@ -2127,7 +2189,7 @@ make_final_web_revision_payload() {
     "${web_predecessor}" \
     "${web_candidate_revision}" \
     "${candidate_tag}" \
-    "${GOOGLE_CLOUD_PROJECT}" <<'PY'
+    "${project_number}" <<'PY'
 import copy
 import json
 import re
@@ -2146,7 +2208,7 @@ from pathlib import Path
     predecessor,
     candidate_revision,
     candidate_tag,
-    project,
+    project_number,
 ) = sys.argv[1:]
 service = json.loads(Path(service_path).read_text(encoding="utf-8"))
 candidate = json.loads(Path(revision_path).read_text(encoding="utf-8"))
@@ -2155,7 +2217,7 @@ labels = metadata.get("labels", {})
 resource_version = metadata.get("resourceVersion")
 if (
     metadata.get("name") != "sumai-web"
-    or metadata.get("namespace") != project
+    or metadata.get("namespace") != project_number
     or not isinstance(resource_version, str)
     or not resource_version
     or labels.get("source-commit") != source_sha
@@ -2198,11 +2260,11 @@ if not rebound:
 source_traffic = service.get("spec", {}).get("traffic", [])
 if not isinstance(source_traffic, list):
     raise SystemExit("web service traffic is invalid")
-production = [row for row in source_traffic if row.get("percent") == 100]
+production = [row for row in source_traffic if row.get("percent", 0) == 100]
 if (
     len(production) != 1
     or production[0].get("revisionName") != predecessor
-    or any(row.get("percent") not in (0, 100) for row in source_traffic)
+    or any(row.get("percent", 0) not in (0, 100) for row in source_traffic)
 ):
     raise SystemExit("web production changed before final revision creation")
 traffic = copy.deepcopy(source_traffic)
@@ -2211,7 +2273,7 @@ candidate_targets = 0
 for row in traffic:
     tag = row.get("tag")
     if tag is None:
-        if row.get("percent") != 100:
+        if row.get("percent", 0) != 100:
             raise SystemExit("untagged zero traffic target is unsafe")
         continue
     if not isinstance(tag, str) or not tag or tag in seen_tags or tag == final_tag:
@@ -2315,16 +2377,17 @@ def traffic_identity(rows):
     identity = []
     seen_tags = set()
     for row in rows:
-        if row.get("percent") not in (0, 100):
+        percent = row.get("percent", 0)
+        if percent not in (0, 100):
             raise SystemExit("web traffic contains an invalid percentage")
         tag_value = row.get("tag")
-        if row.get("percent") == 0 and (not isinstance(tag_value, str) or not tag_value):
+        if percent == 0 and (not isinstance(tag_value, str) or not tag_value):
             raise SystemExit("web zero traffic target is untagged")
         if tag_value:
             if tag_value in seen_tags:
                 raise SystemExit("web traffic contains a duplicate tag")
             seen_tags.add(tag_value)
-        identity.append((tag_value or "", row.get("revisionName"), row.get("percent")))
+        identity.append((tag_value or "", row.get("revisionName"), percent))
     if len([row for row in identity if row[2] == 100]) != 1:
         raise SystemExit("web traffic has an unexpected positive target")
     return sorted(identity)
@@ -2338,10 +2401,10 @@ status_candidate = [row for row in service.get("status", {}).get("traffic", []) 
 if (
     len(spec_candidate) != 1
     or spec_candidate[0].get("revisionName") != candidate_revision
-    or spec_candidate[0].get("percent") != 0
+    or spec_candidate[0].get("percent", 0) != 0
     or len(status_candidate) != 1
     or status_candidate[0].get("revisionName") != candidate_revision
-    or status_candidate[0].get("percent") != 0
+    or status_candidate[0].get("percent", 0) != 0
 ):
     raise SystemExit("web candidate identity changed during final deployment")
 spec_final = [row for row in service.get("spec", {}).get("traffic", []) if row.get("tag") == final_tag]
@@ -2353,8 +2416,8 @@ url = status_final[0].get("url")
 if (
     not isinstance(revision_name, str)
     or spec_final[0].get("revisionName") != revision_name
-    or spec_final[0].get("percent") != 0
-    or status_final[0].get("percent") != 0
+    or spec_final[0].get("percent", 0) != 0
+    or status_final[0].get("percent", 0) != 0
 ):
     raise SystemExit("final web revision is not at zero traffic")
 parsed = urlsplit(url if isinstance(url, str) else "")
@@ -2528,16 +2591,17 @@ def traffic_identity(service):
         values = []
         seen_tags = set()
         for row in rows:
-            if row.get("percent") not in (0, 100):
+            percent = row.get("percent", 0)
+            if percent not in (0, 100):
                 raise SystemExit("invalid traffic before web cutover")
             tag_value = row.get("tag")
-            if row.get("percent") == 0 and (not isinstance(tag_value, str) or not tag_value):
+            if percent == 0 and (not isinstance(tag_value, str) or not tag_value):
                 raise SystemExit("untagged zero traffic before web cutover")
             if tag_value:
                 if tag_value in seen_tags:
                     raise SystemExit("duplicate traffic tag before web cutover")
                 seen_tags.add(tag_value)
-            values.append((tag_value or "", row.get("revisionName"), row.get("percent")))
+            values.append((tag_value or "", row.get("revisionName"), percent))
         if len([value for value in values if value[2] == 100]) != 1:
             raise SystemExit("unexpected positive traffic before web cutover")
         identities.append(sorted(values))
@@ -2566,7 +2630,7 @@ if set(production(web_service)) != {web_predecessor}:
 def tagged(service, tag, revision, percent, url=None):
     for location in ("spec", "status"):
         matches = [row for row in service.get(location, {}).get("traffic", []) if row.get("tag") == tag]
-        if len(matches) != 1 or matches[0].get("revisionName") != revision or matches[0].get("percent") != percent:
+        if len(matches) != 1 or matches[0].get("revisionName") != revision or matches[0].get("percent", 0) != percent:
             raise SystemExit("tag identity changed before web cutover")
         if location == "status" and url is not None and matches[0].get("url") != url:
             raise SystemExit("tag URL changed before web cutover")
@@ -2627,7 +2691,7 @@ def verify(service, revision, tag):
     identities = []
     for location in ("spec", "status"):
         rows = service.get(location, {}).get("traffic", [])
-        if any(row.get("percent") not in (0, 100) for row in rows):
+        if any(row.get("percent", 0) not in (0, 100) for row in rows):
             raise SystemExit("production traffic percentage is invalid")
         production = [row for row in rows if row.get("percent") == 100]
         if len(production) != 1 or production[0].get("revisionName") != revision or production[0].get("tag") != tag:
@@ -2639,7 +2703,7 @@ def verify(service, revision, tag):
             if not isinstance(tag_value, str) or not tag_value or tag_value in seen_tags:
                 raise SystemExit("production traffic tag is invalid")
             seen_tags.add(tag_value)
-            values.append((tag_value, row.get("revisionName"), row.get("percent")))
+            values.append((tag_value, row.get("revisionName"), row.get("percent", 0)))
         identities.append(sorted(values))
     if identities[0] != identities[1]:
         raise SystemExit("production traffic readback differs")
@@ -2689,17 +2753,20 @@ for location in ("spec", "status"):
     values = []
     seen_tags = set()
     for row in rows:
-        if not isinstance(row, dict) or row.get("percent") not in (0, 100):
+        if not isinstance(row, dict):
+            raise SystemExit(1)
+        percent = row.get("percent", 0)
+        if percent not in (0, 100):
             raise SystemExit(1)
         revision = row.get("revisionName")
         tag = row.get("tag")
-        if not isinstance(revision, str) or (row.get("percent") == 0 and not tag):
+        if not isinstance(revision, str) or (percent == 0 and not tag):
             raise SystemExit(1)
         if tag:
             if not isinstance(tag, str) or tag in seen_tags:
                 raise SystemExit(1)
             seen_tags.add(tag)
-        values.append((tag or "", revision, row.get("percent")))
+        values.append((tag or "", revision, percent))
     if len([value for value in values if value[2] == 100]) != 1:
         raise SystemExit(1)
     identities.append(sorted(values))
