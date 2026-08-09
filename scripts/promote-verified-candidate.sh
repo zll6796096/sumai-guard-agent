@@ -2482,7 +2482,34 @@ if final_metadata.get("name") != final_name:
     raise SystemExit("final web revision name changed")
 if final_labels.get("source-commit") != source_sha or final_labels.get("deployment-lock") != promotion_lock:
     raise SystemExit("final web revision ownership labels changed")
-if final_metadata.get("annotations", {}) != candidate.get("metadata", {}).get("annotations", {}):
+candidate_annotations = copy.deepcopy(
+    candidate.get("metadata", {}).get("annotations", {})
+)
+final_annotations = copy.deepcopy(final_metadata.get("annotations", {}))
+if (
+    not isinstance(candidate_annotations, dict)
+    or not isinstance(final_annotations, dict)
+    or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for annotations in (candidate_annotations, final_annotations)
+        for key, value in annotations.items()
+    )
+):
+    raise SystemExit("final web revision annotations drifted")
+managed_annotations = {
+    "run.googleapis.com/operation-id",
+    "serving.knative.dev/creator",
+}
+for key in managed_annotations:
+    if (key in candidate_annotations) != (key in final_annotations):
+        raise SystemExit("final web revision annotations drifted")
+    if key in candidate_annotations and (
+        not candidate_annotations[key] or not final_annotations[key]
+    ):
+        raise SystemExit("final web revision annotations drifted")
+    candidate_annotations.pop(key, None)
+    final_annotations.pop(key, None)
+if final_annotations != candidate_annotations:
     raise SystemExit("final web revision annotations drifted")
 candidate_spec = copy.deepcopy(candidate.get("spec", {}))
 final_spec = copy.deepcopy(final.get("spec", {}))
