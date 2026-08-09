@@ -107,7 +107,11 @@ def revision(
                 "source-commit": SOURCE_SHA,
                 "deployment-lock": SOURCE_SHA,
             },
-            "annotations": {"autoscaling.knative.dev/maxScale": "20"},
+            "annotations": {
+                "autoscaling.knative.dev/maxScale": "20",
+                "run.googleapis.com/operation-id": "initial-operation",
+                "serving.knative.dev/creator": "candidate-builder",
+            },
         },
         "spec": {
             "serviceAccountName": service_account,
@@ -152,13 +156,18 @@ def service(
 ) -> dict[str, Any]:
     template_spec = json.loads(json.dumps(candidate_revision["spec"]))
     template_spec["containers"][0].pop("name")
+    template_annotations = json.loads(
+        json.dumps(candidate_revision["metadata"]["annotations"])
+    )
+    template_annotations.pop("run.googleapis.com/operation-id")
+    template_annotations.pop("serving.knative.dev/creator")
     template = {
         "metadata": {
             "labels": {
                 "source-commit": SOURCE_SHA,
                 "deployment-lock": SOURCE_SHA,
             },
-            "annotations": candidate_revision["metadata"]["annotations"],
+            "annotations": template_annotations,
         },
         "spec": template_spec,
     }
@@ -647,6 +656,27 @@ if url.startswith(api_prefix):
                 "imageDigest": template["spec"]["containers"][0]["image"],
             },
         }
+        revision["metadata"]["annotations"][
+            "run.googleapis.com/operation-id"
+        ] = "final-server-operation"
+        revision["metadata"]["annotations"][
+            "serving.knative.dev/creator"
+        ] = "promotion-caller"
+        final_annotation_drift = os.environ.get(
+            "FAKE_FINAL_ANNOTATION_DRIFT", ""
+        )
+        if final_annotation_drift == "extra":
+            revision["metadata"]["annotations"][
+                "example.invalid/final-setting"
+            ] = "unexpected"
+        elif final_annotation_drift == "missing-operation":
+            revision["metadata"]["annotations"].pop(
+                "run.googleapis.com/operation-id"
+            )
+        elif final_annotation_drift == "empty-creator":
+            revision["metadata"]["annotations"][
+                "serving.knative.dev/creator"
+            ] = ""
         runtime_drift = os.environ.get("FAKE_DEPLOY_RUNTIME_DRIFT", "")
         if runtime_drift == "command":
             revision["spec"]["containers"][0].pop("command", None)
@@ -1737,7 +1767,17 @@ def test_final_web_deploy_preserves_complete_candidate_runtime_configuration(
     ):
         assert final_container[key] == candidate_container[key]
     assert final["spec"]["volumes"] == candidate["spec"]["volumes"]
-    assert final["metadata"]["annotations"] == candidate["metadata"]["annotations"]
+    candidate_annotations = json.loads(
+        json.dumps(candidate["metadata"]["annotations"])
+    )
+    final_annotations = json.loads(json.dumps(final["metadata"]["annotations"]))
+    for key in (
+        "run.googleapis.com/operation-id",
+        "serving.knative.dev/creator",
+    ):
+        assert candidate_annotations.pop(key)
+        assert final_annotations.pop(key)
+    assert final_annotations == candidate_annotations
 
 
 def test_dry_run_rejects_unsupported_extra_candidate_container(
@@ -2001,6 +2041,28 @@ def test_supported_tcp_socket_probe_schema_passes_dry_run(gate: Fixture) -> None
     result = gate.run()
     assert result.returncode == 0, result.stdout + result.stderr
     assert "validation=PASS" in result.stdout
+
+
+@pytest.mark.parametrize(
+    "annotation_drift", ["extra", "missing-operation", "empty-creator"]
+)
+def test_final_web_annotation_drift_fails_before_web_traffic_and_rolls_back_agent(
+    gate: Fixture, annotation_drift: str
+) -> None:
+    result = gate.run(
+        apply=True,
+        confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE",
+        extra_env={"FAKE_FINAL_ANNOTATION_DRIFT": annotation_drift},
+    )
+    assert result.returncode != 0
+    assert "final web revision annotations drifted" in result.stderr
+    assert gate.current_service(AGENT_SERVICE)["status"]["traffic"][0][
+        "revisionName"
+    ] == AGENT_PREDECESSOR
+    assert gate.current_service(WEB_SERVICE)["status"]["traffic"][0][
+        "revisionName"
+    ] == WEB_PREDECESSOR
+    assert "rollback_result=PASS" in result.stderr
 
 
 @pytest.mark.parametrize("drift", ["command", "args", "probe", "resources"])
