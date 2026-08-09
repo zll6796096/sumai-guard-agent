@@ -101,13 +101,16 @@ struct AdvicePresentation: Equatable, Sendable {
 struct AdviceActions {
     let returnHome: () -> Void
     let shareAdvice: (() -> Void)?
+    let cancelPDF: (() -> Void)?
 
     init(
         returnHome: @escaping () -> Void,
-        shareAdvice: (() -> Void)? = nil
+        shareAdvice: (() -> Void)? = nil,
+        cancelPDF: (() -> Void)? = nil
     ) {
         self.returnHome = returnHome
         self.shareAdvice = shareAdvice
+        self.cancelPDF = cancelPDF
     }
 }
 
@@ -115,15 +118,18 @@ struct AdviceView: View {
     let response: AnalysisResponse
     let actions: AdviceActions
     let content: ResultStateContent
+    let pdfState: PDFShareViewState
 
     init(
         response: AnalysisResponse,
         actions: AdviceActions,
-        content: ResultStateContent = .production
+        content: ResultStateContent = .production,
+        pdfState: PDFShareViewState = .idle
     ) {
         self.response = response
         self.actions = actions
         self.content = content
+        self.pdfState = pdfState
     }
 
     var body: some View {
@@ -191,7 +197,26 @@ struct AdviceView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(Color("BrandForest"))
                         .foregroundStyle(Color("BrandCream"))
+                        .disabled(pdfState.isShareButtonDisabled)
                         .accessibilityIdentifier("advice.sharePDF")
+                    if pdfState == .generating {
+                        ProgressView("テキストPDFを作成しています")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("advice.pdfProgress")
+                        if let cancelPDF = actions.cancelPDF {
+                            Button("PDF作成を中止", action: cancelPDF)
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .buttonStyle(.bordered)
+                                .tint(Color("BrandForest"))
+                                .accessibilityIdentifier("advice.cancelPDF")
+                        }
+                    } else if let errorMessage = pdfState.errorMessage {
+                        Label(errorMessage, systemImage: "exclamationmark.circle")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("advice.pdfError")
+                    }
                 }
                 Button(presentation.returnHomeLabel, action: actions.returnHome)
                     .frame(maxWidth: .infinity, minHeight: 52)
@@ -237,5 +262,14 @@ struct AdviceView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+private extension PDFShareViewState {
+    var errorMessage: String? {
+        guard case let .failed(message) = self else {
+            return nil
+        }
+        return message
     }
 }

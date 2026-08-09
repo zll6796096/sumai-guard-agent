@@ -35,6 +35,18 @@ enum RootRouting {
     }
 }
 
+enum RootPDFRouting {
+    static func document(for screen: AppScreen) -> SafetyPDFDocument? {
+        guard
+            case let .advice(response) = screen,
+            let validated = ValidatedPresentationResponse(response: response)
+        else {
+            return nil
+        }
+        return try? SafetyPDFDocument(validatedResponse: validated)
+    }
+}
+
 @MainActor
 enum ProductionComposition {
     static func makeCoordinator(bundle: Bundle = .main) -> AppFlowCoordinator {
@@ -72,10 +84,18 @@ private struct FailClosedAnalyzer: Analyzing {
 struct RootView: View {
     @StateObject private var coordinator: AppFlowCoordinator
     @StateObject private var acquisition: CaptureAcquisitionModel
+    @StateObject private var pdfShareController: PDFShareController
 
     init() {
         let coordinator = ProductionComposition.makeCoordinator()
         _coordinator = StateObject(wrappedValue: coordinator)
+        _pdfShareController = StateObject(
+            wrappedValue: PDFShareController(
+                renderer: SafetyPDFRenderer(),
+                cachePDF: coordinator.cachePDF,
+                clearCachedPDF: coordinator.clearCachedPDF
+            )
+        )
         _acquisition = StateObject(
             wrappedValue: CaptureAcquisitionModel { [weak coordinator] data in
                 coordinator?.selectImage(data)
@@ -85,9 +105,17 @@ struct RootView: View {
 
     init(
         coordinator: AppFlowCoordinator,
-        cameraAccess: any CameraAccessProviding = SystemCameraAccess()
+        cameraAccess: any CameraAccessProviding = SystemCameraAccess(),
+        pdfRenderer: any SafetyPDFRendering = SafetyPDFRenderer()
     ) {
         _coordinator = StateObject(wrappedValue: coordinator)
+        _pdfShareController = StateObject(
+            wrappedValue: PDFShareController(
+                renderer: pdfRenderer,
+                cachePDF: coordinator.cachePDF,
+                clearCachedPDF: coordinator.clearCachedPDF
+            )
+        )
         _acquisition = StateObject(
             wrappedValue: CaptureAcquisitionModel(
                 cameraAccess: cameraAccess,
@@ -101,6 +129,29 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             routedContent
+        }
+        .onChange(of: coordinator.screen) { _, newScreen in
+            if RootPDFRouting.document(for: newScreen) == nil {
+                pdfShareController.clear()
+            }
+        }
+        .sheet(
+            isPresented: Binding(
+                get: { pdfShareController.payload != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        pdfShareController.shareSheetDidDismiss()
+                    }
+                }
+            ),
+            onDismiss: pdfShareController.shareSheetDidDismiss
+        ) {
+            if let payload = pdfShareController.payload {
+                ShareSheet(
+                    payload: payload,
+                    onComplete: pdfShareController.activityDidComplete
+                )
+            }
         }
     }
 
@@ -137,9 +188,20 @@ struct RootView: View {
                 )
             )
         case let .advice(response):
+            let document = RootPDFRouting.document(for: .advice(response))
             AdviceView(
                 response: response,
-                actions: AdviceActions(returnHome: coordinator.returnHome)
+                actions: AdviceActions(
+                    returnHome: {
+                        pdfShareController.returnHome()
+                        coordinator.returnHome()
+                    },
+                    shareAdvice: document.map { document in
+                        { pdfShareController.generate(document) }
+                    },
+                    cancelPDF: pdfShareController.cancelGeneration
+                ),
+                pdfState: pdfShareController.viewState
             )
         case .noFindings:
             NoFindingsView(

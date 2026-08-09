@@ -374,6 +374,10 @@ final class AppFlowCoordinator: ObservableObject {
         pdfData = data
     }
 
+    func clearCachedPDF() {
+        pdfData = nil
+    }
+
     var sensitiveStateForTesting: SensitiveStateSnapshot {
         SensitiveStateSnapshot(
             hasSource: sourceData != nil,

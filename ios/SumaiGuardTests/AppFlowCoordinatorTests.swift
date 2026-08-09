@@ -640,6 +640,20 @@ final class AppFlowCoordinatorTests: XCTestCase {
         coordinator.retry()
         XCTAssertEqual(coordinator.screen, .capture)
     }
+
+    func testCachedPDFCanBeExplicitlyClearedWithoutLeavingAdvice() async throws {
+        let response = try fixture("analysis-applicable")
+        let coordinator = makeCoordinator(response: response)
+        await runAnalysis(coordinator)
+        coordinator.showAdvice()
+        coordinator.cachePDF(Data("private-pdf".utf8))
+        XCTAssertTrue(coordinator.sensitiveStateForTesting.hasPDF)
+
+        coordinator.clearCachedPDF()
+
+        XCTAssertEqual(coordinator.screen, .advice(response))
+        XCTAssertFalse(coordinator.sensitiveStateForTesting.hasPDF)
+    }
 }
 
 private extension AppFlowCoordinatorTests {
