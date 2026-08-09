@@ -33,7 +33,7 @@ jobs:
       - name: Validate release control contracts
         run: |
           python scripts/test_cloudbuild_config.py
-          python -m pytest scripts/test_promote_verified_candidate.py scripts/test_deployment_entrypoints.py scripts/test_install_firebase_ios_config.py scripts/test_ios_ci_workflow.py scripts/test_validate_ios_release.py -v
+          python -m pytest scripts/test_promote_verified_candidate.py scripts/test_deployment_entrypoints.py scripts/test_install_firebase_ios_config.py scripts/test_ios_ci_workflow.py scripts/test_validate_ios_signing.py scripts/test_validate_ios_release.py -v
           bash -n scripts/promote-verified-candidate.sh scripts/check_cloudrun.sh scripts/deploy_all_cloudrun.sh scripts/deploy_sumai_agent.sh scripts/deploy_sumai_web.sh
 
       - name: Frontend import check

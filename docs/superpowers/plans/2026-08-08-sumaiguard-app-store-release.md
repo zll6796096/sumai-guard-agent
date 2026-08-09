@@ -316,6 +316,15 @@ xcodebuild \
 
 Verify bundle ID, version/build, display name, team, provisioning profile, production App Attest entitlement, minimum OS, iPhone-only family, icon, privacy manifest presence if required by dependencies, and embedded production origin. Scan for debug provider/token, loopback, `.invalid`, and development App Attest values.
 
+Run the executable signed-artifact gate against the archive; a standalone
+entitlement plist or source setting is not archive evidence:
+
+```bash
+python3 scripts/validate_ios_signed_app.py \
+  --archive "$release_tmp/SumaiGuard.xcarchive" \
+  --expected-firebase-app-id "$SUMAI_FIREBASE_APP_ID"
+```
+
 - [ ] **Step 5: Export for App Store Connect**
 
 `ios/exportOptions.plist` uses `method=app-store-connect`, `destination=export`, automatic signing, and the intended team. Run:
@@ -332,7 +341,15 @@ Expected: export succeeds and produces one IPA plus Apple distribution logs. Arc
 
 - [ ] **Step 6: Validate exported IPA**
 
-Copy the IPA to another protected temporary directory, unzip read-only, repeat plist/entitlement/binary-string validation, and compute SHA-256. Record only build number, IPA hash, source SHA, archive timestamp, and validation PASS in the tracked gate.
+Copy the IPA to another protected temporary directory, unzip read-only, repeat plist/entitlement/binary-string validation, and compute SHA-256. Run the same executable signed-artifact gate against the extracted `.app`:
+
+```bash
+python3 scripts/validate_ios_signed_app.py \
+  --app "$exported_app" \
+  --expected-firebase-app-id "$SUMAI_FIREBASE_APP_ID"
+```
+
+Record only build number, IPA hash, source SHA, archive timestamp, and validation PASS in the tracked gate.
 
 ## Task 6: Upload build 1 and verify processing/TestFlight
 

@@ -27,6 +27,12 @@ def test_ci_contains_fail_closed_native_ios_job() -> None:
     assert "SumaiGuardDeviceSmoke" in commands
     assert "build-for-testing" in commands
     assert "validate_ios_build_settings.py" in commands
+    linux_commands = "\n".join(
+        step.get("run", "")
+        for step in workflow["jobs"]["test"]["steps"]
+        if isinstance(step, dict)
+    )
+    assert "scripts/test_validate_ios_signing.py" in linux_commands
 
 
 def test_device_smoke_uses_release_like_testable_configuration() -> None:
@@ -50,3 +56,17 @@ def test_device_smoke_uses_release_like_testable_configuration() -> None:
         project["schemes"]["SumaiGuardDeviceSmoke"]["test"]["config"]
         == "DeviceSmoke"
     )
+
+
+def test_app_store_plan_enforces_signed_archive_and_exported_app_validation() -> None:
+    plan = (
+        ROOT
+        / "docs"
+        / "superpowers"
+        / "plans"
+        / "2026-08-08-sumaiguard-app-store-release.md"
+    ).read_text(encoding="utf-8")
+
+    assert plan.count("scripts/validate_ios_signed_app.py") >= 2
+    assert '--archive "$release_tmp/SumaiGuard.xcarchive"' in plan
+    assert '--app "$exported_app"' in plan
