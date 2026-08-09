@@ -64,6 +64,7 @@ struct NotApplicableView: View {
                     .font(.title.bold())
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilitySortPriority(10)
                     .accessibilityIdentifier("notApplicable.heading")
                 Text(presentation.reason)
                     .font(.body)
@@ -83,6 +84,7 @@ struct NotApplicableView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Color("BrandForest"))
                     .foregroundStyle(Color("BrandCream"))
+                    .accessibilitySortPriority(3)
                     .accessibilityIdentifier("notApplicable.returnHome")
             }
             .frame(maxWidth: .infinity)

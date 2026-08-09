@@ -389,6 +389,7 @@ struct ResultView: View {
                             findingCard(finding, number: index + 1)
                         }
                     }
+                    .accessibilitySortPriority(6)
                     .accessibilityIdentifier("result.findings")
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -405,6 +406,7 @@ struct ResultView: View {
                     .padding(16)
                     .background(Color("BrandCream"), in: RoundedRectangle(cornerRadius: 14))
                     .accessibilityElement(children: .contain)
+                    .accessibilitySortPriority(5)
                     .accessibilityIdentifier("result.limitations")
 
                     Button(presentation.showAdviceLabel, action: actions.showAdvice)
@@ -412,11 +414,13 @@ struct ResultView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(Color("BrandForest"))
                         .foregroundStyle(Color("BrandCream"))
+                        .accessibilitySortPriority(4)
                         .accessibilityIdentifier("result.showAdvice")
                     Button(presentation.returnHomeLabel, action: actions.returnHome)
                         .frame(maxWidth: .infinity, minHeight: 52)
                         .buttonStyle(.bordered)
                         .tint(Color("BrandForest"))
+                        .accessibilitySortPriority(3)
                         .accessibilityIdentifier("result.returnHome")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

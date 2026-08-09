@@ -47,6 +47,7 @@ struct NoFindingsView: View {
                     .font(.title.bold())
                     .multilineTextAlignment(.center)
                     .accessibilityAddTraits(.isHeader)
+                    .accessibilitySortPriority(10)
                     .accessibilityIdentifier("noFindings.heading")
                 Text(presentation.limitation)
                     .font(.headline)
@@ -62,6 +63,7 @@ struct NoFindingsView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Color("BrandForest"))
                     .foregroundStyle(Color("BrandCream"))
+                    .accessibilitySortPriority(3)
                     .accessibilityIdentifier("noFindings.returnHome")
             }
             .frame(maxWidth: .infinity)

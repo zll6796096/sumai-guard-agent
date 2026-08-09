@@ -29,6 +29,8 @@ struct ConsentView: View {
                 Text(content.consentHeading)
                     .font(.title.bold())
                     .foregroundStyle(.primary)
+                    .accessibilitySortPriority(10)
+                    .accessibilityIdentifier("consent.heading")
                 Text(content.consentExplanation)
                     .font(.body)
                     .foregroundStyle(.secondary)
@@ -47,6 +49,7 @@ struct ConsentView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(Color(uiColor: .separator), lineWidth: 1)
                     }
+                    .accessibilitySortPriority(9)
                     .accessibilityIdentifier("consent.preview")
 
                 disclosureSummary
@@ -56,6 +59,7 @@ struct ConsentView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(Color("BrandForest"))
                     .foregroundStyle(Color("BrandCream"))
+                    .accessibilitySortPriority(7)
                     .accessibilityIdentifier(content.agreeAction.identifier)
                     .accessibilityHint(content.agreeAction.hint)
 
@@ -63,6 +67,7 @@ struct ConsentView: View {
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .buttonStyle(.bordered)
                     .tint(Color("BrandForest"))
+                    .accessibilitySortPriority(6)
                     .accessibilityIdentifier(content.cancelConsentAction.identifier)
                     .accessibilityHint(content.cancelConsentAction.hint)
 
@@ -73,6 +78,7 @@ struct ConsentView: View {
                         .frame(minHeight: 44)
                 }
                 .foregroundStyle(Color("BrandForest"))
+                .accessibilitySortPriority(5)
                 .accessibilityIdentifier("consent.privacy")
                 .accessibilityHint(content.privacyAction.hint)
             }
@@ -112,6 +118,7 @@ struct ConsentView: View {
                 .clipShape(.rect(topLeadingRadius: 14, bottomLeadingRadius: 14))
                 .accessibilityHidden(true)
         }
+        .accessibilitySortPriority(8)
         .accessibilityIdentifier("consent.disclosures")
     }
 }

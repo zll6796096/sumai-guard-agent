@@ -39,16 +39,20 @@ struct ProcessingView: View {
                     .controlSize(.large)
                     .tint(Color("BrandForest"))
                     .accessibilityLabel("確認処理中")
+                    .accessibilitySortPriority(8)
                     .accessibilityIdentifier("processing.progress.indeterminate")
                 Text(content.processingHeading)
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)
-                    .accessibilitySortPriority(3)
+                    .accessibilitySortPriority(10)
+                    .accessibilityIdentifier("processing.heading")
                 Text(content.processingExplanation)
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
+                    .accessibilitySortPriority(9)
+                    .accessibilityIdentifier("processing.explanation")
                 Image(
                     presentation.preview,
                     scale: 1,
@@ -62,6 +66,7 @@ struct ProcessingView: View {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(Color(uiColor: .separator), lineWidth: 1)
                     }
+                    .accessibilitySortPriority(7)
                     .accessibilityIdentifier("processing.preview")
                 Text(content.processingPrivacyNote)
                     .font(.callout)
@@ -71,10 +76,13 @@ struct ProcessingView: View {
                     .padding(16)
                     .frame(maxWidth: .infinity)
                     .background(Color("BrandCream"), in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilitySortPriority(6)
+                    .accessibilityIdentifier("processing.privacy")
                 Button(content.processingCancelLabel, action: actions.cancelProcessing)
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .buttonStyle(.bordered)
                     .tint(Color("BrandForest"))
+                    .accessibilitySortPriority(5)
                     .accessibilityIdentifier("processing.cancel")
             }
             .frame(maxWidth: .infinity)

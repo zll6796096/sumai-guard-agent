@@ -188,6 +188,7 @@ struct AdviceView: View {
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color("BrandCream"), in: RoundedRectangle(cornerRadius: 14))
+                        .accessibilitySortPriority(4)
                         .accessibilityIdentifier("advice.disclaimer")
                 }
 
@@ -198,6 +199,7 @@ struct AdviceView: View {
                         .tint(Color("BrandForest"))
                         .foregroundStyle(Color("BrandCream"))
                         .disabled(pdfState.isShareButtonDisabled)
+                        .accessibilitySortPriority(3)
                         .accessibilityIdentifier("advice.sharePDF")
                     if pdfState == .generating {
                         ProgressView("テキストPDFを作成しています")
@@ -222,6 +224,7 @@ struct AdviceView: View {
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .buttonStyle(.bordered)
                     .tint(Color("BrandForest"))
+                    .accessibilitySortPriority(2)
                     .accessibilityIdentifier("advice.returnHome")
             }
             .frame(maxWidth: .infinity, alignment: .leading)

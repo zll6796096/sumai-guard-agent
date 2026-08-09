@@ -515,6 +515,8 @@ struct CaptureView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .accessibilityElement(children: .combine)
+        .accessibilitySortPriority(10)
+        .accessibilityIdentifier("capture.heading")
     }
 
     private var acquisitionActions: some View {
@@ -528,6 +530,7 @@ struct CaptureView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(Color("BrandForest"))
+            .accessibilitySortPriority(8)
             .accessibilityIdentifier(content.cameraAction.identifier)
             .accessibilityHint(content.cameraAction.hint)
 
@@ -537,6 +540,7 @@ struct CaptureView: View {
             }
             .buttonStyle(.bordered)
             .tint(Color("BrandForest"))
+            .accessibilitySortPriority(7)
             .accessibilityIdentifier(content.libraryAction.identifier)
             .accessibilityHint(content.libraryAction.hint)
         }
@@ -599,6 +603,7 @@ struct CaptureView: View {
                 .frame(minHeight: 44)
         }
         .foregroundStyle(Color("BrandForest"))
+        .accessibilitySortPriority(6)
         .accessibilityIdentifier(content.privacyAction.identifier)
         .accessibilityHint(content.privacyAction.hint)
     }
