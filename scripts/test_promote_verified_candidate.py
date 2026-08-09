@@ -175,7 +175,11 @@ def service(
                 "source-commit": SOURCE_SHA,
                 "deployment-lock": SOURCE_SHA,
             },
-            "annotations": {"run.googleapis.com/ingress": "all"},
+            "annotations": {
+                "run.googleapis.com/ingress": "all",
+                "run.googleapis.com/operation-id": "initial-operation",
+                "serving.knative.dev/lastModifier": "initial-caller",
+            },
         },
         "spec": {
             "template": template,
@@ -600,6 +604,16 @@ if url.startswith(api_prefix):
     previous_status_traffic = current.get("status", {}).get("traffic", [])
     current["metadata"] = copy.deepcopy(payload["metadata"])
     current["metadata"]["resourceVersion"] = next_rv()
+    current["metadata"]["annotations"][
+        "run.googleapis.com/operation-id"
+    ] = "server-operation-" + current["metadata"]["resourceVersion"]
+    current["metadata"]["annotations"][
+        "serving.knative.dev/lastModifier"
+    ] = "promotion-caller"
+    if is_claim and os.environ.get("FAKE_SERVER_ANNOTATION_DRIFT") == "1":
+        current["metadata"]["annotations"][
+            "example.invalid/release-setting"
+        ] = "unexpected"
     current["spec"] = copy.deepcopy(payload["spec"])
     current["status"]["conditions"] = [{"type": "Ready", "status": "True"}]
     current["status"]["traffic"] = status_traffic(
@@ -1436,6 +1450,23 @@ def test_apply_claims_both_services_with_random_invocation_lock_before_cutover(
         "template"
     ]["metadata"]["name"]
     assert_no_mutating_gcloud(gate)
+
+
+def test_claim_rejects_unrelated_server_annotation_drift(
+    gate: Fixture,
+) -> None:
+    result = gate.run(
+        apply=True,
+        confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE",
+        extra_env={"FAKE_SERVER_ANNOTATION_DRIFT": "1"},
+    )
+    assert result.returncode != 0
+    assert "claim changed service metadata" in result.stderr
+    assert "claim_restore=PASS" in result.stderr
+    assert gate.current_service(AGENT_SERVICE)["spec"]["traffic"][0][
+        "revisionName"
+    ] == AGENT_PREDECESSOR
+    assert service_lock(gate, AGENT_SERVICE) == SOURCE_SHA
 
 
 def test_second_claim_resource_version_conflict_restores_only_owned_first_claim(

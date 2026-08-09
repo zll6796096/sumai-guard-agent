@@ -1488,9 +1488,31 @@ if before_labels.get("deployment-lock") != expected_old_lock:
 before_labels["deployment-lock"] = expected_new_lock
 if after_labels != before_labels:
     raise SystemExit("claim changed labels other than deployment-lock")
-for key in ("name", "namespace", "annotations"):
+for key in ("name", "namespace"):
     if after_meta.get(key) != before_meta.get(key):
         raise SystemExit("claim changed service metadata")
+before_annotations = copy.deepcopy(before_meta.get("annotations", {}))
+after_annotations = copy.deepcopy(after_meta.get("annotations", {}))
+if not isinstance(before_annotations, dict) or not isinstance(after_annotations, dict):
+    raise SystemExit("claim changed service metadata")
+managed_annotations = {
+    "run.googleapis.com/operation-id",
+    "serving.knative.dev/lastModifier",
+}
+for key in managed_annotations:
+    if (key in before_annotations) != (key in after_annotations):
+        raise SystemExit("claim changed service metadata")
+    if key in before_annotations and (
+        not isinstance(before_annotations[key], str)
+        or not before_annotations[key]
+        or not isinstance(after_annotations[key], str)
+        or not after_annotations[key]
+    ):
+        raise SystemExit("claim changed service metadata")
+    before_annotations.pop(key, None)
+    after_annotations.pop(key, None)
+if before_annotations != after_annotations:
+    raise SystemExit("claim changed service metadata")
 if after.get("apiVersion") != before.get("apiVersion") or after.get("kind") != before.get("kind"):
     raise SystemExit("claim changed service identity")
 if after.get("spec") != before.get("spec"):
