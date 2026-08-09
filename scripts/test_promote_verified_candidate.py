@@ -32,6 +32,8 @@ AGENT_STABLE_URL = "https://sumai-agent.example.run.app"
 WEB_STABLE_URL = "https://sumai-web.example.run.app"
 AGENT_ACCOUNT = "sumai-agent-runtime@sumai-prod-123.iam.gserviceaccount.com"
 WEB_ACCOUNT = "sumai-web-runtime@sumai-prod-123.iam.gserviceaccount.com"
+AGENT_PREDECESSOR_ACCOUNT = "123456789-compute@developer.gserviceaccount.com"
+WEB_PREDECESSOR_ACCOUNT = "123456789-compute@developer.gserviceaccount.com"
 CANDIDATE_TAG = "candidate-aaaaaaa-buil"
 AGENT_REF = (
     f"{REGION}-docker.pkg.dev/{PROJECT}/apps/{AGENT_SERVICE}@{AGENT_DIGEST}"
@@ -209,6 +211,7 @@ def candidate_evidence() -> dict[str, Any]:
         "agent_revision": AGENT_CANDIDATE,
         "agent_url": AGENT_CANDIDATE_URL,
         "agent_service_account": AGENT_ACCOUNT,
+        "agent_predecessor_service_account": AGENT_PREDECESSOR_ACCOUNT,
         "agent_resource_version_before": AGENT_RV_BEFORE,
         "agent_resource_version_after": AGENT_RV_AFTER,
         "agent_production_before": AGENT_PREDECESSOR,
@@ -216,6 +219,7 @@ def candidate_evidence() -> dict[str, Any]:
         "web_revision": WEB_CANDIDATE,
         "web_url": WEB_CANDIDATE_URL,
         "web_service_account": WEB_ACCOUNT,
+        "web_predecessor_service_account": WEB_PREDECESSOR_ACCOUNT,
         "web_resource_version_before": WEB_RV_BEFORE,
         "web_resource_version_after": WEB_RV_AFTER,
         "web_production_before": WEB_PREDECESSOR,
@@ -761,10 +765,10 @@ class Fixture:
             AGENT_CANDIDATE: agent_candidate,
             WEB_CANDIDATE: web_candidate,
             AGENT_PREDECESSOR: predecessor_revision(
-                AGENT_PREDECESSOR, AGENT_ACCOUNT
+                AGENT_PREDECESSOR, AGENT_PREDECESSOR_ACCOUNT
             ),
             WEB_PREDECESSOR: predecessor_revision(
-                WEB_PREDECESSOR, WEB_ACCOUNT
+                WEB_PREDECESSOR, WEB_PREDECESSOR_ACCOUNT
             ),
         }
         self.artifacts = {

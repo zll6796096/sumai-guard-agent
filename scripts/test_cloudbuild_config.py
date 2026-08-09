@@ -19,6 +19,7 @@ EXPECTED_EVIDENCE_WRITE = (
     'json.dumps(evidence, sort_keys=True) + "\\n", encoding="utf-8")'
 )
 DIGEST_PATTERN = "^sha256:[0-9a-f]{64}$"
+SERVICE_ACCOUNT_MIGRATION_CONFIRMATION = "MIGRATE_TO_DEDICATED_RUNTIME_SAS"
 EXPECTED_EVIDENCE_EXPRESSIONS = {
     "schema_version": "1",
     "source_commit": 'os.environ["COMMIT_SHA"]',
@@ -29,6 +30,9 @@ EXPECTED_EVIDENCE_EXPRESSIONS = {
     "agent_revision": 'values["agent_revision"]',
     "agent_url": 'values["agent_url"]',
     "agent_service_account": 'values["agent_service_account"]',
+    "agent_predecessor_service_account": (
+        'values["agent_production_service_account"]'
+    ),
     "agent_resource_version_before": (
         'values["agent_resource_version_before"]'
     ),
@@ -38,6 +42,9 @@ EXPECTED_EVIDENCE_EXPRESSIONS = {
     "web_revision": 'values["web_revision"]',
     "web_url": 'values["web_url"]',
     "web_service_account": 'values["web_service_account"]',
+    "web_predecessor_service_account": (
+        'values["web_production_service_account"]'
+    ),
     "web_resource_version_before": 'values["web_resource_version_before"]',
     "web_resource_version_after": 'values["web_resource_version_after"]',
     "web_production_before": 'values["web_production_before"]',
@@ -163,11 +170,19 @@ def validate_production_service_account_preconditions(
             "production_revision": "agent_production_before",
             "production_service_account": "agent_production_service_account",
             "service_account_substitution": "_AGENT_SERVICE_ACCOUNT",
+            "predecessor_substitution": (
+                "_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT"
+            ),
+            "dedicated_local_part": "sumai-agent-runtime",
         },
         "web": {
             "production_revision": "web_production_before",
             "production_service_account": "web_production_service_account",
             "service_account_substitution": "_WEB_SERVICE_ACCOUNT",
+            "predecessor_substitution": (
+                "_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT"
+            ),
+            "dedicated_local_part": "sumai-web-runtime",
         },
     }
     for component, specification in specifications.items():
@@ -176,6 +191,8 @@ def validate_production_service_account_preconditions(
         service_account_substitution = specification[
             "service_account_substitution"
         ]
+        predecessor_substitution = specification["predecessor_substitution"]
+        dedicated_local_part = specification["dedicated_local_part"]
         production_assignment_pattern = re.compile(
             rf"(?m)^[ \t]*{re.escape(production_revision)}\s*=",
         )
@@ -220,9 +237,9 @@ def validate_production_service_account_preconditions(
                 "--format='value(spec.serviceAccountName)')\""
             ),
             "nonempty check": f'test -n "${production_service_account}"',
-            "caller identity binding": (
+            "approved predecessor binding": (
                 f'test "${production_service_account}" = '
-                f'"${{{service_account_substitution}}}"'
+                f'"${{{predecessor_substitution}}}"'
             ),
         }
         positions = []
@@ -239,6 +256,42 @@ def validate_production_service_account_preconditions(
             f"{step_id} must bind the serving {component} service account "
             "before any Cloud Run mutation"
         )
+        dedicated_binding = (
+            f'test "${{{service_account_substitution}}}" = '
+            f'"{dedicated_local_part}@$PROJECT_ID.iam.gserviceaccount.com"'
+        )
+        assert normalized.count(dedicated_binding) == 1, (
+            f"{step_id} missing {component} dedicated target-project binding"
+        )
+        assert normalized.index(dedicated_binding) < mutation.start(), (
+            f"{step_id} must bind the dedicated {component} service account "
+            "before any Cloud Run mutation"
+        )
+
+    assert normalized.count(
+        'if [ "$agent_production_service_account" != '
+        '"${_AGENT_SERVICE_ACCOUNT}" ] || [ '
+        '"$web_production_service_account" != '
+        '"${_WEB_SERVICE_ACCOUNT}" ]; then'
+    ) == 1, "service-account migration must be conditional on predecessor drift"
+    assert normalized.count(
+        'test "${_SERVICE_ACCOUNT_MIGRATION_CONFIRM}" = '
+        f'"{SERVICE_ACCOUNT_MIGRATION_CONFIRMATION}"'
+    ) == 1, "service-account migration requires the exact confirmation value"
+
+    assert (
+        config_substitutions := yaml.safe_load(
+            (Path(__file__).resolve().parents[1] / "cloudbuild.yaml").read_text(
+                encoding="utf-8"
+            )
+        )["substitutions"]
+    )
+    for key in (
+        "_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT",
+        "_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT",
+        "_SERVICE_ACCOUNT_MIGRATION_CONFIRM",
+    ):
+        assert config_substitutions.get(key) == "", key
 
 
 def validate_digest_provenance(command_steps: dict[str, str]) -> None:

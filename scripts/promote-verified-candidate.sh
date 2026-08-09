@@ -487,6 +487,7 @@ candidate_keys = {
     "agent_revision",
     "agent_url",
     "agent_service_account",
+    "agent_predecessor_service_account",
     "agent_resource_version_before",
     "agent_resource_version_after",
     "agent_production_before",
@@ -494,6 +495,7 @@ candidate_keys = {
     "web_revision",
     "web_url",
     "web_service_account",
+    "web_predecessor_service_account",
     "web_resource_version_before",
     "web_resource_version_after",
     "web_production_before",
@@ -540,6 +542,9 @@ resource_version_pattern = re.compile(r"[0-9]+")
 account_pattern = re.compile(
     r"[a-z0-9][a-z0-9-]{0,62}@[a-z0-9][a-z0-9.-]{1,200}\.iam\.gserviceaccount\.com"
 )
+predecessor_account_pattern = re.compile(
+    r"(?:[a-z0-9][a-z0-9-]{0,62}@[a-z0-9][a-z0-9.-]{1,200}\.iam\.gserviceaccount\.com|[0-9]+-compute@developer\.gserviceaccount\.com)"
+)
 
 if sha_pattern.fullmatch(candidate["source_commit"]) is None:
     fail("candidate_evidence=INVALID")
@@ -574,6 +579,20 @@ for component in ("agent", "web"):
 for key in ("agent_service_account", "web_service_account"):
     if account_pattern.fullmatch(candidate[key]) is None:
         fail("candidate_evidence=INVALID")
+for key in (
+    "agent_predecessor_service_account",
+    "web_predecessor_service_account",
+):
+    if predecessor_account_pattern.fullmatch(candidate[key]) is None:
+        fail("candidate_evidence=INVALID")
+if candidate["agent_service_account"] != (
+    f"sumai-agent-runtime@{candidate['project_id']}.iam.gserviceaccount.com"
+):
+    fail("candidate_evidence=INVALID")
+if candidate["web_service_account"] != (
+    f"sumai-web-runtime@{candidate['project_id']}.iam.gserviceaccount.com"
+):
+    fail("candidate_evidence=INVALID")
 
 def validate_url(raw: str, code: str) -> None:
     parsed = urlsplit(raw)
@@ -1236,9 +1255,9 @@ verify_revision(
     candidate["web_service_account"],
     "web",
 )
-if agent_predecessor.get("spec", {}).get("serviceAccountName") != candidate["agent_service_account"]:
+if agent_predecessor.get("spec", {}).get("serviceAccountName") != candidate["agent_predecessor_service_account"]:
     fail("candidate_state=INVALID")
-if web_predecessor.get("spec", {}).get("serviceAccountName") != candidate["web_service_account"]:
+if web_predecessor.get("spec", {}).get("serviceAccountName") != candidate["web_predecessor_service_account"]:
     fail("candidate_state=INVALID")
 
 def artifact_digest(value: dict) -> object:

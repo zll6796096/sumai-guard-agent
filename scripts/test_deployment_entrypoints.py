@@ -25,6 +25,9 @@ PROJECT = "sumai-prod-123"
 FIREBASE_APP_ID = "1:123456789:ios:abcdef0123456789"
 AGENT_ACCOUNT = "sumai-agent-runtime@sumai-prod-123.iam.gserviceaccount.com"
 WEB_ACCOUNT = "sumai-web-runtime@sumai-prod-123.iam.gserviceaccount.com"
+AGENT_PREDECESSOR_ACCOUNT = "123456789-compute@developer.gserviceaccount.com"
+WEB_PREDECESSOR_ACCOUNT = "123456789-compute@developer.gserviceaccount.com"
+MIGRATION_CONFIRMATION = "MIGRATE_TO_DEDICATED_RUNTIME_SAS"
 REGION = "asia-northeast1"
 AR_REPO = "sumai-images"
 AGENT_SERVICE = "sumai-agent"
@@ -57,6 +60,13 @@ def required_env() -> dict[str, str]:
         "SUMAI_FIREBASE_APP_ID": FIREBASE_APP_ID,
         "SUMAI_AGENT_SERVICE_ACCOUNT": AGENT_ACCOUNT,
         "SUMAI_WEB_SERVICE_ACCOUNT": WEB_ACCOUNT,
+        "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT": (
+            AGENT_PREDECESSOR_ACCOUNT
+        ),
+        "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT": (
+            WEB_PREDECESSOR_ACCOUNT
+        ),
+        "SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM": MIGRATION_CONFIRMATION,
         "SUMAI_REGION": REGION,
         "SUMAI_AR_REPO": AR_REPO,
         "SUMAI_AGENT_SERVICE": AGENT_SERVICE,
@@ -224,6 +234,10 @@ def test_workflow_is_manual_keyless_candidate_only() -> None:
     assert "_FIREBASE_APP_ID" in text
     assert "_AGENT_SERVICE_ACCOUNT" in text
     assert "_WEB_SERVICE_ACCOUNT" in text
+    assert "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT" in text
+    assert "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT" in text
+    assert "SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM" in text
+    assert "SUMAI_ALLOWED_SERVICE_ACCOUNT_DOMAIN" not in text
     assert "scripts/deploy_all_cloudrun.sh" in text
     assert "promote-verified-candidate" not in text
     assert "GEMINI_API_KEY" not in text
@@ -316,7 +330,12 @@ def test_submitter_passes_exact_immutable_archive_config_and_substitutions(
         f"_AGENT_SERVICE={AGENT_SERVICE},_WEB_SERVICE={WEB_SERVICE},"
         f"_FIREBASE_APP_ID={FIREBASE_APP_ID},"
         f"_AGENT_SERVICE_ACCOUNT={AGENT_ACCOUNT},"
-        f"_WEB_SERVICE_ACCOUNT={WEB_ACCOUNT}",
+        f"_WEB_SERVICE_ACCOUNT={WEB_ACCOUNT},"
+        "_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT="
+        f"{AGENT_PREDECESSOR_ACCOUNT},"
+        "_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT="
+        f"{WEB_PREDECESSOR_ACCOUNT},"
+        f"_SERVICE_ACCOUNT_MIGRATION_CONFIRM={MIGRATION_CONFIRMATION}",
         "--async",
         "--format=value(id)",
     ]
@@ -344,6 +363,9 @@ def test_submitter_passes_exact_immutable_archive_config_and_substitutions(
         "SUMAI_FIREBASE_APP_ID",
         "SUMAI_AGENT_SERVICE_ACCOUNT",
         "SUMAI_WEB_SERVICE_ACCOUNT",
+        "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT",
+        "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT",
+        "SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM",
     ],
 )
 def test_missing_required_environment_fails_before_gcloud(
@@ -365,6 +387,14 @@ def test_missing_required_environment_fails_before_gcloud(
             "SUMAI_AGENT_SERVICE_ACCOUNT",
             "sumai-agent-runtime@other-project.iam.gserviceaccount.com",
         ),
+        (
+            "SUMAI_AGENT_SERVICE_ACCOUNT",
+            "other-runtime@sumai-prod-123.iam.gserviceaccount.com",
+        ),
+        (
+            "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT",
+            "not-a-service-account",
+        ),
         ("SUMAI_REGION", "asia-northeast1;printf-danger"),
         ("SUMAI_AR_REPO", "../images"),
         ("SUMAI_AGENT_SERVICE", "sumai_agent"),
@@ -381,7 +411,7 @@ def test_unsafe_configuration_fails_before_gcloud(
     assert not (repo.parent / "fake-gcloud-state" / "calls.json").exists()
 
 
-def test_explicit_cross_project_service_account_domain_is_allowed(
+def test_cross_project_service_account_domain_is_rejected_even_when_requested(
     tmp_path: Path,
 ) -> None:
     repo, _remote, fake_bin = make_repo(tmp_path)
@@ -395,7 +425,28 @@ def test_explicit_cross_project_service_account_domain_is_allowed(
             "SUMAI_WEB_SERVICE_ACCOUNT": f"sumai-web-runtime@{domain}",
         },
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode != 0
+    assert "SUMAI_AGENT_SERVICE_ACCOUNT" in result.stderr
+    assert not (repo.parent / "fake-gcloud-state" / "calls.json").exists()
+
+
+@pytest.mark.parametrize(
+    "confirmation",
+    [None, "yes", "MIGRATE_RUNTIME_SAS"],
+)
+def test_runtime_service_account_migration_requires_exact_confirmation(
+    tmp_path: Path,
+    confirmation: str | None,
+) -> None:
+    repo, _remote, fake_bin = make_repo(tmp_path)
+    result = run_entrypoint(
+        repo,
+        fake_bin,
+        overrides={"SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM": confirmation},
+    )
+    assert result.returncode != 0
+    assert "SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM" in result.stderr
+    assert not (repo.parent / "fake-gcloud-state" / "calls.json").exists()
 
 
 def test_non_main_branch_fails_before_gcloud(tmp_path: Path) -> None:

@@ -20,16 +20,22 @@ PROJECT="${GOOGLE_CLOUD_PROJECT:-}"
 FIREBASE_APP_ID="${SUMAI_FIREBASE_APP_ID:-}"
 AGENT_SERVICE_ACCOUNT="${SUMAI_AGENT_SERVICE_ACCOUNT:-}"
 WEB_SERVICE_ACCOUNT="${SUMAI_WEB_SERVICE_ACCOUNT:-}"
+EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT="${SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT:-}"
+EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT="${SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT:-}"
+SERVICE_ACCOUNT_MIGRATION_CONFIRM="${SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM:-}"
 REGION="${SUMAI_REGION:-asia-northeast1}"
 AR_REPO="${SUMAI_AR_REPO:-apps}"
 AGENT_SERVICE="${SUMAI_AGENT_SERVICE:-sumai-agent}"
 WEB_SERVICE="${SUMAI_WEB_SERVICE:-sumai-web}"
-ALLOWED_SERVICE_ACCOUNT_DOMAIN="${SUMAI_ALLOWED_SERVICE_ACCOUNT_DOMAIN:-}"
 
 [[ -n "$PROJECT" ]] || fail "GOOGLE_CLOUD_PROJECT is required"
 [[ -n "$FIREBASE_APP_ID" ]] || fail "SUMAI_FIREBASE_APP_ID is required"
 [[ -n "$AGENT_SERVICE_ACCOUNT" ]] || fail "SUMAI_AGENT_SERVICE_ACCOUNT is required"
 [[ -n "$WEB_SERVICE_ACCOUNT" ]] || fail "SUMAI_WEB_SERVICE_ACCOUNT is required"
+[[ -n "$EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT" ]] ||
+    fail "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT is required"
+[[ -n "$EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT" ]] ||
+    fail "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT is required"
 
 [[ "$PROJECT" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] ||
     fail "GOOGLE_CLOUD_PROJECT is invalid"
@@ -49,28 +55,30 @@ validate_resource_name "SUMAI_AR_REPO" "$AR_REPO"
 validate_resource_name "SUMAI_AGENT_SERVICE" "$AGENT_SERVICE"
 validate_resource_name "SUMAI_WEB_SERVICE" "$WEB_SERVICE"
 
-if [[ -n "$ALLOWED_SERVICE_ACCOUNT_DOMAIN" ]]; then
-    [[ "$ALLOWED_SERVICE_ACCOUNT_DOMAIN" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$ ]] ||
-        fail "SUMAI_ALLOWED_SERVICE_ACCOUNT_DOMAIN is invalid"
-fi
-
-validate_service_account() {
+validate_predecessor_service_account() {
     local variable_name="$1"
     local account="$2"
-    local account_domain
-    local project_domain="${PROJECT}.iam.gserviceaccount.com"
 
-    [[ "$account" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com$ ]] ||
+    [[ "$account" =~ ^([a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\.iam\.gserviceaccount\.com|[0-9]+-compute@developer\.gserviceaccount\.com)$ ]] ||
         fail "$variable_name is invalid"
-    account_domain="${account#*@}"
-    if [[ "$account_domain" != "$project_domain" &&
-          "$account_domain" != "$ALLOWED_SERVICE_ACCOUNT_DOMAIN" ]]; then
-        fail "$variable_name must belong to GOOGLE_CLOUD_PROJECT or the explicit allowed domain"
-    fi
 }
 
-validate_service_account "SUMAI_AGENT_SERVICE_ACCOUNT" "$AGENT_SERVICE_ACCOUNT"
-validate_service_account "SUMAI_WEB_SERVICE_ACCOUNT" "$WEB_SERVICE_ACCOUNT"
+[[ "$AGENT_SERVICE_ACCOUNT" == "sumai-agent-runtime@${PROJECT}.iam.gserviceaccount.com" ]] ||
+    fail "SUMAI_AGENT_SERVICE_ACCOUNT must be the approved dedicated target-project identity"
+[[ "$WEB_SERVICE_ACCOUNT" == "sumai-web-runtime@${PROJECT}.iam.gserviceaccount.com" ]] ||
+    fail "SUMAI_WEB_SERVICE_ACCOUNT must be the approved dedicated target-project identity"
+validate_predecessor_service_account \
+    "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT" \
+    "$EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT"
+validate_predecessor_service_account \
+    "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT" \
+    "$EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT"
+
+if [[ "$EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT" != "$AGENT_SERVICE_ACCOUNT" ||
+      "$EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT" != "$WEB_SERVICE_ACCOUNT" ]]; then
+    [[ "$SERVICE_ACCOUNT_MIGRATION_CONFIRM" == "MIGRATE_TO_DEDICATED_RUNTIME_SAS" ]] ||
+        fail "SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM must explicitly approve the dedicated runtime SA migration"
+fi
 
 command -v git >/dev/null 2>&1 || fail "git is required"
 command -v gcloud >/dev/null 2>&1 || fail "gcloud is required"
@@ -135,7 +143,7 @@ git -C "$ROOT_DIR" diff --cached --quiet --no-ext-diff --ignore-submodules -- ||
     fail "Git index changed while preparing the archive"
 
 SHORT_SHA="${HEAD_SHA:0:7}"
-SUBSTITUTIONS="COMMIT_SHA=${HEAD_SHA},SHORT_SHA=${SHORT_SHA},_REGION=${REGION},_AR_REPO=${AR_REPO},_AGENT_SERVICE=${AGENT_SERVICE},_WEB_SERVICE=${WEB_SERVICE},_FIREBASE_APP_ID=${FIREBASE_APP_ID},_AGENT_SERVICE_ACCOUNT=${AGENT_SERVICE_ACCOUNT},_WEB_SERVICE_ACCOUNT=${WEB_SERVICE_ACCOUNT}"
+SUBSTITUTIONS="COMMIT_SHA=${HEAD_SHA},SHORT_SHA=${SHORT_SHA},_REGION=${REGION},_AR_REPO=${AR_REPO},_AGENT_SERVICE=${AGENT_SERVICE},_WEB_SERVICE=${WEB_SERVICE},_FIREBASE_APP_ID=${FIREBASE_APP_ID},_AGENT_SERVICE_ACCOUNT=${AGENT_SERVICE_ACCOUNT},_WEB_SERVICE_ACCOUNT=${WEB_SERVICE_ACCOUNT},_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT},_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT},_SERVICE_ACCOUNT_MIGRATION_CONFIRM=${SERVICE_ACCOUNT_MIGRATION_CONFIRM}"
 
 BUILD_ID="$(gcloud builds submit "$SOURCE_ARCHIVE" \
     "--config=$BUILD_CONFIG" \

@@ -87,11 +87,27 @@ steps:
           echo "Web candidate service account is required" >&2
           exit 1
         }
+        test -n "${_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT}" || {
+          echo "Expected agent predecessor service account is required" >&2
+          exit 1
+        }
+        test -n "${_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT}" || {
+          echo "Expected web predecessor service account is required" >&2
+          exit 1
+        }
         printf '%s' "${_FIREBASE_APP_ID}" |
           grep -Eq '^1:[0-9]+:ios:[0-9a-f]+$$' || {
             echo "Firebase app ID is missing or invalid" >&2
             exit 1
           }
+        test "${_AGENT_SERVICE_ACCOUNT}" = "sumai-agent-runtime@$PROJECT_ID.iam.gserviceaccount.com" || {
+          echo "Agent candidate service account is not the approved dedicated identity" >&2
+          exit 1
+        }
+        test "${_WEB_SERVICE_ACCOUNT}" = "sumai-web-runtime@$PROJECT_ID.iam.gserviceaccount.com" || {
+          echo "Web candidate service account is not the approved dedicated identity" >&2
+          exit 1
+        }
 
         agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
         agent_digest="$$(cat /workspace/sumai-agent.digest)"
@@ -133,14 +149,20 @@ steps:
         test -n "$$web_resource_version_before"
         test -n "$$agent_production_service_account"
         test -n "$$web_production_service_account"
-        test "$$agent_production_service_account" = "${_AGENT_SERVICE_ACCOUNT}" || {
-          echo "Agent serving revision service account does not match the candidate identity" >&2
+        test "$$agent_production_service_account" = "${_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT}" || {
+          echo "Agent serving revision service account does not match the approved predecessor" >&2
           exit 1
         }
-        test "$$web_production_service_account" = "${_WEB_SERVICE_ACCOUNT}" || {
-          echo "Web serving revision service account does not match the candidate identity" >&2
+        test "$$web_production_service_account" = "${_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT}" || {
+          echo "Web serving revision service account does not match the approved predecessor" >&2
           exit 1
         }
+        if [ "$$agent_production_service_account" != "${_AGENT_SERVICE_ACCOUNT}" ] || [ "$$web_production_service_account" != "${_WEB_SERVICE_ACCOUNT}" ]; then
+          test "${_SERVICE_ACCOUNT_MIGRATION_CONFIRM}" = "MIGRATE_TO_DEDICATED_RUNTIME_SAS" || {
+            echo "Dedicated runtime service-account migration is not explicitly confirmed" >&2
+            exit 1
+          }
+        fi
 
         credential_shape="$$(gcloud run services describe "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" \
@@ -299,7 +321,7 @@ steps:
           printf 'agent_tag=%q\n' "$$agent_tag"
           printf 'agent_revision=%q\n' "$$agent_revision"
           printf 'agent_url=%q\n' "$$agent_url"
-          printf 'agent_service_account=%q\n' "$$agent_production_service_account"
+          printf 'agent_service_account=%q\n' "${_AGENT_SERVICE_ACCOUNT}"
           printf 'agent_production_service_account=%q\n' "$$agent_production_service_account"
           printf 'agent_resource_version_before=%q\n' "$$agent_resource_version_before"
           printf 'agent_resource_version_after=%q\n' "$$agent_resource_version_after"
@@ -549,7 +571,7 @@ steps:
           printf 'web_tag=%q\n' "$$web_tag"
           printf 'web_revision=%q\n' "$$web_revision"
           printf 'web_url=%q\n' "$$web_url"
-          printf 'web_service_account=%q\n' "$$web_production_service_account"
+          printf 'web_service_account=%q\n' "${_WEB_SERVICE_ACCOUNT}"
           printf 'web_resource_version_after=%q\n' "$$web_resource_version_after"
         } >> /workspace/sumai-deploy.env
     waitFor: [push-web, gate-agent-candidate]
@@ -708,6 +730,7 @@ steps:
             "agent_revision",
             "agent_url",
             "agent_service_account",
+            "agent_production_service_account",
             "agent_resource_version_before",
             "agent_resource_version_after",
             "agent_production_before",
@@ -715,6 +738,7 @@ steps:
             "web_revision",
             "web_url",
             "web_service_account",
+            "web_production_service_account",
             "web_resource_version_before",
             "web_resource_version_after",
             "web_production_before",
@@ -732,6 +756,7 @@ steps:
             "agent_revision": values["agent_revision"],
             "agent_url": values["agent_url"],
             "agent_service_account": values["agent_service_account"],
+            "agent_predecessor_service_account": values["agent_production_service_account"],
             "agent_resource_version_before": values["agent_resource_version_before"],
             "agent_resource_version_after": values["agent_resource_version_after"],
             "agent_production_before": values["agent_production_before"],
@@ -739,6 +764,7 @@ steps:
             "web_revision": values["web_revision"],
             "web_url": values["web_url"],
             "web_service_account": values["web_service_account"],
+            "web_predecessor_service_account": values["web_production_service_account"],
             "web_resource_version_before": values["web_resource_version_before"],
             "web_resource_version_after": values["web_resource_version_after"],
             "web_production_before": values["web_production_before"],
@@ -762,6 +788,9 @@ substitutions:
   _FIREBASE_APP_ID: ''
   _AGENT_SERVICE_ACCOUNT: ''
   _WEB_SERVICE_ACCOUNT: ''
+  _EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT: ''
+  _EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT: ''
+  _SERVICE_ACCOUNT_MIGRATION_CONFIRM: ''
 
 options:
   logging: CLOUD_LOGGING_ONLY
