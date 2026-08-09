@@ -977,19 +977,21 @@ def add_foreign_zero_tag(
     service_name: str,
     revision_name: str,
     tag: str,
+    *,
+    omit_percent: bool = False,
 ) -> None:
     service_value = gate.services[service_name]
-    service_value["spec"]["traffic"].append(
-        {"revisionName": revision_name, "percent": 0, "tag": tag}
-    )
-    service_value["status"]["traffic"].append(
-        {
-            "revisionName": revision_name,
-            "percent": 0,
-            "tag": tag,
-            "url": f"https://{tag}---{service_name}.example.run.app",
-        }
-    )
+    spec_target = {"revisionName": revision_name, "tag": tag}
+    status_target = {
+        "revisionName": revision_name,
+        "tag": tag,
+        "url": f"https://{tag}---{service_name}.example.run.app",
+    }
+    if not omit_percent:
+        spec_target["percent"] = 0
+        status_target["percent"] = 0
+    service_value["spec"]["traffic"].append(spec_target)
+    service_value["status"]["traffic"].append(status_target)
     gate.write_json(
         gate.state / "services" / f"{service_name}.json", service_value
     )
@@ -1702,6 +1704,40 @@ def test_dry_run_rejects_explicit_service_container_name_drift(
     assert "candidate_state=INVALID" in result.stderr
 
 
+def test_dry_run_rejects_invalid_server_assigned_container_name(
+    gate: Fixture,
+) -> None:
+    gate.revisions[AGENT_CANDIDATE]["spec"]["containers"][0][
+        "name"
+    ] = "INVALID_NAME"
+    gate.write_json(
+        gate.state / "revisions" / f"{AGENT_CANDIDATE}.json",
+        gate.revisions[AGENT_CANDIDATE],
+    )
+    result = gate.run()
+    assert_failed_without_mutation(result, gate)
+    assert "candidate_state=INVALID" in result.stderr
+
+
+@pytest.mark.parametrize("invalid_tag", [None, "", 7])
+def test_omitted_zero_percent_requires_a_valid_tag(
+    gate: Fixture, invalid_tag: object
+) -> None:
+    for location in ("spec", "status"):
+        target = gate.services[AGENT_SERVICE][location]["traffic"][1]
+        if invalid_tag is None:
+            target.pop("tag")
+        else:
+            target["tag"] = invalid_tag
+    gate.write_json(
+        gate.state / "services" / f"{AGENT_SERVICE}.json",
+        gate.services[AGENT_SERVICE],
+    )
+    result = gate.run()
+    assert_failed_without_mutation(result, gate)
+    assert "candidate_state=INVALID" in result.stderr
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -2009,30 +2045,44 @@ def test_web_cutover_resource_version_race_uses_fresh_versions_for_rollback(
     assert "rollback_result=PASS" in result.stderr
 
 
+@pytest.mark.parametrize("omit_percent", [False, True])
 def test_foreign_zero_percent_tags_survive_claims_and_both_promotions(
-    gate: Fixture,
+    gate: Fixture, omit_percent: bool
 ) -> None:
     add_foreign_zero_tag(
-        gate, AGENT_SERVICE, FOREIGN_AGENT_REVISION, FOREIGN_AGENT_TAG
+        gate,
+        AGENT_SERVICE,
+        FOREIGN_AGENT_REVISION,
+        FOREIGN_AGENT_TAG,
+        omit_percent=omit_percent,
     )
     add_foreign_zero_tag(
-        gate, WEB_SERVICE, FOREIGN_WEB_REVISION, FOREIGN_WEB_TAG
+        gate,
+        WEB_SERVICE,
+        FOREIGN_WEB_REVISION,
+        FOREIGN_WEB_TAG,
+        omit_percent=omit_percent,
     )
     result = gate.run(
         apply=True, confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE"
     )
     assert result.returncode == 0, result.stdout + result.stderr
     payloads = gate.replacement_payloads()
-    assert traffic_by_tag({"spec": payloads[0]["spec"]})[FOREIGN_AGENT_TAG] == {
-        "revisionName": FOREIGN_AGENT_REVISION,
-        "percent": 0,
-        "tag": FOREIGN_AGENT_TAG,
-    }
-    assert traffic_by_tag({"spec": payloads[1]["spec"]})[FOREIGN_WEB_TAG] == {
-        "revisionName": FOREIGN_WEB_REVISION,
-        "percent": 0,
-        "tag": FOREIGN_WEB_TAG,
-    }
+    claimed_agent = traffic_by_tag({"spec": payloads[0]["spec"]})[
+        FOREIGN_AGENT_TAG
+    ]
+    claimed_web = traffic_by_tag({"spec": payloads[1]["spec"]})[
+        FOREIGN_WEB_TAG
+    ]
+    assert claimed_agent["revisionName"] == FOREIGN_AGENT_REVISION
+    assert claimed_agent["tag"] == FOREIGN_AGENT_TAG
+    assert claimed_agent.get("percent", 0) == 0
+    assert claimed_web["revisionName"] == FOREIGN_WEB_REVISION
+    assert claimed_web["tag"] == FOREIGN_WEB_TAG
+    assert claimed_web.get("percent", 0) == 0
+    if omit_percent:
+        assert "percent" not in claimed_agent
+        assert "percent" not in claimed_web
     agent_tags = traffic_by_tag(gate.current_service(AGENT_SERVICE))
     web_tags = traffic_by_tag(gate.current_service(WEB_SERVICE))
     assert agent_tags[FOREIGN_AGENT_TAG]["revisionName"] == FOREIGN_AGENT_REVISION
@@ -2041,14 +2091,23 @@ def test_foreign_zero_percent_tags_survive_claims_and_both_promotions(
     assert web_tags[FOREIGN_WEB_TAG]["percent"] == 0
 
 
+@pytest.mark.parametrize("omit_percent", [False, True])
 def test_foreign_zero_percent_tags_survive_web_then_agent_rollback(
-    gate: Fixture,
+    gate: Fixture, omit_percent: bool
 ) -> None:
     add_foreign_zero_tag(
-        gate, AGENT_SERVICE, FOREIGN_AGENT_REVISION, FOREIGN_AGENT_TAG
+        gate,
+        AGENT_SERVICE,
+        FOREIGN_AGENT_REVISION,
+        FOREIGN_AGENT_TAG,
+        omit_percent=omit_percent,
     )
     add_foreign_zero_tag(
-        gate, WEB_SERVICE, FOREIGN_WEB_REVISION, FOREIGN_WEB_TAG
+        gate,
+        WEB_SERVICE,
+        FOREIGN_WEB_REVISION,
+        FOREIGN_WEB_TAG,
+        omit_percent=omit_percent,
     )
     result = gate.run(
         apply=True,

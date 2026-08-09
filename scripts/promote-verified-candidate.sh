@@ -1175,7 +1175,14 @@ def verify_runtime_spec(spec: object) -> dict:
         fail("candidate_state=INVALID")
     if not nonempty_string(container["image"]):
         fail("candidate_state=INVALID")
-    if "name" in container and not nonempty_string(container["name"]):
+    if "name" in container and (
+        type(container["name"]) is not str
+        or re.fullmatch(
+            r"[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?",
+            container["name"],
+        )
+        is None
+    ):
         fail("candidate_state=INVALID")
     for key in ("command", "args"):
         if key in container and (
