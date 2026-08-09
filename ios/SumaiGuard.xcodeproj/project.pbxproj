@@ -12,17 +12,24 @@
 		2C53C8455C533FC103101D35 /* ImageSanitizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 767CE7297C052E8BC830882F /* ImageSanitizer.swift */; };
 		3F9406CE62F19FA46DA0929D /* APIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 700B53EC57194F309C61E141 /* APIError.swift */; };
 		455D9D7140BE2F1639630914 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9AE8EF00D24C3F4CAF4405E /* APIClient.swift */; };
+		492ECDBCAEAD6A14FA177D6B /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */; };
+		4C13A6D8284CFA2BAC53EE2F /* ConsentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82DE34A1530D14058E5C9405 /* ConsentView.swift */; };
 		55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100AF3AD82A99C7BA36A14 /* AppCheckBootstrap.swift */; };
+		6975E5D30719EE9944A15E64 /* CaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CF0ECA4B6925990B968821B /* CaptureView.swift */; };
+		6BC11F4F553AF8D1AF4D9D08 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */; };
 		6E19AF90E0D2C11115027C7E /* APIClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */; };
 		878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */; };
 		89E4B8E36B4A025DAB860056 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = CD4B13B23263B5B5715EEA52 /* FirebaseCore */; };
 		8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */; };
 		908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */; };
 		A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574F946E01B468839D87F543 /* AnalysisResponseTests.swift */; };
+		A29BEA03F064FC52E37F7207 /* CameraPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */; };
+		B34500C92421DD90EBAD9DB9 /* CaptureConsentViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */; };
 		D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */; };
 		EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */; };
 		F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */; };
 		F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */; };
+		F558B65AE8666CC862AD5BB0 /* PrivacySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */; };
 		F99B7B5458AECF44D5182AD9 /* analysis-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E729575DEE08118605FF942E /* analysis-applicable.json */; };
 		FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8987049FD5DD864BBF97B5 /* AnalysisResponse.swift */; };
 /* End PBXBuildFile section */
@@ -43,19 +50,26 @@
 		412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinatorTests.swift; sourceTree = "<group>"; };
 		53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClientTests.swift; sourceTree = "<group>"; };
 		574F946E01B468839D87F543 /* AnalysisResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponseTests.swift; sourceTree = "<group>"; };
+		63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySheet.swift; sourceTree = "<group>"; };
 		6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizerTests.swift; sourceTree = "<group>"; };
+		6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConsentViewTests.swift; sourceTree = "<group>"; };
 		700B53EC57194F309C61E141 /* APIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIError.swift; sourceTree = "<group>"; };
 		767CE7297C052E8BC830882F /* ImageSanitizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizer.swift; sourceTree = "<group>"; };
 		81ADB6C1D57FBF99725E1277 /* SumaiGuard.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SumaiGuard.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		82DE34A1530D14058E5C9405 /* ConsentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConsentView.swift; sourceTree = "<group>"; };
 		852EFF4D1A9DE273363328BC /* AppFlowCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppFlowCoordinator.swift; sourceTree = "<group>"; };
+		8CF0ECA4B6925990B968821B /* CaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureView.swift; sourceTree = "<group>"; };
 		92A875CD0E2E6AFF40DFB391 /* SumaiGuardTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SumaiGuardTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
 		9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SumaiGuardApp.swift; sourceTree = "<group>"; };
 		B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectContractTests.swift; sourceTree = "<group>"; };
 		B9AE8EF00D24C3F4CAF4405E /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPicker.swift; sourceTree = "<group>"; };
 		CF15A45E467EFB128F3BF93E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		E729575DEE08118605FF942E /* analysis-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-applicable.json"; sourceTree = "<group>"; };
 		E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "analysis-not-applicable.json"; sourceTree = "<group>"; };
+		EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		F4100AF3AD82A99C7BA36A14 /* AppCheckBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCheckBootstrap.swift; sourceTree = "<group>"; };
 		F8827A386EDEC248B85AC3CD /* error-app-check.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "error-app-check.json"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -73,6 +87,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		163C31DA4C6DD7132DDBFDED /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				EE6C22F6BCEE0E7E32A9A55F /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		1C61DE370ECB24BA31E1185A /* Fixtures */ = {
 			isa = PBXGroup;
 			children = (
@@ -88,8 +110,10 @@
 			children = (
 				E81C528F8B9DFC2ED0B6B611 /* App */,
 				E6EB9EA057A43B578B634FD6 /* Models */,
+				163C31DA4C6DD7132DDBFDED /* Resources */,
 				9ECFCECD3A108362C3C37009 /* Services */,
 				4317E3EE1480E644EA390AF2 /* ViewModels */,
+				D10EA0BDF46647CE69E7D65A /* Views */,
 			);
 			path = SumaiGuard;
 			sourceTree = "<group>";
@@ -139,11 +163,24 @@
 				53F8818F7BB09523DC0C43B1 /* APIClientTests.swift */,
 				0C9BBE9D04735DAE06309DA9 /* AppCheckBootstrapTests.swift */,
 				412BBEB65C7B84D12309A7A3 /* AppFlowCoordinatorTests.swift */,
+				6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */,
 				6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */,
 				B313AED2F160AE8628CF82F5 /* ProjectContractTests.swift */,
 				1C61DE370ECB24BA31E1185A /* Fixtures */,
 			);
 			path = SumaiGuardTests;
+			sourceTree = "<group>";
+		};
+		D10EA0BDF46647CE69E7D65A /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				BEA9311B6B599CAB0D9B38CF /* CameraPicker.swift */,
+				8CF0ECA4B6925990B968821B /* CaptureView.swift */,
+				82DE34A1530D14058E5C9405 /* ConsentView.swift */,
+				63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */,
+				F02F00841FFC7AD0AA7DA4E8 /* RootView.swift */,
+			);
+			path = Views;
 			sourceTree = "<group>";
 		};
 		E6EB9EA057A43B578B634FD6 /* Models */ = {
@@ -180,6 +217,7 @@
 			buildConfigurationList = 61F549DD2CF55DE0C59D2006 /* Build configuration list for PBXNativeTarget "SumaiGuard" */;
 			buildPhases = (
 				25E926A965819466D8F0607E /* Sources */,
+				E0B3CAD41887FB6032BC0CB7 /* Resources */,
 				4D262EE5BE43BCE377E119E0 /* Frameworks */,
 			);
 			buildRules = (
@@ -262,6 +300,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E0B3CAD41887FB6032BC0CB7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6BC11F4F553AF8D1AF4D9D08 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -273,6 +319,7 @@
 				A0466B7A955AF93445C3E03E /* AnalysisResponseTests.swift in Sources */,
 				878B338A53CE3D9F1E1E7DAE /* AppCheckBootstrapTests.swift in Sources */,
 				8ED8989BBFB21D2FF35256A0 /* AppFlowCoordinatorTests.swift in Sources */,
+				B34500C92421DD90EBAD9DB9 /* CaptureConsentViewTests.swift in Sources */,
 				EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */,
 				F483C6605C1B3C46ACD17D71 /* ProjectContractTests.swift in Sources */,
 			);
@@ -287,7 +334,12 @@
 				FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */,
 				55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */,
 				908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */,
+				A29BEA03F064FC52E37F7207 /* CameraPicker.swift in Sources */,
+				6975E5D30719EE9944A15E64 /* CaptureView.swift in Sources */,
+				4C13A6D8284CFA2BAC53EE2F /* ConsentView.swift in Sources */,
 				2C53C8455C533FC103101D35 /* ImageSanitizer.swift in Sources */,
+				F558B65AE8666CC862AD5BB0 /* PrivacySheet.swift in Sources */,
+				492ECDBCAEAD6A14FA177D6B /* RootView.swift in Sources */,
 				D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -307,7 +359,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = CF15A45E467EFB128F3BF93E /* Release.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -392,7 +444,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 9660AAA9BFA421D6EF71ECFC /* Debug.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;

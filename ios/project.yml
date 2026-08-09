@@ -26,6 +26,7 @@ targets:
       Release: SumaiGuard/Config/Release.xcconfig
     settings:
       base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         CODE_SIGN_STYLE: Automatic
         CURRENT_PROJECT_VERSION: 1
         INFOPLIST_FILE: SumaiGuard/Info.plist
