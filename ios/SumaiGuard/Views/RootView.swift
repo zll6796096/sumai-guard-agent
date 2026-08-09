@@ -121,104 +121,43 @@ struct RootView: View {
                     cancel: coordinator.cancelConsent
                 )
             )
-        case .processing:
-            InterimProcessingView(onCancel: coordinator.cancelProcessing)
-        case .result:
-            InterimTerminalView(
-                heading: "確認結果を受け取りました",
-                explanation: "結果の詳しい表示を準備しています。ここでは住まいの安全を判断できません。",
-                onReturnHome: coordinator.returnHome
+        case let .processing(selection):
+            ProcessingView(
+                selection: selection,
+                actions: ProcessingActions(
+                    cancelProcessing: coordinator.cancelProcessing
+                )
             )
-        case .advice:
-            InterimTerminalView(
-                heading: "次にできること",
-                explanation: "相談先ごとの表示を準備しています。専門家の判断に代わるものではありません。",
-                onReturnHome: coordinator.returnHome
+        case let .result(response):
+            ResultView(
+                response: response,
+                actions: ResultActions(
+                    showAdvice: coordinator.showAdvice,
+                    returnHome: coordinator.returnHome
+                )
+            )
+        case let .advice(response):
+            AdviceView(
+                response: response,
+                actions: AdviceActions(returnHome: coordinator.returnHome)
             )
         case .noFindings:
-            InterimTerminalView(
-                heading: "明らかな注意候補は確認できませんでした",
-                explanation: "写真で見える範囲だけの結果です。住まい全体の安全を示すものではありません。",
-                onReturnHome: coordinator.returnHome
+            NoFindingsView(
+                actions: NoFindingsActions(returnHome: coordinator.returnHome)
             )
         case let .notApplicable(reason):
-            InterimTerminalView(
-                heading: "この写真では確認できませんでした",
-                explanation: reason,
-                onReturnHome: coordinator.returnHome
+            NotApplicableView(
+                reason: reason,
+                actions: NotApplicableActions(returnHome: coordinator.returnHome)
             )
         case let .error(error):
-            InterimErrorView(
-                message: error.messageJA,
-                onRetry: coordinator.retry,
-                onReturnHome: coordinator.returnHome
+            ErrorView(
+                error: error,
+                actions: ErrorActions(
+                    retry: coordinator.retry,
+                    returnHome: coordinator.returnHome
+                )
             )
         }
-    }
-}
-
-private struct InterimProcessingView: View {
-    let onCancel: () -> Void
-
-    var body: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .controlSize(.large)
-            Text("写真で見える注意候補を確認しています")
-                .font(.headline)
-                .multilineTextAlignment(.center)
-            Text("処理中は写真を保存しません。")
-                .font(.body)
-                .foregroundStyle(.secondary)
-            Button("確認を中止する", action: onCancel)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("processing.cancel")
-        }
-        .padding(24)
-        .navigationTitle("確認中")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-private struct InterimTerminalView: View {
-    let heading: String
-    let explanation: String
-    let onReturnHome: () -> Void
-
-    var body: some View {
-        ContentUnavailableView {
-            Label(heading, systemImage: "house")
-        } description: {
-            Text(explanation)
-        } actions: {
-            Button("最初の画面に戻る", action: onReturnHome)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("terminal.returnHome")
-        }
-        .navigationTitle("実家あんしんチェック")
-    }
-}
-
-private struct InterimErrorView: View {
-    let message: String
-    let onRetry: () -> Void
-    let onReturnHome: () -> Void
-
-    var body: some View {
-        ContentUnavailableView {
-            Label("処理を完了できませんでした", systemImage: "exclamationmark.circle")
-        } description: {
-            Text(message)
-        } actions: {
-            VStack(spacing: 12) {
-                Button("写真を確認してもう一度試す", action: onRetry)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("error.retry")
-                Button("最初の画面に戻る", action: onReturnHome)
-                    .frame(minHeight: 44)
-                    .accessibilityIdentifier("error.returnHome")
-            }
-        }
-        .navigationTitle("実家あんしんチェック")
     }
 }
