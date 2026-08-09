@@ -37,7 +37,7 @@ steps:
       - build
       - --label=org.opencontainers.image.revision=${COMMIT_SHA}
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}-$BUILD_ID
       - apps/sumai_agent
     waitFor: [test, compose-config]
 
@@ -47,7 +47,7 @@ steps:
       - build
       - --label=org.opencontainers.image.revision=${COMMIT_SHA}
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}-$BUILD_ID
       - apps/sumai_web
     waitFor: [test, compose-config]
 
@@ -57,7 +57,7 @@ steps:
     args:
       - -ceu
       - |
-        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
+        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}-$BUILD_ID"
         docker push "$$agent_ref" | tee /workspace/sumai-agent-push.log
         awk '/digest: sha256:/{print $$3}' /workspace/sumai-agent-push.log |
           tail -1 > /workspace/sumai-agent.digest
@@ -70,7 +70,7 @@ steps:
     args:
       - -ceu
       - |
-        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
+        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}-$BUILD_ID"
         docker push "$$web_ref" | tee /workspace/sumai-web-push.log
         awk '/digest: sha256:/{print $$3}' /workspace/sumai-web-push.log |
           tail -1 > /workspace/sumai-web.digest
@@ -113,7 +113,7 @@ steps:
           exit 1
         }
 
-        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}"
+        agent_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}-$BUILD_ID"
         agent_digest="$$(cat /workspace/sumai-agent.digest)"
         printf '%s' "$$agent_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
 
@@ -479,7 +479,7 @@ steps:
           echo "Web candidate service account is required" >&2
           exit 1
         }
-        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}"
+        web_ref="${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}-$BUILD_ID"
         web_digest="$$(cat /workspace/sumai-web.digest)"
         printf '%s' "$$web_digest" | grep -Eq '^sha256:[0-9a-f]{64}$$'
         web_tag="candidate-${SHORT_SHA}-$${build_token}"
@@ -822,7 +822,3 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
-
-images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_AGENT_SERVICE}:${COMMIT_SHA}
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/${_WEB_SERVICE}:${COMMIT_SHA}

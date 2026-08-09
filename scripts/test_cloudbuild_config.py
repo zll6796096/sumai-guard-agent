@@ -109,6 +109,45 @@ def validate_test_step_toolchain(command_steps: dict[str, str]) -> None:
     )
 
 
+def validate_immutable_registry_push_ownership(
+    config: dict,
+    steps: dict[str, dict],
+    command_steps: dict[str, str],
+) -> None:
+    assert "images" not in config, (
+        "candidate build must have one explicit image-push owner in an "
+        "immutable-tag repository"
+    )
+    specifications = {
+        "agent": (
+            "_AGENT_SERVICE",
+            "build-agent",
+            "push-agent",
+            "deploy-agent-candidate",
+        ),
+        "web": ("_WEB_SERVICE", "build-web", "push-web", "deploy-web-candidate"),
+    }
+    for component, (
+        service_substitution,
+        build_step,
+        push_step,
+        deploy_step,
+    ) in specifications.items():
+        image_ref = (
+            "${_REGION}-docker.pkg.dev/$PROJECT_ID/${_AR_REPO}/"
+            f"${{{service_substitution}}}:${{COMMIT_SHA}}-$BUILD_ID"
+        )
+        assert steps[build_step].get("args", []).count(image_ref) == 1, (
+            f"{build_step} must use one build-specific immutable {component} tag"
+        )
+        assignment = f'{component}_ref="{image_ref}"'
+        for step_id in (push_step, deploy_step):
+            command = normalized_shell_contract(command_steps[step_id])
+            assert command.count(assignment) == 1, (
+                f"{step_id} must bind the exact build-specific {component} tag"
+            )
+
+
 def shell_command_segments(command_text: str) -> list[str]:
     logical_text = re.sub(r"\\[ \t]*\n", " ", command_text)
     segments = []
@@ -913,6 +952,7 @@ def main() -> None:
         for step_id, step in steps.items()
     }
     validate_test_step_toolchain(command_steps)
+    validate_immutable_registry_push_ownership(config, steps, command_steps)
     validate_traffic_commands(command_steps)
     validate_production_service_account_preconditions(command_steps)
     for step_id, command_text in command_steps.items():
