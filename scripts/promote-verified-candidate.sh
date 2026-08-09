@@ -538,7 +538,6 @@ sha_pattern = re.compile(r"[0-9a-f]{40}")
 digest_pattern = re.compile(r"sha256:[0-9a-f]{64}")
 revision_pattern = re.compile(r"[a-z][a-z0-9-]{0,62}")
 safe_id_pattern = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
-resource_version_pattern = re.compile(r"[0-9]+")
 account_pattern = re.compile(
     r"[a-z0-9][a-z0-9-]{0,62}@[a-z0-9][a-z0-9.-]{1,200}\.iam\.gserviceaccount\.com"
 )
@@ -569,12 +568,12 @@ for key in (
     "web_resource_version_before",
     "web_resource_version_after",
 ):
-    if resource_version_pattern.fullmatch(candidate[key]) is None:
+    if not candidate[key]:
         fail("candidate_evidence=INVALID")
 for component in ("agent", "web"):
-    before = int(candidate[f"{component}_resource_version_before"])
-    after = int(candidate[f"{component}_resource_version_after"])
-    if after <= before:
+    before = candidate[f"{component}_resource_version_before"]
+    after = candidate[f"{component}_resource_version_after"]
+    if after == before:
         fail("candidate_evidence=INVALID")
 for key in ("agent_service_account", "web_service_account"):
     if account_pattern.fullmatch(candidate[key]) is None:
@@ -1384,7 +1383,7 @@ service = json.loads(Path(service_path).read_text(encoding="utf-8"))
 metadata = service.get("metadata", {})
 resource_version = metadata.get("resourceVersion")
 labels = metadata.get("labels")
-if not isinstance(resource_version, str) or re.fullmatch(r"[0-9]+", resource_version) is None:
+if not isinstance(resource_version, str) or not resource_version:
     raise SystemExit("conditional replacement resourceVersion is invalid")
 if not isinstance(labels, dict) or labels.get("deployment-lock") != expected_lock:
     raise SystemExit("deployment lock changed before claim")
@@ -1435,9 +1434,9 @@ after_rv = after_meta.get("resourceVersion")
 if (
     not isinstance(before_rv, str)
     or not isinstance(after_rv, str)
-    or re.fullmatch(r"[0-9]+", before_rv) is None
-    or re.fullmatch(r"[0-9]+", after_rv) is None
-    or int(after_rv) <= int(before_rv)
+    or not before_rv
+    or not after_rv
+    or after_rv == before_rv
 ):
     raise SystemExit("claim resourceVersion did not advance")
 before_labels = copy.deepcopy(before_meta.get("labels", {}))
@@ -1674,7 +1673,7 @@ service_path, output_path, target_revision, target_tag, _keep_zero_tag, source_s
 service = json.loads(Path(service_path).read_text(encoding="utf-8"))
 metadata = service.get("metadata", {})
 resource_version = metadata.get("resourceVersion")
-if not isinstance(resource_version, str) or not resource_version.isdecimal():
+if not isinstance(resource_version, str) or not resource_version:
     raise SystemExit("conditional replacement resourceVersion is missing")
 labels = metadata.get("labels", {})
 if labels.get("source-commit") != source_sha or labels.get("deployment-lock") != promotion_lock:
@@ -1759,7 +1758,7 @@ if (
     name not in {agent_service, web_service}
     or metadata.get("namespace") != project
     or not isinstance(metadata.get("resourceVersion"), str)
-    or re.fullmatch(r"[0-9]+", metadata["resourceVersion"]) is None
+    or not metadata["resourceVersion"]
 ):
     raise SystemExit(1)
 print(name)
@@ -1902,15 +1901,15 @@ if current_labels.get("source-commit") != source_sha:
 current_rv = current_metadata.get("resourceVersion")
 if (
     not isinstance(previous_rv, str)
-    or not previous_rv.isdecimal()
+    or not previous_rv
     or not isinstance(current_rv, str)
-    or not current_rv.isdecimal()
+    or not current_rv
 ):
     print("INVALID")
     raise SystemExit(0)
 current_lock = current_labels.get("deployment-lock")
 if current_lock != expected_lock:
-    if current_lock == previous_lock and int(current_rv) <= int(previous_rv):
+    if current_lock == previous_lock and current_rv == previous_rv:
         print("PENDING")
     else:
         print("OWNERSHIP_CHANGED")
@@ -1963,7 +1962,7 @@ ready = isinstance(conditions, list) and any(
     for row in conditions
 )
 if (
-    int(current_rv) > int(previous_rv)
+    current_rv != previous_rv
     and spec_traffic == expected_traffic
     and status_traffic == expected_traffic
     and ready
@@ -2057,9 +2056,9 @@ labels = metadata.get("labels", {})
 new_rv = metadata.get("resourceVersion")
 if (
     not isinstance(new_rv, str)
-    or not new_rv.isdecimal()
-    or not old_rv.isdecimal()
-    or int(new_rv) <= int(old_rv)
+    or not new_rv
+    or not old_rv
+    or new_rv == old_rv
 ):
     raise SystemExit("agent promotion resourceVersion did not advance")
 if labels.get("source-commit") != source_sha or labels.get("deployment-lock") != promotion_lock:
@@ -2158,7 +2157,7 @@ if (
     metadata.get("name") != "sumai-web"
     or metadata.get("namespace") != project
     or not isinstance(resource_version, str)
-    or not resource_version.isdecimal()
+    or not resource_version
     or labels.get("source-commit") != source_sha
     or labels.get("deployment-lock") != promotion_lock
 ):
@@ -2296,9 +2295,9 @@ labels = metadata.get("labels", {})
 resource_version = metadata.get("resourceVersion")
 if (
     not isinstance(resource_version, str)
-    or not resource_version.isdecimal()
-    or not previous_rv.isdecimal()
-    or int(resource_version) <= int(previous_rv)
+    or not resource_version
+    or not previous_rv
+    or resource_version == previous_rv
 ):
     raise SystemExit("final web deployment resourceVersion did not advance")
 if labels.get("source-commit") != source_sha or labels.get("deployment-lock") != promotion_lock:
@@ -2774,7 +2773,7 @@ service = json.loads(Path(service_path).read_text(encoding="utf-8"))
 metadata = service.get("metadata", {})
 resource_version = metadata.get("resourceVersion")
 labels = metadata.get("labels", {})
-if not isinstance(resource_version, str) or not resource_version.isdecimal():
+if not isinstance(resource_version, str) or not resource_version:
     raise SystemExit("rollback resourceVersion is missing")
 if labels.get("deployment-lock") != promotion_lock:
     raise SystemExit("rollback ownership changed")

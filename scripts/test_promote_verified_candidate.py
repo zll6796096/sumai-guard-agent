@@ -1082,18 +1082,58 @@ def test_resource_version_drift_is_rejected(gate: Fixture) -> None:
     assert "resource_version=DRIFT" in result.stderr
 
 
+def test_opaque_resource_versions_are_accepted_and_passed_through(
+    gate: Fixture,
+) -> None:
+    opaque_versions = {
+        "agent_resource_version_before": "AAZY-agent-before",
+        "agent_resource_version_after": "AAZY-agent-after",
+        "web_resource_version_before": "AAZY-web-before",
+        "web_resource_version_after": "AAZY-web-after",
+    }
+    gate.candidate.update(opaque_versions)
+    gate.services[AGENT_SERVICE]["metadata"]["resourceVersion"] = (
+        opaque_versions["agent_resource_version_after"]
+    )
+    gate.services[WEB_SERVICE]["metadata"]["resourceVersion"] = (
+        opaque_versions["web_resource_version_after"]
+    )
+    gate.write_json(
+        gate.state / "services" / f"{AGENT_SERVICE}.json",
+        gate.services[AGENT_SERVICE],
+    )
+    gate.write_json(
+        gate.state / "services" / f"{WEB_SERVICE}.json",
+        gate.services[WEB_SERVICE],
+    )
+    gate.write_evidence()
+
+    result = gate.run(
+        apply=True,
+        confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    payloads = gate.replacement_payloads()
+    assert payloads[0]["metadata"]["resourceVersion"] == (
+        opaque_versions["agent_resource_version_after"]
+    )
+    assert payloads[1]["metadata"]["resourceVersion"] == (
+        opaque_versions["web_resource_version_after"]
+    )
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("agent_resource_version_before", "rv-100"),
+        ("agent_resource_version_before", ""),
         ("agent_resource_version_after", ""),
         ("agent_resource_version_before", AGENT_RV_AFTER),
-        ("agent_resource_version_before", "102"),
         ("web_resource_version_before", WEB_RV_AFTER),
-        ("web_resource_version_before", "202"),
+        ("web_resource_version_after", ""),
     ],
 )
-def test_candidate_resource_versions_must_be_decimal_and_strictly_advance(
+def test_candidate_resource_versions_must_be_nonempty_and_change(
     gate: Fixture, field: str, value: str
 ) -> None:
     gate.candidate[field] = value
@@ -1510,15 +1550,15 @@ def test_conditional_payloads_preserve_templates_and_use_fresh_resource_versions
     agent_payload = payloads[2]
     final_revision_payload = payloads[3]
     web_payload = payloads[4]
-    assert agent_payload["metadata"]["resourceVersion"].isdigit()
+    assert agent_payload["metadata"]["resourceVersion"]
     assert agent_payload["spec"]["template"] == original_agent_template
     assert traffic_by_tag({"spec": agent_payload["spec"]})[CANDIDATE_TAG] == {
         "revisionName": AGENT_CANDIDATE,
         "percent": 100,
         "tag": CANDIDATE_TAG,
     }
-    assert web_payload["metadata"]["resourceVersion"].isdigit()
-    assert int(web_payload["metadata"]["resourceVersion"]) > int(
+    assert web_payload["metadata"]["resourceVersion"]
+    assert web_payload["metadata"]["resourceVersion"] != (
         final_revision_payload["metadata"]["resourceVersion"]
     )
     assert web_payload["spec"]["template"]["spec"]["containers"][0][
