@@ -1488,9 +1488,6 @@ if before_labels.get("deployment-lock") != expected_old_lock:
 before_labels["deployment-lock"] = expected_new_lock
 if after_labels != before_labels:
     raise SystemExit("claim changed labels other than deployment-lock")
-for key in ("name", "namespace"):
-    if after_meta.get(key) != before_meta.get(key):
-        raise SystemExit("claim changed service metadata")
 before_annotations = copy.deepcopy(before_meta.get("annotations", {}))
 after_annotations = copy.deepcopy(after_meta.get("annotations", {}))
 if not isinstance(before_annotations, dict) or not isinstance(after_annotations, dict):
@@ -1512,6 +1509,16 @@ for key in managed_annotations:
     before_annotations.pop(key, None)
     after_annotations.pop(key, None)
 if before_annotations != after_annotations:
+    raise SystemExit("claim changed service metadata")
+expected_metadata = copy.deepcopy(before_meta)
+actual_metadata = copy.deepcopy(after_meta)
+expected_metadata.pop("resourceVersion", None)
+actual_metadata.pop("resourceVersion", None)
+expected_metadata["labels"] = before_labels
+actual_metadata["labels"] = after_labels
+expected_metadata["annotations"] = before_annotations
+actual_metadata["annotations"] = after_annotations
+if actual_metadata != expected_metadata:
     raise SystemExit("claim changed service metadata")
 if after.get("apiVersion") != before.get("apiVersion") or after.get("kind") != before.get("kind"):
     raise SystemExit("claim changed service identity")
