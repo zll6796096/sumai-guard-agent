@@ -169,13 +169,20 @@ def service(
             "name": name,
             "namespace": PROJECT_NUMBER,
             "resourceVersion": resource_version,
+            "uid": f"uid-{name}",
+            "generation": 41,
+            "creationTimestamp": "2026-08-01T00:00:00Z",
             "labels": {
                 "app": "sumai-guard",
                 "managed-by": "cloud-build",
                 "source-commit": SOURCE_SHA,
                 "deployment-lock": SOURCE_SHA,
             },
-            "annotations": {"run.googleapis.com/ingress": "all"},
+            "annotations": {
+                "run.googleapis.com/ingress": "all",
+                "run.googleapis.com/operation-id": "initial-operation",
+                "serving.knative.dev/lastModifier": "initial-caller",
+            },
         },
         "spec": {
             "template": template,
@@ -600,6 +607,25 @@ if url.startswith(api_prefix):
     previous_status_traffic = current.get("status", {}).get("traffic", [])
     current["metadata"] = copy.deepcopy(payload["metadata"])
     current["metadata"]["resourceVersion"] = next_rv()
+    for server_key in ("uid", "generation", "creationTimestamp"):
+        current["metadata"][server_key] = previous_current["metadata"][server_key]
+    current["metadata"]["annotations"][
+        "run.googleapis.com/operation-id"
+    ] = "server-operation-" + current["metadata"]["resourceVersion"]
+    current["metadata"]["annotations"][
+        "serving.knative.dev/lastModifier"
+    ] = "promotion-caller"
+    if is_claim and os.environ.get("FAKE_SERVER_ANNOTATION_DRIFT") == "1":
+        current["metadata"]["annotations"][
+            "example.invalid/release-setting"
+        ] = "unexpected"
+    metadata_drift = os.environ.get("FAKE_SERVER_METADATA_DRIFT", "")
+    if is_claim and metadata_drift == "uid":
+        current["metadata"]["uid"] = "uid-recreated-service"
+    elif is_claim and metadata_drift == "generation":
+        current["metadata"]["generation"] += 1
+    elif is_claim and metadata_drift == "unknown-key":
+        current["metadata"]["unexpectedServerField"] = "unexpected"
     current["spec"] = copy.deepcopy(payload["spec"])
     current["status"]["conditions"] = [{"type": "Ready", "status": "True"}]
     current["status"]["traffic"] = status_traffic(
@@ -1436,6 +1462,43 @@ def test_apply_claims_both_services_with_random_invocation_lock_before_cutover(
         "template"
     ]["metadata"]["name"]
     assert_no_mutating_gcloud(gate)
+
+
+def test_claim_rejects_unrelated_server_annotation_drift(
+    gate: Fixture,
+) -> None:
+    result = gate.run(
+        apply=True,
+        confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE",
+        extra_env={"FAKE_SERVER_ANNOTATION_DRIFT": "1"},
+    )
+    assert result.returncode != 0
+    assert "claim changed service metadata" in result.stderr
+    assert "claim_restore=PASS" in result.stderr
+    assert gate.current_service(AGENT_SERVICE)["spec"]["traffic"][0][
+        "revisionName"
+    ] == AGENT_PREDECESSOR
+    assert service_lock(gate, AGENT_SERVICE) == SOURCE_SHA
+
+
+@pytest.mark.parametrize(
+    "metadata_drift", ["uid", "generation", "unknown-key"]
+)
+def test_claim_rejects_non_allowlisted_metadata_drift(
+    gate: Fixture, metadata_drift: str
+) -> None:
+    result = gate.run(
+        apply=True,
+        confirm="PROMOTE_VERIFIED_SUMAI_CANDIDATE",
+        extra_env={"FAKE_SERVER_METADATA_DRIFT": metadata_drift},
+    )
+    assert result.returncode != 0
+    assert "claim changed service metadata" in result.stderr
+    assert "claim_restore=PASS" in result.stderr
+    assert gate.current_service(AGENT_SERVICE)["spec"]["traffic"][0][
+        "revisionName"
+    ] == AGENT_PREDECESSOR
+    assert service_lock(gate, AGENT_SERVICE) == SOURCE_SHA
 
 
 def test_second_claim_resource_version_conflict_restores_only_owned_first_claim(
