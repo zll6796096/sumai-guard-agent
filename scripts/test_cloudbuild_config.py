@@ -88,6 +88,27 @@ def validate_cloud_build_argument_lengths(steps: list[dict]) -> None:
             )
 
 
+def validate_test_step_toolchain(command_steps: dict[str, str]) -> None:
+    step_id = "test"
+    assert step_id in command_steps, f"missing Cloud Build step: {step_id}"
+    command = normalized_shell_contract(command_steps[step_id])
+    contracts = (
+        "apt-get update",
+        "apt-get install -y --no-install-recommends docker-cli docker-compose",
+        "docker compose version",
+        "python -m pytest apps/sumai_agent/tests -v",
+    )
+    positions = []
+    for contract in contracts:
+        assert command.count(contract) == 1, (
+            f"{step_id} missing exact test toolchain contract: {contract}"
+        )
+        positions.append(command.index(contract))
+    assert positions == sorted(positions), (
+        f"{step_id} must install and verify Docker Compose before backend tests"
+    )
+
+
 def shell_command_segments(command_text: str) -> list[str]:
     logical_text = re.sub(r"\\[ \t]*\n", " ", command_text)
     segments = []
@@ -891,6 +912,7 @@ def main() -> None:
         step_id: step_command_text(step_id, step)
         for step_id, step in steps.items()
     }
+    validate_test_step_toolchain(command_steps)
     validate_traffic_commands(command_steps)
     validate_production_service_account_preconditions(command_steps)
     for step_id, command_text in command_steps.items():

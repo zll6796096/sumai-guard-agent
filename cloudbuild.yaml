@@ -5,6 +5,10 @@ steps:
     args:
       - -ceu
       - |
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y --no-install-recommends docker-cli docker-compose
+        docker compose version
         pip install --disable-pip-version-check \
           -r apps/sumai_agent/requirements.txt \
           -r apps/sumai_web/requirements.txt \
