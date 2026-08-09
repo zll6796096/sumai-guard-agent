@@ -19,6 +19,7 @@ AGENT_DIGEST = "sha256:" + "1" * 64
 WEB_DIGEST = "sha256:" + "2" * 64
 BUILD_ID = "build1234"
 PROJECT = "sumai-prod-123"
+PROJECT_NUMBER = "123456789012"
 REGION = "asia-northeast1"
 AGENT_SERVICE = "sumai-agent"
 WEB_SERVICE = "sumai-web"
@@ -114,6 +115,7 @@ def revision(
             "containerConcurrency": 80,
             "containers": [
                 {
+                    "name": "sumai-runtime",
                     "image": image,
                     "ports": [{"containerPort": 8080}],
                     "resources": {
@@ -148,6 +150,8 @@ def service(
     stable_url: str,
     candidate_revision: dict[str, Any],
 ) -> dict[str, Any]:
+    template_spec = json.loads(json.dumps(candidate_revision["spec"]))
+    template_spec["containers"][0].pop("name")
     template = {
         "metadata": {
             "labels": {
@@ -156,14 +160,14 @@ def service(
             },
             "annotations": candidate_revision["metadata"]["annotations"],
         },
-        "spec": candidate_revision["spec"],
+        "spec": template_spec,
     }
     return {
         "apiVersion": "serving.knative.dev/v1",
         "kind": "Service",
         "metadata": {
             "name": name,
-            "namespace": PROJECT,
+            "namespace": PROJECT_NUMBER,
             "resourceVersion": resource_version,
             "labels": {
                 "app": "sumai-guard",
@@ -179,7 +183,6 @@ def service(
                 {"revisionName": predecessor, "percent": 100},
                 {
                     "revisionName": candidate,
-                    "percent": 0,
                     "tag": CANDIDATE_TAG,
                 },
             ],
@@ -191,13 +194,20 @@ def service(
                 {"revisionName": predecessor, "percent": 100},
                 {
                     "revisionName": candidate,
-                    "percent": 0,
                     "tag": CANDIDATE_TAG,
                     "url": candidate_url,
                 },
             ],
         },
     }
+
+
+def sync_service_template_spec(
+    service_value: dict[str, Any], revision_value: dict[str, Any]
+) -> None:
+    template_spec = json.loads(json.dumps(revision_value["spec"]))
+    template_spec["containers"][0].pop("name")
+    service_value["spec"]["template"]["spec"] = template_spec
 
 
 def candidate_evidence() -> dict[str, Any]:
@@ -280,7 +290,11 @@ def advance_async(name):
     save(service_path(name), pending["desired"])
     pending_path.unlink()
 
-if args[:3] == ["run", "services", "describe"]:
+if args[:2] == ["projects", "describe"]:
+    if args[2] != os.environ["FAKE_PROJECT"]:
+        raise SystemExit("unexpected fake project")
+    print(os.environ["FAKE_PROJECT_NUMBER"])
+elif args[:3] == ["run", "services", "describe"]:
     advance_async(args[3])
     print(service_path(args[3]).read_text(encoding="utf-8"), end="")
 elif args[:3] == ["run", "revisions", "describe"]:
@@ -822,6 +836,7 @@ class Fixture:
                 "FAKE_STATE": str(self.state),
                 "FAKE_SOURCE_SHA": SOURCE_SHA,
                 "FAKE_PROJECT": PROJECT,
+                "FAKE_PROJECT_NUMBER": PROJECT_NUMBER,
                 "FAKE_REGION": REGION,
                 "FAKE_ACCESS_TOKEN": "ya29.fake-promotion-token-never-log-this-value",
                 "FAKE_REMOTE_SHA": SOURCE_SHA,
@@ -1039,6 +1054,28 @@ def test_cloud_run_api_target_components_fail_before_any_external_call(
     assert result.returncode != 0
     assert gate.calls() == []
     assert "cloud_run_api_target=INVALID" in result.stderr
+
+
+def test_project_number_must_resolve_to_a_numeric_identity(gate: Fixture) -> None:
+    result = gate.run(extra_env={"FAKE_PROJECT_NUMBER": "wrong-project"})
+
+    assert_failed_without_mutation(result, gate)
+    assert "project_identity=INVALID" in result.stderr
+
+
+def test_service_namespace_must_match_resolved_project_number(
+    gate: Fixture,
+) -> None:
+    gate.services[AGENT_SERVICE]["metadata"]["namespace"] = "999999999999"
+    gate.write_json(
+        gate.state / "services" / f"{AGENT_SERVICE}.json",
+        gate.services[AGENT_SERVICE],
+    )
+
+    result = gate.run()
+
+    assert_failed_without_mutation(result, gate)
+    assert "candidate_state=INVALID" in result.stderr
 
 
 @pytest.mark.parametrize("component", ["agent", "web"])
@@ -1652,6 +1689,19 @@ def test_dry_run_rejects_unsupported_extra_candidate_container(
     assert "candidate_state=INVALID" in result.stderr
 
 
+def test_dry_run_rejects_explicit_service_container_name_drift(
+    gate: Fixture,
+) -> None:
+    gate.services[AGENT_SERVICE]["spec"]["template"]["spec"]["containers"][0][
+        "name"
+    ] = "unexpected-runtime"
+    for name, payload in gate.services.items():
+        gate.write_json(gate.state / "services" / f"{name}.json", payload)
+    result = gate.run()
+    assert_failed_without_mutation(result, gate)
+    assert "candidate_state=INVALID" in result.stderr
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -1820,6 +1870,9 @@ def test_supported_nested_runtime_schema_survives_final_deep_equality(
         {"name": "cloudsql-data", "mountPath": "/cloudsql"},
         {"name": "nfs-data", "mountPath": "/mnt/nfs", "readOnly": True},
     ]
+    sync_service_template_spec(
+        gate.services[WEB_SERVICE], gate.revisions[WEB_CANDIDATE]
+    )
     for name, payload in gate.services.items():
         gate.write_json(gate.state / "services" / f"{name}.json", payload)
     for name, payload in gate.revisions.items():
@@ -1839,6 +1892,9 @@ def test_supported_tcp_socket_probe_schema_passes_dry_run(gate: Fixture) -> None
         "periodSeconds": 10,
         "failureThreshold": 3,
     }
+    sync_service_template_spec(
+        gate.services[WEB_SERVICE], gate.revisions[WEB_CANDIDATE]
+    )
     for name, payload in gate.services.items():
         gate.write_json(gate.state / "services" / f"{name}.json", payload)
     for name, payload in gate.revisions.items():
