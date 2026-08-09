@@ -211,6 +211,30 @@ steps:
           --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,APP_CHECK_REQUIRED=true,FIREBASE_APP_ID=${_FIREBASE_APP_ID},GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO" \
           --update-secrets=GEMINI_API_KEY=sumai-gemini-api-key:2
 
+        umask 077
+        {
+          printf 'agent_ref=%q\n' "$$agent_ref"
+          printf 'agent_digest=%q\n' "$$agent_digest"
+          printf 'agent_tag=%q\n' "$$agent_tag"
+          printf 'agent_service_account=%q\n' "${_AGENT_SERVICE_ACCOUNT}"
+          printf 'agent_production_service_account=%q\n' "$$agent_production_service_account"
+          printf 'agent_resource_version_before=%q\n' "$$agent_resource_version_before"
+          printf 'agent_production_before=%q\n' "$$agent_production_before"
+          printf 'web_production_service_account=%q\n' "$$web_production_service_account"
+          printf 'web_resource_version_before=%q\n' "$$web_resource_version_before"
+          printf 'web_production_before=%q\n' "$$web_production_before"
+          printf 'build_token=%q\n' "$$build_token"
+        } > /workspace/sumai-deploy.env
+    waitFor: [push-agent]
+
+  - id: validate-agent-candidate
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        source /workspace/sumai-deploy.env
+
         agent_traffic_after="$$(gcloud run services describe "${_AGENT_SERVICE}" \
           --project="$PROJECT_ID" --region="${_REGION}" --format=json |
           python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["status"]["traffic"]))')"
@@ -331,7 +355,7 @@ steps:
           printf 'web_production_before=%q\n' "$$web_production_before"
           printf 'build_token=%q\n' "$$build_token"
         } > /workspace/sumai-deploy.env
-    waitFor: [push-agent]
+    waitFor: [deploy-agent-candidate]
 
   - id: probe-agent-candidate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
@@ -418,7 +442,7 @@ steps:
           exit 1
         }
         printf '%s\n' "$COMMIT_SHA" > /workspace/sumai-agent-probe.ok
-    waitFor: [deploy-agent-candidate]
+    waitFor: [validate-agent-candidate]
 
   - id: gate-agent-candidate
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim

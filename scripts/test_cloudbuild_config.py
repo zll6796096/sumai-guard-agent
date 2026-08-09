@@ -20,6 +20,7 @@ EXPECTED_EVIDENCE_WRITE = (
 )
 DIGEST_PATTERN = "^sha256:[0-9a-f]{64}$"
 SERVICE_ACCOUNT_MIGRATION_CONFIRMATION = "MIGRATE_TO_DEDICATED_RUNTIME_SAS"
+CLOUD_BUILD_MAX_ARG_LENGTH = 10_000
 EXPECTED_EVIDENCE_EXPRESSIONS = {
     "schema_version": "1",
     "source_commit": 'os.environ["COMMIT_SHA"]',
@@ -75,6 +76,16 @@ def step_command_text(step_id: str, step: dict) -> str:
             [part for part in (entrypoint, *args) if part]
         ).strip()
     return "\n".join(arg.strip() for arg in args if arg.strip())
+
+
+def validate_cloud_build_argument_lengths(steps: list[dict]) -> None:
+    for step in steps:
+        step_id = step["id"]
+        for index, argument in enumerate(step.get("args", [])):
+            assert len(argument) <= CLOUD_BUILD_MAX_ARG_LENGTH, (
+                f"{step_id} arg {index} exceeds the Cloud Build "
+                f"{CLOUD_BUILD_MAX_ARG_LENGTH}-character limit"
+            )
 
 
 def shell_command_segments(command_text: str) -> list[str]:
@@ -869,6 +880,8 @@ def main() -> None:
     steps = {step["id"]: step for step in config["steps"]}
     assert len(steps) == len(config["steps"]), "Cloud Build step ids must be unique"
 
+    validate_cloud_build_argument_lengths(config["steps"])
+
     assert "promote" not in steps, (
         "candidate-only Cloud Build must not have a promote step"
     )
@@ -889,6 +902,7 @@ def main() -> None:
         "push-agent",
         "push-web",
         "deploy-agent-candidate",
+        "validate-agent-candidate",
         "probe-agent-candidate",
         "deploy-web-candidate",
         "probe-web-candidate",
