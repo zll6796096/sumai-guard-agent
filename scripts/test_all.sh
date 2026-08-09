@@ -25,6 +25,7 @@ echo "4/6: Running native release control tests..."
 python3 -m pytest \
   scripts/test_install_firebase_ios_config.py \
   scripts/test_ios_ci_workflow.py \
+  scripts/test_validate_ios_signing.py \
   scripts/test_validate_ios_release.py \
   -v
 

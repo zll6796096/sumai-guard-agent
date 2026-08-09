@@ -24,3 +24,29 @@ def test_ci_contains_fail_closed_native_ios_job() -> None:
     assert "--allow-missing-firebase-config-for-ci" not in commands
     assert "xcodebuild" in commands
     assert "CODE_SIGNING_ALLOWED=NO" in commands
+    assert "SumaiGuardDeviceSmoke" in commands
+    assert "build-for-testing" in commands
+    assert "validate_ios_build_settings.py" in commands
+
+
+def test_device_smoke_uses_release_like_testable_configuration() -> None:
+    project = yaml.safe_load(
+        (ROOT / "ios" / "project.yml").read_text(encoding="utf-8")
+    )
+
+    assert project["configs"]["DeviceSmoke"] == "release"
+    app_target = project["targets"]["SumaiGuard"]
+    assert (
+        app_target["configFiles"]["DeviceSmoke"]
+        == "SumaiGuard/Config/Release.xcconfig"
+    )
+    assert (
+        app_target["settings"]["configs"]["DeviceSmoke"][
+            "ENABLE_TESTABILITY"
+        ]
+        == "YES"
+    )
+    assert (
+        project["schemes"]["SumaiGuardDeviceSmoke"]["test"]["config"]
+        == "DeviceSmoke"
+    )

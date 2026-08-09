@@ -101,6 +101,20 @@ jobs:
       - name: Run native iOS tests
         run: |
           SIMULATOR_ID="$(xcrun simctl list devices available -j | python -c 'import json,sys; devices=json.load(sys.stdin)["devices"]; print(next(device["udid"] for rows in devices.values() for device in rows if device.get("isAvailable") and device["name"].startswith("iPhone")))')"
+          xcodebuild \
+            -project ios/SumaiGuard.xcodeproj \
+            -target SumaiGuard \
+            -configuration Release \
+            -showBuildSettings \
+            | python scripts/validate_ios_build_settings.py
+          xcodebuild -quiet \
+            -project ios/SumaiGuard.xcodeproj \
+            -scheme SumaiGuardDeviceSmoke \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -skipPackageUpdates \
+            build-for-testing \
+            CODE_SIGNING_ALLOWED=NO
           xcodebuild -quiet \
             -project ios/SumaiGuard.xcodeproj \
             -scheme SumaiGuard \

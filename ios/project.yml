@@ -5,6 +5,11 @@ options:
   deploymentTarget:
     iOS: "17.0"
 
+configs:
+  Debug: debug
+  Release: release
+  DeviceSmoke: release
+
 packages:
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk.git
@@ -24,6 +29,7 @@ targets:
     configFiles:
       Debug: SumaiGuard/Config/Debug.xcconfig
       Release: SumaiGuard/Config/Release.xcconfig
+      DeviceSmoke: SumaiGuard/Config/Release.xcconfig
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -34,6 +40,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1"
+      configs:
+        DeviceSmoke:
+          ENABLE_TESTABILITY: "YES"
     dependencies:
       - package: Firebase
         product: FirebaseCore
@@ -85,7 +94,7 @@ schemes:
         SumaiGuardTests:
           - test
     test:
-      config: Release
+      config: DeviceSmoke
       targets:
         - name: SumaiGuardTests
           selectedTests:

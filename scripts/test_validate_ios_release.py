@@ -94,6 +94,8 @@ targets:
     type: application
     platform: iOS
     deploymentTarget: "17.0"
+    configFiles:
+      Release: SumaiGuard/Config/Release.xcconfig
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -250,6 +252,38 @@ def test_accepts_complete_production_release(release_fixture: ReleaseFixture) ->
     assert result.stderr == ""
 
 
+def test_rejects_unbound_release_app_attest_entitlements(
+    release_fixture: ReleaseFixture,
+) -> None:
+    release_fixture.write_text(
+        release_fixture.release_config,
+        "SUMAI_API_ORIGIN = https:/$()/api.sumaiguard.example\n",
+    )
+
+    assert_failed_with(
+        run_validator(release_fixture),
+        "APP_ATTEST_ENTITLEMENTS_UNBOUND",
+    )
+
+
+def test_rejects_misrouted_release_entitlements_configuration(
+    release_fixture: ReleaseFixture,
+) -> None:
+    project = release_fixture.project.read_text(encoding="utf-8")
+    release_fixture.write_text(
+        release_fixture.project,
+        project.replace(
+            "Release: SumaiGuard/Config/Release.xcconfig",
+            "Release: SumaiGuard/Config/Debug.xcconfig",
+        ),
+    )
+
+    assert_failed_with(
+        run_validator(release_fixture),
+        "APP_ATTEST_ENTITLEMENTS_UNBOUND",
+    )
+
+
 def test_rejects_missing_firebase_client_configuration(
     release_fixture: ReleaseFixture,
 ) -> None:
@@ -365,6 +399,7 @@ def test_rejects_debug_token_marker_in_release_settings(release_fixture: Release
     release_fixture.write_text(
         release_fixture.release_config,
         "SUMAI_API_ORIGIN = https:/$()/api.sumaiguard.example\n"
+        "CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements\n"
         "FIRAppCheckDebugToken = top-secret-token\n",
     )
 
@@ -387,7 +422,8 @@ def test_rejects_unsafe_release_origin(
 ) -> None:
     release_fixture.write_text(
         release_fixture.release_config,
-        f"SUMAI_API_ORIGIN = {origin}\n",
+        f"SUMAI_API_ORIGIN = {origin}\n"
+        "CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements\n",
     )
 
     assert_failed_with(run_validator(release_fixture), code)
@@ -410,7 +446,8 @@ def test_ci_flag_allows_only_exact_invalid_origin_placeholder(
 ) -> None:
     release_fixture.write_text(
         release_fixture.release_config,
-        "SUMAI_API_ORIGIN = https:/$()/invalid.invalid\n",
+        "SUMAI_API_ORIGIN = https:/$()/invalid.invalid\n"
+        "CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements\n",
     )
 
     ordinary = run_validator(release_fixture)
@@ -430,7 +467,8 @@ def test_ci_flag_never_bypasses_non_origin_gates(
 ) -> None:
     release_fixture.write_text(
         release_fixture.release_config,
-        "SUMAI_API_ORIGIN = https:/$()/invalid.invalid\n",
+        "SUMAI_API_ORIGIN = https:/$()/invalid.invalid\n"
+        "CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements\n",
     )
     if break_gate == "icon":
         release_fixture.app_icon.unlink()
@@ -572,6 +610,7 @@ def test_errors_never_echo_secret_values_or_google_plist_contents(
     release_fixture.write_text(
         release_fixture.release_config,
         "SUMAI_API_ORIGIN = https:/$()/invalid.invalid\n"
+        "CODE_SIGN_ENTITLEMENTS = SumaiGuard/SumaiGuard.entitlements\n"
         f"FIRAppCheckDebugToken = {secret}\n",
     )
 

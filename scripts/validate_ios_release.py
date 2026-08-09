@@ -64,6 +64,9 @@ RULES = {
     "ICON_ALPHA_CHANNEL": "AppIcon images must not contain an alpha channel",
     "ICON_TRANSPARENT": "AppIcon images must not contain transparent pixels",
     "APP_ATTEST_NOT_PRODUCTION": "App Attest entitlement must be production",
+    "APP_ATTEST_ENTITLEMENTS_UNBOUND": (
+        "Release must bind the production App Attest entitlement file"
+    ),
     "RELEASE_DEBUG_PROVIDER": "Release-compiled source contains the App Check debug provider",
     "RELEASE_DEBUG_TOKEN": "Release source or settings contain a debug-token marker",
     "API_ORIGIN_MISSING": "Release API origin is missing",
@@ -200,6 +203,7 @@ class Validator:
         release = self.read_text("release")
 
         self.validate_project_identity(project, info, pbx)
+        self.validate_project_entitlements_binding(project)
         self.validate_entitlements(entitlements)
         self.validate_firebase(project, pbx, resolved)
         self.validate_firebase_client_config()
@@ -348,6 +352,20 @@ class Validator:
         ):
             self.add("APP_ATTEST_NOT_PRODUCTION", "entitlements")
 
+    def validate_project_entitlements_binding(
+        self,
+        project: dict[str, Any] | None,
+    ) -> None:
+        if project is None:
+            return
+        targets = project.get("targets")
+        app = targets.get(EXPECTED["target"]) if isinstance(targets, dict) else None
+        config_files = app.get("configFiles") if isinstance(app, dict) else None
+        if not isinstance(config_files, dict) or (
+            config_files.get("Release") != "SumaiGuard/Config/Release.xcconfig"
+        ):
+            self.add("APP_ATTEST_ENTITLEMENTS_UNBOUND", "project")
+
     def validate_firebase(
         self,
         project: dict[str, Any] | None,
@@ -448,6 +466,11 @@ class Validator:
                 continue
             key, value = line.split("=", 1)
             assignments[key.strip()] = value.strip()
+        if (
+            assignments.get("CODE_SIGN_ENTITLEMENTS")
+            != "SumaiGuard/SumaiGuard.entitlements"
+        ):
+            self.add("APP_ATTEST_ENTITLEMENTS_UNBOUND", "release")
         raw_origin = assignments.get("SUMAI_API_ORIGIN")
         if not raw_origin:
             self.add("API_ORIGIN_MISSING", "release")

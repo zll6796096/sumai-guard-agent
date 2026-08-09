@@ -174,6 +174,23 @@ final class APIClientTests: XCTestCase {
         }
     }
 
+    func testNon200SuccessStatusCannotProduceAnalysisEvidence() async throws {
+        StubURLProtocol.state.respond(
+            status: 201,
+            contentType: "application/json",
+            body: try fixture("analysis-applicable")
+        )
+        let client = try makeClient(token: "token")
+
+        do {
+            _ = try await analyze(using: client, image: testImage)
+            XCTFail("Only an actual HTTP 200 may produce analysis evidence")
+        } catch {
+            XCTAssertEqual(error as? APIError, .invalidResponse)
+            XCTAssertEqual(StubURLProtocol.state.requests.count, 1)
+        }
+    }
+
     func testMismatchedStableErrorAndStatusFailsClosedWithoutRetry() async throws {
         let body = Data(#"{"error":"APP_CHECK_INVALID","message":"detail"}"#.utf8)
         StubURLProtocol.state.respond(status: 500, contentType: "application/json", body: body)

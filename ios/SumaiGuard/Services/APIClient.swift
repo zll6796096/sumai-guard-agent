@@ -241,7 +241,7 @@ final class APIClient: Analyzing, @unchecked Sendable {
             throw APIError.invalidResponse
         }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+        guard httpResponse.statusCode == 200 else {
             throw ServerErrorEnvelope.map(statusCode: httpResponse.statusCode, body: data)
         }
 
