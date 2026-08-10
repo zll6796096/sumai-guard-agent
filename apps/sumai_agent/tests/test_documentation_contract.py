@@ -1131,24 +1131,27 @@ def test_architecture_and_readme_describe_the_actual_memoized_report_boundary() 
         assert forbidden not in lowered
 
 
-def test_initial_release_gate_records_only_current_truth_and_future_evidence_fields() -> None:
+def test_release_gate_records_current_app_store_truth_and_future_boundaries() -> None:
     release_gate = _document("release/sumaiguard-v1.0-app-store-release-gate.md")
     normalized = _normalized(release_gate)
 
     expected_rows = {
-        "Source implementation": "IN PROGRESS",
+        "Local source and listing assets": "PASS",
+        "Local verification": "PASS",
+        "App Store Connect record": "PASS",
+        "Apple capability and profile": "IN PROGRESS",
         "Source push": "NOT STARTED",
         "Exact-head CI": "NOT STARTED",
         "Cloud Build candidate": "NOT STARTED",
         "Real-device App Attest": "NOT STARTED",
-        "Production promotion": "NOT STARTED",
-        "Production state": "BLOCKED",
+        "Production promotion": "AWAITING CHECKPOINT",
         "Archive and signing": "NOT STARTED",
-        "TestFlight upload": "NOT STARTED",
-        "App Review submission": "NOT STARTED",
+        "IPA upload and processing": "AWAITING CHECKPOINT",
+        "Metadata and privacy answers": "IN PROGRESS",
+        "App Review submission": "AWAITING CHECKPOINT",
         "App Review approval": "NOT STARTED",
-        "Manual release": "NOT STARTED",
-        "Storefront visibility": "NOT STARTED",
+        "Manual release": "AWAITING CHECKPOINT",
+        "Japan storefront visibility": "NOT STARTED",
     }
     for gate, status_value in expected_rows.items():
         assert re.search(
@@ -1157,27 +1160,20 @@ def test_initial_release_gate_records_only_current_truth_and_future_evidence_fie
         )
 
     for required in (
-        "a84e85c",
-        "9d87169" + "35299bbaa0bf87e" + "647849fd1182d61d74",
-        "superseded evidence",
-        "Task 6 implementation is committed locally on `main`",
-        "current release source is the containing repository HEAD",
-        "embedding a commit's own SHA is self-referential",
-        "exact release SHA will be fixed and externally recorded only after push",
-        "no exact-head CI run exists for the containing repository HEAD",
-        "production mutation by this task: none; live state: unverified",
-        "Exact source SHA",
-        "Exact CI run",
-        "Exact Cloud Build",
-        "Exact candidate evidence",
-        "Exact agent revision",
-        "Exact web revision",
-        "Exact device evidence",
-        "Exact promotion evidence",
-        "Exact archive evidence",
-        "Exact review evidence",
-        "Exact release evidence",
-        "Exact storefront evidence",
+        "2026-08-10 JST",
+        "codex/sumaiguard-app-store-release",
+        "de37d0b821ea4be0d8df497b575bf9309b15d997",
+        "実家あんしんチェック",
+        "com.zll.sumaiguard",
+        "SUMAIGUARD-IOS-1",
+        "version 1.0 is in `提出準備中`",
+        "App Attest enabled",
+        "No SumaiGuard App Store provisioning profile",
+        "current production remains on the predecessor revisions",
+        "defaults to automatic release",
+        "change it to manual before submission",
+        "separate explicit confirmation",
+        "Storefront visibility is verified separately",
     ):
         assert required.casefold() in normalized.casefold()
 
@@ -1195,6 +1191,7 @@ def test_initial_release_gate_records_only_current_truth_and_future_evidence_fie
     allowed_statuses = {
         "NOT STARTED",
         "IN PROGRESS",
+        "AWAITING CHECKPOINT",
         "BLOCKED",
         "SKIPPED",
         "PASS",
