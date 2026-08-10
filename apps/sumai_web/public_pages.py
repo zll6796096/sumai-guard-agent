@@ -99,7 +99,7 @@ def _static_page(*, title: str, description: str, body: str) -> str:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="icon" href="data:,">
-    <title>{title} | 親の家 安全チェックAI</title>
+    <title>{title} | 実家あんしんチェック</title>
     <style>{_PAGE_STYLES}</style>
 </head>
 <body>
@@ -113,7 +113,7 @@ def _static_page(*, title: str, description: str, body: str) -> str:
         <p class="lead">{description}</p>
     </header>
     <main>{body}</main>
-    <footer>親の家 安全チェックAI / SumaiGuard Agent</footer>
+    <footer>実家あんしんチェック / 運営者：zhanglonglong</footer>
 </body>
 </html>
 """
@@ -134,7 +134,7 @@ PRIVACY_HTML = _static_page(
                 <li>画像受付時にEXIF（撮影日時や位置情報など）を削除します。</li>
                 <li>写真は安全チェックのために一時的に処理されます。</li>
                 <li>写真とPDFは、SumaiGuardアプリによって永続的に保存されません。</li>
-                <li>構造化された解析結果の意味情報（検出項目、行動区分、説明文など）は、同一内容の重複処理を避けるため、設定されたTTLの範囲で、プロセス内メモリに短時間保持される場合があります。この一時メモには上限件数があり、画像は含まれません。</li>
+                <li>構造化された解析結果の意味情報（検出項目、行動区分、説明文など）は、同一内容の重複処理を避けるため、現在の公開候補設定では最大128件、5分間、プロセス内メモリに短時間保持される場合があります。この一時メモには画像やPDFのバイト列は含まれません。</li>
                 <li>一時メモはデータベース、アカウント、利用履歴として保存しません。プロセスの再起動やワーカー境界を越えて保持されません。</li>
                 <li>ユーザー向けまたはアカウントに紐づく利用履歴はありません。</li>
                 <li>トラッキング、広告、プロファイリングは行いません。</li>
@@ -145,15 +145,16 @@ PRIVACY_HTML = _static_page(
             <p>第三者サービスによる一時的な処理と、SumaiGuardアプリでの写真・PDFの非永続化および構造化された意味情報の短時間保持は、別の事項です。確認済みの処理基盤は次のとおりです。</p>
             <ul>
                 <li>Google LLC の Gemini：写真に見える転倒・すべり・つまずきの注意箇所の抽出</li>
-                <li>Firebase App Check と Apple's App Attest：正規アプリからの要求であることの検証</li>
+                <li>Firebase App Check と AppleのApp Attest（Apple's App Attest）：正規アプリからの要求であることの検証</li>
                 <li>Google Cloud Run：要求の受付と安全チェック処理の実行</li>
                 <li>Cloud Logging：サービス運用に必要なログの取り扱い</li>
             </ul>
+            <p>Gemini APIは有料サービスとして利用しています。GoogleのGemini API追加規約では、入力した写真と応答をGoogleの製品改善には使用しません。一方、不正利用の検出・防止や必要な法令対応のため、入力と応答を限定期間記録するとされています。Googleが固定の保持日数を示していないため、この第三者処理をSumaiGuard側の非永続化や下記Cloud Loggingの30日保持と区別して開示します。</p>
         </section>
         <section aria-labelledby="logging-heading">
             <h2 id="logging-heading">運用ログ</h2>
             <p>障害調査や不正利用対策のため、処理時刻、応答状態、処理時間などの運用上のリクエストメタデータがCloud Loggingに記録される場合があります。本サービスにはアカウントがないため、これらはユーザーアカウントに結び付けられません。これは写真そのものや構造化された解析結果とは区別されます。</p>
-            <p>最終的に観測された保存期間はPhase 3の公開判定項目であり、実環境で確認できるまで公開できません。ここでは、未確認の保存期間を記載しません。</p>
+            <p>2026年8月10日に対象環境を確認した時点で、通常の運用ログは30日間保持されます。写真、解析結果、PDFの内容は記録しません。Google Cloudが管理する必須監査ログは400日間保持されますが、写真や解析結果の内容を記録するためのものではありません。</p>
         </section>
         <section aria-labelledby="inquiry-heading">
             <h2 id="inquiry-heading">サポート・削除に関する問い合わせ</h2>
@@ -161,11 +162,12 @@ PRIVACY_HTML = _static_page(
         </section>
         <section aria-labelledby="boundary-heading">
             <h2 id="boundary-heading">専門判断との境界</h2>
-            <p>本サービスは、写真1枚に見える範囲の一般的な安全上の注意を示すPOCです。医療・介護認定・保険・施工の判断、法令適合、正確な寸法、見積もりを代替しません。</p>
+            <p>本サービスは、写真1枚に見える範囲の一般的な安全上の注意を示します。住まいの安全を保証せず、医療・介護認定・保険・施工の判断、法令適合、正確な寸法、見積もりを代替しません。</p>
         </section>
         <section class="release-boundary" aria-labelledby="release-heading">
-            <h2 id="release-heading">公開前に必要な連絡先</h2>
-            <p>本Phase 1のソースには、公開済みのサポート用メールアドレスおよび連絡先となる運営者情報はありません。Phase 3では、確認済みの運営者連絡先が提供されるまで公開できません。</p>
+            <h2 id="release-heading">運営者・問い合わせ先</h2>
+            <p>運営者：zhanglonglong</p>
+            <p>プライバシー、運用ログ、拒否・撤回、削除に関する確認は、<a href="mailto:zll6796096@gmail.com">zll6796096@gmail.com</a> へお問い合わせください。写真、App Checkトークン、認証情報をメールへ添付しないでください。</p>
         </section>
     """,
 )
@@ -190,7 +192,7 @@ SUPPORT_HTML = _static_page(
                 <li>通信状態を確認し、アプリを開き直してから時間をおいて再試行してください。</li>
                 <li>画像形式と10 MiB以下のファイルサイズをもう一度確認してください。</li>
                 <li>送りたくない内容に気づいた場合は、送信前にキャンセルしてください。アップロード開始前であれば送信されません。</li>
-                <li>繰り返し失敗する場合は、写真を連続送信せず、公開済みの連絡先が確認されるまで送信を中止してください。</li>
+                <li>繰り返し失敗する場合は、写真を連続送信せず、下記の問い合わせ先へ状況のみをご連絡ください。写真、トークン、認証情報は添付しないでください。</li>
             </ul>
         </section>
         <section aria-labelledby="judgment-heading">
@@ -198,9 +200,10 @@ SUPPORT_HTML = _static_page(
             <p>写真に写っていない危険や、AIが見落とした危険がある可能性があります。本サービスは医療・介護認定・保険・施工の専門判断、法令適合、見積もりを代替しません。必要に応じて、ケアマネジャー、福祉用具専門相談員、施工の専門家へ相談してください。</p>
         </section>
         <section class="release-boundary" aria-labelledby="contact-heading">
-            <h2 id="contact-heading">問い合わせ先に関する公開境界</h2>
-            <p>本Phase 1のソースには、公開済みのサポート用メールアドレスおよび連絡先となる運営者情報はありません。サポートや削除に関する個別問い合わせを受け付けると約束できる連絡先も、現時点では掲載しません。</p>
-            <p>Phase 3では、確認済みの運営者連絡先が提供されるまで公開できません。確認前にメールアドレス、運営者名、プロジェクトID、サービスURL、返信期限を推測して掲載することはありません。</p>
+            <h2 id="contact-heading">問い合わせ先</h2>
+            <p>運営者：zhanglonglong</p>
+            <p>サポート、プライバシー、運用ログ、削除に関する確認は、<a href="mailto:zll6796096@gmail.com">zll6796096@gmail.com</a> へお問い合わせください。</p>
+            <p>返信時間や解決を保証するものではありません。お問い合わせには、写真、App Checkトークン、認証情報、住所などの私的情報を添付しないでください。</p>
         </section>
     """,
 )

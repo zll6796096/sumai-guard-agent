@@ -236,8 +236,8 @@ def test_privacy_page_states_consent_minimization_and_product_boundary() -> None
         "EXIF（撮影日時や位置情報など）を削除",
         "写真とPDFは、SumaiGuardアプリによって永続的に保存されません",
         "構造化された解析結果の意味情報",
-        "設定されたTTLの範囲で、プロセス内メモリに短時間保持",
-        "画像は含まれません",
+        "現在の公開候補設定では最大128件、5分間",
+        "画像やPDFのバイト列は含まれません",
         "データベース、アカウント、利用履歴として保存しません",
         "プロセスの再起動やワーカー境界を越えて保持されません",
         "ユーザー向けまたはアカウントに紐づく利用履歴はありません",
@@ -269,9 +269,12 @@ def test_privacy_page_names_confirmed_processors_and_separates_logging() -> None
     assert "運用上のリクエストメタデータ" in html
     assert "ユーザーアカウントに結び付けられません" in html
     assert "写真そのものや構造化された解析結果とは区別" in html
-    assert "最終的に観測された保存期間" in html
-    assert "Phase 3の公開判定項目" in html
-    assert not re.search(r"Cloud Logging.{0,120}\d+\s*(?:日|か月|ヶ月|年)", html)
+    assert "通常の運用ログは30日間" in html
+    assert "写真、解析結果、PDFの内容は記録しません" in html
+    assert "Gemini APIは有料サービスとして利用" in html
+    assert "製品改善には使用しません" in html
+    assert "限定期間記録" in html
+    assert "Googleが固定の保持日数を示していない" in html
 
 
 def test_support_page_has_no_account_upload_and_safe_retry_guidance() -> None:
@@ -285,22 +288,27 @@ def test_support_page_has_no_account_upload_and_safe_retry_guidance() -> None:
         "時間をおいて再試行",
         "送信前にキャンセル",
         "医療・介護認定・保険・施工",
+        "zhanglonglong",
+        "zll6796096@gmail.com",
     ):
         assert guidance in html
     assert 'href="/privacy"' in html
+    assert 'href="mailto:zll6796096@gmail.com"' in html
 
 
-def test_public_pages_do_not_invent_contact_identity_or_service_promises() -> None:
+def test_public_pages_publish_confirmed_contact_without_service_promises() -> None:
     module = _load_web_module()
     client = TestClient(module.app)
     combined_html = client.get("/privacy").text + client.get("/support").text
 
-    assert "本Phase 1のソースには、公開済みのサポート用メールアドレス" in combined_html
-    assert "確認済みの運営者連絡先が提供されるまで公開できません" in combined_html
-    assert "mailto:" not in combined_html
-    assert not re.search(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", combined_html)
+    assert "運営者：zhanglonglong" in combined_html
+    assert "zll6796096@gmail.com" in combined_html
+    assert 'href="mailto:zll6796096@gmail.com"' in combined_html
+    assert "本Phase 1のソースには、公開済みのサポート用メールアドレス" not in combined_html
+    assert "確認済みの運営者連絡先が提供されるまで公開できません" not in combined_html
     assert "24時間以内" not in combined_html
     assert "必ず返信" not in combined_html
+    assert "POC版" not in combined_html
 
 
 def test_web_container_copies_static_public_page_module() -> None:

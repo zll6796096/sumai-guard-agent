@@ -13,6 +13,7 @@ from apps.sumai_agent.tests.web_module_loader import load_web_module
 
 DOCS = Path(__file__).resolve().parents[3] / "docs"
 ROOT = DOCS.parent
+APP_STORE_DOCS = DOCS / "app-store"
 
 
 def _document(name: str) -> str:
@@ -336,6 +337,9 @@ def test_task7_artifacts_contain_no_real_credentials_identities_or_service_urls(
             "apps/sumai_agent/tests/test_documentation_contract.py",
         )
     )
+    artifacts = artifacts.replace(
+        "zll6796096@gmail.com", "[approved-public-support-contact]"
+    )
     forbidden_patterns = {
         "private key block": re.compile(
             "-----BEGIN " + r"[A-Z ]*PRIVATE " + "KEY-----"
@@ -439,6 +443,79 @@ def test_operator_guidance_keeps_observed_facts_and_phase_gates_separate() -> No
         "0% production traffic",
     ):
         assert required in normalized
+
+
+def test_app_store_drafts_publish_the_approved_identity_and_privacy_contract() -> None:
+    expected_files = (
+        "privacy-policy.md",
+        "app-description-ja.md",
+        "app-privacy-label-draft.md",
+        "app-review-notes.md",
+        "screenshot-plan.md",
+    )
+    for name in expected_files:
+        assert (APP_STORE_DOCS / name).is_file(), name
+
+    combined = "\n".join(
+        (APP_STORE_DOCS / name).read_text(encoding="utf-8")
+        for name in expected_files
+    )
+    for required in (
+        "実家あんしんチェック",
+        "zhanglonglong",
+        "zll6796096@gmail.com",
+        "写真1枚",
+        "Google LLC",
+        "Gemini",
+        "Firebase App Check",
+        "Apple App Attest",
+        "有料サービス",
+        "製品改善",
+        "限定期間",
+        "EXIF",
+        "Cloud Logging",
+        "30日",
+        "医療",
+        "介護",
+        "保険",
+        "法令適合",
+        "正確な寸法",
+        "施工",
+    ):
+        assert required in combined
+
+    description = (APP_STORE_DOCS / "app-description-ja.md").read_text(
+        encoding="utf-8"
+    )
+    assert description.startswith(
+        "離れて暮らす親の家で気になる場所を、写真1枚から確認するためのアプリです。\n"
+        "写真に写っている範囲の、転倒・つまずき・滑りにつながる可能性がある箇所を赤枠で示し、次にできることを3つの相談先に分けて整理します。"
+    )
+    for forbidden in (
+        "AI診断",
+        "予防を保証",
+        "安全な家",
+        "精度99%",
+        "POC版",
+    ):
+        assert forbidden not in combined
+
+    review_notes = (APP_STORE_DOCS / "app-review-notes.md").read_text(
+        encoding="utf-8"
+    )
+    for exact_button_label in (
+        "カメラで撮る",
+        "写真を1枚選ぶ",
+        "同意して写真を送る",
+        "安全のためにできること",
+    ):
+        assert f"「{exact_button_label}」" in review_notes
+    for stale_button_label in (
+        "カメラで撮影",
+        "写真から選ぶ",
+        "同意して解析する",
+    ):
+        assert f"「{stale_button_label}」" not in review_notes
 
 
 def test_readme_does_not_overclaim_release_or_replay_readiness() -> None:
