@@ -17,7 +17,15 @@ struct SumaiGuardApp: App {
 
     var body: some Scene {
         WindowGroup {
+#if DEBUG
+            if let scene = AppStoreScreenshotScene.current {
+                AppStoreScreenshotRoot(scene: scene)
+            } else {
+                RootView()
+            }
+#else
             RootView()
+#endif
         }
     }
 }

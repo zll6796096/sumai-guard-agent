@@ -36,6 +36,7 @@
 		D3112737EB9619B8F9F410E8 /* RemoteResultImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = F24CD7D4D07F3E07F46FD895 /* RemoteResultImage.swift */; };
 		D84031C557E11521ADEB7653 /* SumaiGuardApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */; };
 		E85457627ADBA35C094F8FBF /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F57D8B7772DA87A0E99629D /* ShareSheet.swift */; };
+		EDCA77B3A4025644AFA6AE64 /* AppStoreScreenshotRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 618EA7EA840B47E7D64063EB /* AppStoreScreenshotRoot.swift */; };
 		EE5E71726B14308D003961A6 /* ResultStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FEAC80B9EBAD0ADF7BB180 /* ResultStateTests.swift */; };
 		EFF738A0C2FEEA64888D916D /* ImageSanitizerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */; };
 		F19DA3988D5C203EED7E9A10 /* analysis-not-applicable.json in Resources */ = {isa = PBXBuildFile; fileRef = E99775AA60CFF98FCC69D8AA /* analysis-not-applicable.json */; };
@@ -71,6 +72,7 @@
 		574F946E01B468839D87F543 /* AnalysisResponseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalysisResponseTests.swift; sourceTree = "<group>"; };
 		5D03D3B74E44D0B9F59B476E /* SafetyPDFRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafetyPDFRendererTests.swift; sourceTree = "<group>"; };
 		5F57D8B7772DA87A0E99629D /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
+		618EA7EA840B47E7D64063EB /* AppStoreScreenshotRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStoreScreenshotRoot.swift; sourceTree = "<group>"; };
 		63CA0C9C326B537DBAA0AC84 /* PrivacySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacySheet.swift; sourceTree = "<group>"; };
 		6D442C17F9F95AAEED07AE72 /* ImageSanitizerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageSanitizerTests.swift; sourceTree = "<group>"; };
 		6F21A8B05B7CF5E756435E9A /* CaptureConsentViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureConsentViewTests.swift; sourceTree = "<group>"; };
@@ -237,6 +239,7 @@
 		E81C528F8B9DFC2ED0B6B611 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				618EA7EA840B47E7D64063EB /* AppStoreScreenshotRoot.swift */,
 				9F8CE89705A0D894F2904E2E /* SumaiGuardApp.swift */,
 			);
 			path = App;
@@ -382,6 +385,7 @@
 				FB7B640D5ED1B341CC35A7F3 /* AnalysisResponse.swift in Sources */,
 				55DFBEE103931776BA36B825 /* AppCheckBootstrap.swift in Sources */,
 				908EC32432CF05B6C2CB8108 /* AppFlowCoordinator.swift in Sources */,
+				EDCA77B3A4025644AFA6AE64 /* AppStoreScreenshotRoot.swift in Sources */,
 				A29BEA03F064FC52E37F7207 /* CameraPicker.swift in Sources */,
 				6975E5D30719EE9944A15E64 /* CaptureView.swift in Sources */,
 				4C13A6D8284CFA2BAC53EE2F /* ConsentView.swift in Sources */,

@@ -13,6 +13,7 @@ from apps.sumai_agent.tests.web_module_loader import load_web_module
 
 DOCS = Path(__file__).resolve().parents[3] / "docs"
 ROOT = DOCS.parent
+APP_STORE_DOCS = DOCS / "app-store"
 
 
 def _document(name: str) -> str:
@@ -336,6 +337,9 @@ def test_task7_artifacts_contain_no_real_credentials_identities_or_service_urls(
             "apps/sumai_agent/tests/test_documentation_contract.py",
         )
     )
+    artifacts = artifacts.replace(
+        "zll6796096@gmail.com", "[approved-public-support-contact]"
+    )
     forbidden_patterns = {
         "private key block": re.compile(
             "-----BEGIN " + r"[A-Z ]*PRIVATE " + "KEY-----"
@@ -439,6 +443,79 @@ def test_operator_guidance_keeps_observed_facts_and_phase_gates_separate() -> No
         "0% production traffic",
     ):
         assert required in normalized
+
+
+def test_app_store_drafts_publish_the_approved_identity_and_privacy_contract() -> None:
+    expected_files = (
+        "privacy-policy.md",
+        "app-description-ja.md",
+        "app-privacy-label-draft.md",
+        "app-review-notes.md",
+        "screenshot-plan.md",
+    )
+    for name in expected_files:
+        assert (APP_STORE_DOCS / name).is_file(), name
+
+    combined = "\n".join(
+        (APP_STORE_DOCS / name).read_text(encoding="utf-8")
+        for name in expected_files
+    )
+    for required in (
+        "実家あんしんチェック",
+        "zhanglonglong",
+        "zll6796096@gmail.com",
+        "写真1枚",
+        "Google LLC",
+        "Gemini",
+        "Firebase App Check",
+        "Apple App Attest",
+        "有料サービス",
+        "製品改善",
+        "限定期間",
+        "EXIF",
+        "Cloud Logging",
+        "30日",
+        "医療",
+        "介護",
+        "保険",
+        "法令適合",
+        "正確な寸法",
+        "施工",
+    ):
+        assert required in combined
+
+    description = (APP_STORE_DOCS / "app-description-ja.md").read_text(
+        encoding="utf-8"
+    )
+    assert description.startswith(
+        "離れて暮らす親の家で気になる場所を、写真1枚から確認するためのアプリです。\n"
+        "写真に写っている範囲の、転倒・つまずき・滑りにつながる可能性がある箇所を赤枠で示し、次にできることを3つの相談先に分けて整理します。"
+    )
+    for forbidden in (
+        "AI診断",
+        "予防を保証",
+        "安全な家",
+        "精度99%",
+        "POC版",
+    ):
+        assert forbidden not in combined
+
+    review_notes = (APP_STORE_DOCS / "app-review-notes.md").read_text(
+        encoding="utf-8"
+    )
+    for exact_button_label in (
+        "カメラで撮る",
+        "写真を1枚選ぶ",
+        "同意して写真を送る",
+        "安全のためにできること",
+    ):
+        assert f"「{exact_button_label}」" in review_notes
+    for stale_button_label in (
+        "カメラで撮影",
+        "写真から選ぶ",
+        "同意して解析する",
+    ):
+        assert f"「{stale_button_label}」" not in review_notes
 
 
 def test_readme_does_not_overclaim_release_or_replay_readiness() -> None:
@@ -1054,24 +1131,27 @@ def test_architecture_and_readme_describe_the_actual_memoized_report_boundary() 
         assert forbidden not in lowered
 
 
-def test_initial_release_gate_records_only_current_truth_and_future_evidence_fields() -> None:
+def test_release_gate_records_current_app_store_truth_and_future_boundaries() -> None:
     release_gate = _document("release/sumaiguard-v1.0-app-store-release-gate.md")
     normalized = _normalized(release_gate)
 
     expected_rows = {
-        "Source implementation": "IN PROGRESS",
+        "Local source and listing assets": "PASS",
+        "Local verification": "PASS",
+        "App Store Connect record": "PASS",
+        "Apple capability and profile": "IN PROGRESS",
         "Source push": "NOT STARTED",
         "Exact-head CI": "NOT STARTED",
         "Cloud Build candidate": "NOT STARTED",
         "Real-device App Attest": "NOT STARTED",
-        "Production promotion": "NOT STARTED",
-        "Production state": "BLOCKED",
+        "Production promotion": "AWAITING CHECKPOINT",
         "Archive and signing": "NOT STARTED",
-        "TestFlight upload": "NOT STARTED",
-        "App Review submission": "NOT STARTED",
+        "IPA upload and processing": "AWAITING CHECKPOINT",
+        "Metadata and privacy answers": "IN PROGRESS",
+        "App Review submission": "AWAITING CHECKPOINT",
         "App Review approval": "NOT STARTED",
-        "Manual release": "NOT STARTED",
-        "Storefront visibility": "NOT STARTED",
+        "Manual release": "AWAITING CHECKPOINT",
+        "Japan storefront visibility": "NOT STARTED",
     }
     for gate, status_value in expected_rows.items():
         assert re.search(
@@ -1080,27 +1160,20 @@ def test_initial_release_gate_records_only_current_truth_and_future_evidence_fie
         )
 
     for required in (
-        "a84e85c",
-        "9d87169" + "35299bbaa0bf87e" + "647849fd1182d61d74",
-        "superseded evidence",
-        "Task 6 implementation is committed locally on `main`",
-        "current release source is the containing repository HEAD",
-        "embedding a commit's own SHA is self-referential",
-        "exact release SHA will be fixed and externally recorded only after push",
-        "no exact-head CI run exists for the containing repository HEAD",
-        "production mutation by this task: none; live state: unverified",
-        "Exact source SHA",
-        "Exact CI run",
-        "Exact Cloud Build",
-        "Exact candidate evidence",
-        "Exact agent revision",
-        "Exact web revision",
-        "Exact device evidence",
-        "Exact promotion evidence",
-        "Exact archive evidence",
-        "Exact review evidence",
-        "Exact release evidence",
-        "Exact storefront evidence",
+        "2026-08-10 JST",
+        "codex/sumaiguard-app-store-release",
+        "de37d0b821ea4be0d8df497b575bf9309b15d997",
+        "実家あんしんチェック",
+        "com.zll.sumaiguard",
+        "SUMAIGUARD-IOS-1",
+        "version 1.0 is in `提出準備中`",
+        "App Attest enabled",
+        "No SumaiGuard App Store provisioning profile",
+        "current production remains on the predecessor revisions",
+        "defaults to automatic release",
+        "change it to manual before submission",
+        "separate explicit confirmation",
+        "Storefront visibility is verified separately",
     ):
         assert required.casefold() in normalized.casefold()
 
@@ -1118,6 +1191,7 @@ def test_initial_release_gate_records_only_current_truth_and_future_evidence_fie
     allowed_statuses = {
         "NOT STARTED",
         "IN PROGRESS",
+        "AWAITING CHECKPOINT",
         "BLOCKED",
         "SKIPPED",
         "PASS",
