@@ -1139,14 +1139,14 @@ def test_release_gate_records_current_app_store_truth_and_future_boundaries() ->
         "Local source and listing assets": "PASS",
         "Local verification": "PASS",
         "App Store Connect record": "PASS",
-        "Apple capability and profile": "IN PROGRESS",
+        "Apple capability and profile": "PASS",
         "Source push": "PASS",
         "Exact-head CI": "PASS",
         "Cloud Build candidate": "PASS",
         "Real-device App Attest": "PASS",
-        "Production promotion": "AWAITING CHECKPOINT",
-        "Archive and signing": "NOT STARTED",
-        "IPA upload and processing": "AWAITING CHECKPOINT",
+        "Production promotion": "PASS",
+        "Archive and signing": "PASS",
+        "IPA upload and processing": "IN PROGRESS",
         "Metadata and privacy answers": "IN PROGRESS",
         "App Review submission": "AWAITING CHECKPOINT",
         "App Review approval": "NOT STARTED",
@@ -1160,19 +1160,21 @@ def test_release_gate_records_current_app_store_truth_and_future_boundaries() ->
         )
 
     for required in (
-        "2026-08-10 JST",
-        "a029ee9c60411fde992a5fd01f94a3bd3cdd6ab0",
-        "313937" + "86376",
-        "1067d847-0540-48f4-9fac-874e76a2b68c",
-        "sumai-agent-a029ee9-1067",
-        "sumai-web-a029ee9-1067-can",
-        "2549b9e09f40aee2d1607b9b20644ef1175c87c18e90728b8e19ccd2050e58a9",
+        "2026-08-11 JST",
+        "release application source",
+        "7bcdbb18321c4c31aa749170f57584" + "024057e924",
+        "313966" + "24070",
+        "b6596ba5-d920-461a-8361-14baddddfa5b",
+        "sumai-agent-7bcdbb1-b659",
+        "sumai-web-final-7bcdbb1-b659-58e1e1b75e",
+        "f75037731da65d007687132fef7246bfd6f4245c852c5c2c31d0b083c8c69555",
+        "05b5de9c01b89cc6b5c645bce693ac62913f5d4340ff79761b0d160365c3899b",
         "実家あんしんチェック",
         "com.zll.sumaiguard",
         "SUMAIGUARD-IOS-1",
         "version 1.0 is in `提出準備中`",
         "App Attest enabled",
-        "No SumaiGuard App Store provisioning profile",
+        "distribution-signed Build 1 IPA",
         "production_traffic_changed: false",
         "validation=PASS",
         "mutation=NONE",
@@ -1194,6 +1196,12 @@ def test_release_gate_records_current_app_store_truth_and_future_boundaries() ->
     assert "TBD" not in release_gate.upper()
     assert "TODO" not in release_gate.upper()
     assert not re.search(r"https?://", release_gate)
+    assert not re.search(
+        r"gs://(?!<project-id>)[a-z][a-z0-9-]{4,28}[a-z0-9]"
+        r"-sumai-release-evidence/",
+        release_gate,
+    )
+    assert "gs://<project-id>-sumai-release-evidence/" in release_gate
     assert not re.search(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", release_gate, re.I)
     allowed_statuses = {
         "NOT STARTED",

@@ -113,6 +113,7 @@ record = {
     "temp_dir_mode": stat.S_IMODE(config.parent.stat().st_mode),
 }
 (state / "archive.json").write_text(json.dumps(record), encoding="utf-8")
+print("provider trace contains a private project identifier", file=sys.stderr)
 print("build-candidate-123")
 '''
 
@@ -228,6 +229,19 @@ def test_workflow_is_manual_keyless_candidate_only() -> None:
     assert data["permissions"] == {"contents": "read", "id-token": "write"}
     assert data["concurrency"]["cancel-in-progress"] is False
 
+    job = data["jobs"]["candidate"]
+    assert job["timeout-minutes"] == 60
+    for name in (
+        "GOOGLE_CLOUD_PROJECT",
+        "SUMAI_AGENT_SERVICE_ACCOUNT",
+        "SUMAI_WEB_SERVICE_ACCOUNT",
+        "SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT",
+        "SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT",
+        "GCP_WORKLOAD_IDENTITY_PROVIDER",
+        "GCP_DEPLOY_SERVICE_ACCOUNT",
+    ):
+        assert job["env"][name] == f"${{{{ secrets.{name} }}}}"
+
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "candidate-only" in text.lower()
     assert "cloudbuild.yaml" in text
@@ -243,11 +257,26 @@ def test_workflow_is_manual_keyless_candidate_only() -> None:
     assert "GEMINI_API_KEY" not in text
     assert "GCP_SA_KEY" not in text
     assert "credentials_json" not in text
+    assert "gcloud builds describe" in text
+    for terminal_status in ("SUCCESS", "FAILURE", "CANCELLED", "TIMEOUT", "EXPIRED"):
+        assert terminal_status in text
     assert not re.search(
         r"gcloud\s+run\s+(?:deploy|services\s+(?:replace|update|update-traffic))",
         text,
         re.IGNORECASE,
     )
+
+
+def test_submitter_does_not_echo_provider_stderr_that_can_disclose_tenant_ids(
+    tmp_path: Path,
+) -> None:
+    repo, _remote, fake_bin = make_repo(tmp_path)
+
+    result = run_entrypoint(repo, fake_bin)
+
+    assert result.returncode == 0, result.stderr
+    assert "private project identifier" not in result.stderr
+    assert "build-candidate-123" in result.stdout
 
 
 def test_workflow_uses_current_wif_actions_and_exact_main_revision() -> None:
@@ -269,10 +298,12 @@ def test_workflow_uses_current_wif_actions_and_exact_main_revision() -> None:
     assert checkout["with"] == {"ref": "main", "fetch-depth": 0}
     assert len(auth_steps) == 1
     assert auth_steps[0]["uses"] == "google-github-actions/auth@v3"
-    assert set(auth_steps[0]["with"]) == {
-        "project_id",
-        "workload_identity_provider",
-        "service_account",
+    assert auth_steps[0]["with"] == {
+        "project_id": "${{ secrets.GOOGLE_CLOUD_PROJECT }}",
+        "workload_identity_provider": (
+            "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+        ),
+        "service_account": "${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}",
     }
     assert setup["uses"] == "google-github-actions/setup-gcloud@v3"
     assert "GITHUB_REF" in run_text and "refs/heads/main" in run_text

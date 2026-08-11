@@ -1000,8 +1000,21 @@ def main() -> None:
             "REQUIRE_REAL_GEMINI": "true",
             "APP_CHECK_REQUIRED": "true",
             "FIREBASE_APP_ID": "${_FIREBASE_APP_ID}",
+            "RESULT_MEMO_TTL_SECONDS": "300",
+            "RESULT_MEMO_MAX_ITEMS": "128",
         },
     )
+
+    validation_contract = normalized_shell_contract(
+        command_steps["validate-agent-candidate"]
+    )
+    for name, value in (
+        ("RESULT_MEMO_TTL_SECONDS", "300"),
+        ("RESULT_MEMO_MAX_ITEMS", "128"),
+    ):
+        assert f'"{name}": "{value}"' in validation_contract, (
+            "validate-agent-candidate must read back the disclosed memo limits"
+        )
 
     web_step_id = "deploy-web-candidate"
     web_command = command_steps[web_step_id]
