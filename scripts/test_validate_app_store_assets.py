@@ -145,6 +145,19 @@ def test_rejects_private_or_debug_ocr_text(tmp_path: Path) -> None:
         module.validate_assets(tmp_path, ocr_texts=ocr)
 
 
+def test_rejects_ocr_when_an_asset_does_not_contain_its_headline(
+    tmp_path: Path,
+) -> None:
+    module = load_validator()
+    write_manifest(tmp_path)
+    write_images(tmp_path)
+    ocr = safe_ocr()
+    ocr[FILENAMES[2]] = "実家あんしんチェック 別の画面です"
+
+    with pytest.raises(module.AssetValidationError, match="OCR_HEADLINE_MISSING"):
+        module.validate_assets(tmp_path, ocr_texts=ocr)
+
+
 def test_rejects_png_metadata_and_missing_japanese_story(tmp_path: Path) -> None:
     module = load_validator()
     write_manifest(tmp_path)

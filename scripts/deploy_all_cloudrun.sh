@@ -145,13 +145,17 @@ git -C "$ROOT_DIR" diff --cached --quiet --no-ext-diff --ignore-submodules -- ||
 SHORT_SHA="${HEAD_SHA:0:7}"
 SUBSTITUTIONS="COMMIT_SHA=${HEAD_SHA},SHORT_SHA=${SHORT_SHA},_REGION=${REGION},_AR_REPO=${AR_REPO},_AGENT_SERVICE=${AGENT_SERVICE},_WEB_SERVICE=${WEB_SERVICE},_FIREBASE_APP_ID=${FIREBASE_APP_ID},_AGENT_SERVICE_ACCOUNT=${AGENT_SERVICE_ACCOUNT},_WEB_SERVICE_ACCOUNT=${WEB_SERVICE_ACCOUNT},_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT},_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT},_SERVICE_ACCOUNT_MIGRATION_CONFIRM=${SERVICE_ACCOUNT_MIGRATION_CONFIRM}"
 
-BUILD_ID="$(gcloud builds submit "$SOURCE_ARCHIVE" \
+GCLOUD_STDERR="$TEMP_DIR/gcloud-submit.stderr"
+if ! BUILD_ID="$(gcloud builds submit "$SOURCE_ARCHIVE" \
     "--config=$BUILD_CONFIG" \
     "--project=$PROJECT" \
     "--region=$REGION" \
     "--substitutions=$SUBSTITUTIONS" \
     --async \
-    --format=value\(id\))"
+    --format=value\(id\) \
+    2>"$GCLOUD_STDERR")"; then
+    fail "Cloud Build submission failed; inspect the private provider audit log"
+fi
 [[ "$BUILD_ID" =~ ^[A-Za-z0-9][A-Za-z0-9-]{2,127}$ ]] ||
     fail "Cloud Build did not return a valid build identifier"
 

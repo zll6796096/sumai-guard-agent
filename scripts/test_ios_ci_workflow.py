@@ -33,6 +33,7 @@ def test_ci_contains_fail_closed_native_ios_job() -> None:
         if isinstance(step, dict)
     )
     assert "scripts/test_validate_ios_signing.py" in linux_commands
+    assert "scripts/test_validate_app_store_assets.py" in linux_commands
 
 
 def test_device_smoke_uses_release_like_testable_configuration() -> None:

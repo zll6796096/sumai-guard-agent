@@ -15,20 +15,21 @@ jobs:
   candidate:
     name: Candidate-only paired Cloud Build
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
-      GOOGLE_CLOUD_PROJECT: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+      GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
       SUMAI_FIREBASE_APP_ID: ${{ vars.SUMAI_FIREBASE_APP_ID }}
-      SUMAI_AGENT_SERVICE_ACCOUNT: ${{ vars.SUMAI_AGENT_SERVICE_ACCOUNT }}
-      SUMAI_WEB_SERVICE_ACCOUNT: ${{ vars.SUMAI_WEB_SERVICE_ACCOUNT }}
-      SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT: ${{ vars.SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT }}
-      SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT: ${{ vars.SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT }}
+      SUMAI_AGENT_SERVICE_ACCOUNT: ${{ secrets.SUMAI_AGENT_SERVICE_ACCOUNT }}
+      SUMAI_WEB_SERVICE_ACCOUNT: ${{ secrets.SUMAI_WEB_SERVICE_ACCOUNT }}
+      SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT: ${{ secrets.SUMAI_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT }}
+      SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT: ${{ secrets.SUMAI_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT }}
       SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM: ${{ vars.SUMAI_SERVICE_ACCOUNT_MIGRATION_CONFIRM }}
       SUMAI_REGION: ${{ vars.SUMAI_REGION || 'asia-northeast1' }}
       SUMAI_AR_REPO: ${{ vars.SUMAI_AR_REPO || 'apps' }}
       SUMAI_AGENT_SERVICE: ${{ vars.SUMAI_AGENT_SERVICE || 'sumai-agent' }}
       SUMAI_WEB_SERVICE: ${{ vars.SUMAI_WEB_SERVICE || 'sumai-web' }}
-      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
     steps:
       - name: Check required repository configuration
@@ -60,9 +61,9 @@ jobs:
       - name: Authenticate with Workload Identity Federation
         uses: google-github-actions/auth@v3
         with:
-          project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v3
@@ -71,4 +72,43 @@ jobs:
 
       - name: Submit cloudbuild.yaml candidate-only paired build
         shell: bash
-        run: ./scripts/deploy_all_cloudrun.sh
+        run: |
+          set -euo pipefail
+          submit_output="$(./scripts/deploy_all_cloudrun.sh)"
+          build_id="$(printf '%s\n' "$submit_output" | awk -F': ' '/^Build identifier: / { print $2 }')"
+          [[ "$build_id" =~ ^[A-Za-z0-9][A-Za-z0-9-]{2,127}$ ]] || {
+            printf '::error title=Candidate submission contract failed::Cloud Build identifier is missing or invalid\n'
+            exit 1
+          }
+          printf 'Candidate-only Cloud Build submitted: %s\n' "$build_id"
+
+          deadline="$(( $(date +%s) + 2400 ))"
+          while true; do
+            build_status="$(gcloud builds describe "$build_id" \
+              --project="$GOOGLE_CLOUD_PROJECT" \
+              --region="$SUMAI_REGION" \
+              --format='value(status)' 2>/dev/null)" || {
+                printf '::error title=Candidate status unavailable::Cloud Build status could not be read\n'
+                exit 1
+              }
+            case "$build_status" in
+              SUCCESS)
+                printf 'Candidate-only Cloud Build completed successfully: %s\n' "$build_id"
+                break
+                ;;
+              FAILURE|CANCELLED|TIMEOUT|EXPIRED|INTERNAL_ERROR)
+                printf '::error title=Candidate Cloud Build failed::Terminal status %s\n' "$build_status"
+                exit 1
+                ;;
+              QUEUED|PENDING|WORKING) ;;
+              *)
+                printf '::error title=Candidate status invalid::Unexpected Cloud Build status\n'
+                exit 1
+                ;;
+            esac
+            if (( $(date +%s) >= deadline )); then
+              printf '::error title=Candidate status timed out::Cloud Build did not finish within 40 minutes\n'
+              exit 1
+            fi
+            sleep 15
+          done

@@ -212,7 +212,7 @@ steps:
           --timeout=120 \
           --max-instances=20 \
           --update-labels="app=sumai-guard,managed-by=cloud-build,source-commit=${COMMIT_SHA},deployment-lock=${COMMIT_SHA}" \
-          --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,APP_CHECK_REQUIRED=true,FIREBASE_APP_ID=${_FIREBASE_APP_ID},GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO" \
+          --update-env-vars="MOCK_MODE=false,REQUIRE_REAL_GEMINI=true,APP_CHECK_REQUIRED=true,FIREBASE_APP_ID=${_FIREBASE_APP_ID},GEMINI_MODEL=gemini-2.5-flash,LOG_LEVEL=INFO,RESULT_MEMO_TTL_SECONDS=300,RESULT_MEMO_MAX_ITEMS=128" \
           --update-secrets=GEMINI_API_KEY=sumai-gemini-api-key:2
 
         umask 077
@@ -327,6 +327,8 @@ steps:
             "FIREBASE_APP_ID": sys.argv[3],
             "GEMINI_MODEL": "gemini-2.5-flash",
             "LOG_LEVEL": "INFO",
+            "RESULT_MEMO_TTL_SECONDS": "300",
+            "RESULT_MEMO_MAX_ITEMS": "128",
         }
         if any(values.get(key) != value for key, value in expected.items()):
             fail("Agent candidate environment read-back failed")

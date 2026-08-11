@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import subprocess
+import unicodedata
 from pathlib import Path
 
 from PIL import Image, ImageStat, UnidentifiedImageError
@@ -125,15 +126,25 @@ def _ocr_assets(root: Path, paths: list[Path]) -> dict[str, str]:
     return payload
 
 
+def _normalize_story(text: str) -> str:
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKC", text)
+        if character.isalnum()
+    )
+
+
 def _validate_ocr(ocr_texts: dict[str, str]) -> None:
     if set(ocr_texts) != set(FILENAMES):
         _fail("OCR_FILE_SET_INVALID")
-    for name in FILENAMES:
+    for name, headline in zip(FILENAMES, HEADLINES):
         text = ocr_texts.get(name)
         if not isinstance(text, str) or not re.search(r"[ぁ-んァ-ン一-龯]", text):
             _fail("OCR_JAPANESE_MISSING", name)
         if any(pattern.search(text) for pattern in PRIVATE_OCR_PATTERNS):
             _fail("OCR_PRIVATE_CONTENT", name)
+        if _normalize_story(headline) not in _normalize_story(text):
+            _fail("OCR_HEADLINE_MISSING", name)
 
 
 def validate_assets(
