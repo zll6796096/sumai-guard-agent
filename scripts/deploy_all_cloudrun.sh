@@ -145,6 +145,25 @@ git -C "$ROOT_DIR" diff --cached --quiet --no-ext-diff --ignore-submodules -- ||
 SHORT_SHA="${HEAD_SHA:0:7}"
 SUBSTITUTIONS="COMMIT_SHA=${HEAD_SHA},SHORT_SHA=${SHORT_SHA},_REGION=${REGION},_AR_REPO=${AR_REPO},_AGENT_SERVICE=${AGENT_SERVICE},_WEB_SERVICE=${WEB_SERVICE},_FIREBASE_APP_ID=${FIREBASE_APP_ID},_AGENT_SERVICE_ACCOUNT=${AGENT_SERVICE_ACCOUNT},_WEB_SERVICE_ACCOUNT=${WEB_SERVICE_ACCOUNT},_EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_AGENT_PREDECESSOR_SERVICE_ACCOUNT},_EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT=${EXPECTED_WEB_PREDECESSOR_SERVICE_ACCOUNT},_SERVICE_ACCOUNT_MIGRATION_CONFIRM=${SERVICE_ACCOUNT_MIGRATION_CONFIRM}"
 
+safe_provider_error() {
+    local stderr_path="$1"
+    local permission
+    for permission in \
+        iam.serviceAccounts.actAs \
+        storage.objects.create \
+        storage.objects.get \
+        storage.objects.list \
+        storage.buckets.get \
+        cloudbuild.builds.create \
+        serviceusage.services.use; do
+        if grep -Fq -- "$permission" "$stderr_path"; then
+            printf '%s\n' "$permission"
+            return
+        fi
+    done
+    printf 'PROVIDER_ERROR_REDACTED\n'
+}
+
 GCLOUD_STDERR="$TEMP_DIR/gcloud-submit.stderr"
 if ! BUILD_ID="$(gcloud builds submit "$SOURCE_ARCHIVE" \
     "--config=$BUILD_CONFIG" \
@@ -154,7 +173,8 @@ if ! BUILD_ID="$(gcloud builds submit "$SOURCE_ARCHIVE" \
     --async \
     --format=value\(id\) \
     2>"$GCLOUD_STDERR")"; then
-    fail "Cloud Build submission failed; inspect the private provider audit log"
+    SAFE_PROVIDER_ERROR="$(safe_provider_error "$GCLOUD_STDERR")"
+    fail "Cloud Build submission failed (${SAFE_PROVIDER_ERROR})"
 fi
 [[ "$BUILD_ID" =~ ^[A-Za-z0-9][A-Za-z0-9-]{2,127}$ ]] ||
     fail "Cloud Build did not return a valid build identifier"

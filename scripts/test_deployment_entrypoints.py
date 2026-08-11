@@ -88,6 +88,9 @@ args = sys.argv[1:]
 (state / "calls.json").write_text(json.dumps(args), encoding="utf-8")
 if args[:2] != ["builds", "submit"] or len(args) < 3:
     raise SystemExit("only candidate Cloud Build submission is allowed")
+if provider_error := os.environ.get("FAKE_GCLOUD_ERROR"):
+    print(provider_error, file=sys.stderr)
+    raise SystemExit(1)
 
 archive = Path(args[2])
 config_arg = next((arg for arg in args if arg.startswith("--config=")), None)
@@ -277,6 +280,48 @@ def test_submitter_does_not_echo_provider_stderr_that_can_disclose_tenant_ids(
     assert result.returncode == 0, result.stderr
     assert "private project identifier" not in result.stderr
     assert "build-candidate-123" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("provider_error", "safe_detail"),
+    (
+        (
+            "Permission 'iam.serviceAccounts.actAs' denied for "
+            f"builder@{PROJECT}.iam.gserviceaccount.com",
+            "iam.serviceAccounts.actAs",
+        ),
+        (
+            f"{PROJECT} does not have storage.objects.create access",
+            "storage.objects.create",
+        ),
+        (
+            f"Caller cannot use project {PROJECT}: serviceusage.services.use",
+            "serviceusage.services.use",
+        ),
+        (
+            f"opaque provider failure inside gs://{PROJECT}_cloudbuild/source",
+            "PROVIDER_ERROR_REDACTED",
+        ),
+    ),
+)
+def test_submitter_reports_only_allowlisted_provider_failure_details(
+    tmp_path: Path,
+    provider_error: str,
+    safe_detail: str,
+) -> None:
+    repo, _remote, fake_bin = make_repo(tmp_path)
+
+    result = run_entrypoint(
+        repo,
+        fake_bin,
+        overrides={"FAKE_GCLOUD_ERROR": provider_error},
+    )
+
+    assert result.returncode == 64
+    assert safe_detail in result.stderr
+    assert PROJECT not in result.stderr
+    assert "gs://" not in result.stderr
+    assert "builder@" not in result.stderr
 
 
 def test_workflow_uses_current_wif_actions_and_exact_main_revision() -> None:
