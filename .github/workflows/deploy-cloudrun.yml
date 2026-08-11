@@ -15,7 +15,7 @@ jobs:
   candidate:
     name: Candidate-only paired Cloud Build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
       SUMAI_FIREBASE_APP_ID: ${{ vars.SUMAI_FIREBASE_APP_ID }}

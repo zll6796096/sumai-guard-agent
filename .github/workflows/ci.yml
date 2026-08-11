@@ -66,6 +66,9 @@ jobs:
       - name: Install native release validator dependencies
         run: python -m pip install Pillow PyYAML pytest
 
+      - name: Validate real App Store screenshot OCR
+        run: python scripts/validate_app_store_assets.py
+
       - name: Create non-production Firebase structure fixture
         run: |
           python - <<'PY'

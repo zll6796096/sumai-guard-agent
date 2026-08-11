@@ -145,6 +145,32 @@ def test_rejects_private_or_debug_ocr_text(tmp_path: Path) -> None:
         module.validate_assets(tmp_path, ocr_texts=ocr)
 
 
+@pytest.mark.parametrize(
+    "private_text",
+    (
+        "ＤＥＢＵＧ",
+        "ｌｏｃａｌｈｏｓｔ",
+        "１２７．０．０．１",
+        "〒１００－０００１",
+        "ｕｓｅｒ＠ｅｘａｍｐｌｅ．ｃｏｍ",
+        "ａｐｉ＿ｋｅｙ",
+        "ｔｏｋｅｎ",
+    ),
+)
+def test_rejects_nfkc_obfuscated_private_ocr_text(
+    tmp_path: Path,
+    private_text: str,
+) -> None:
+    module = load_validator()
+    write_manifest(tmp_path)
+    write_images(tmp_path)
+    ocr = safe_ocr()
+    ocr[FILENAMES[0]] += f" {private_text}"
+
+    with pytest.raises(module.AssetValidationError, match="OCR_PRIVATE_CONTENT"):
+        module.validate_assets(tmp_path, ocr_texts=ocr)
+
+
 def test_rejects_ocr_when_an_asset_does_not_contain_its_headline(
     tmp_path: Path,
 ) -> None:

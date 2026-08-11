@@ -230,7 +230,7 @@ def test_workflow_is_manual_keyless_candidate_only() -> None:
     assert data["concurrency"]["cancel-in-progress"] is False
 
     job = data["jobs"]["candidate"]
-    assert job["timeout-minutes"] == 45
+    assert job["timeout-minutes"] == 60
     for name in (
         "GOOGLE_CLOUD_PROJECT",
         "SUMAI_AGENT_SERVICE_ACCOUNT",
