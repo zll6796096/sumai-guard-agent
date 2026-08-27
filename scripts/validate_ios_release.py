@@ -28,7 +28,7 @@ EXPECTED = {
     "display_name": "実家チェック",
     "name": "実家あんしんチェック",
     "version": "1.0",
-    "build": "1",
+    "build": "2",
     "deployment": "17.0",
     "device_family": "1",
     "firebase": "12.17.0",

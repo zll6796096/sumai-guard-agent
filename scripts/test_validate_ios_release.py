@@ -99,7 +99,7 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CURRENT_PROJECT_VERSION: 1
+        CURRENT_PROJECT_VERSION: 2
         MARKETING_VERSION: "1.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard
         TARGETED_DEVICE_FAMILY: "1"
@@ -153,7 +153,7 @@ let provider = AppAttestProviderFactory()
 /* Debug */ = {
   buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-    CURRENT_PROJECT_VERSION = 1;
+    CURRENT_PROJECT_VERSION = 2;
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
     MARKETING_VERSION = 1.0;
     PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
@@ -164,7 +164,7 @@ let provider = AppAttestProviderFactory()
 /* Release */ = {
   buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-    CURRENT_PROJECT_VERSION = 1;
+    CURRENT_PROJECT_VERSION = 2;
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
     MARKETING_VERSION = 1.0;
     PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
@@ -516,7 +516,7 @@ def test_ci_flag_never_bypasses_non_origin_gates(
         ("info", "実家チェック", "別名", "IDENTITY_DISPLAY_NAME_MISMATCH"),
         ("info", "実家あんしんチェック", "別名", "IDENTITY_NAME_MISMATCH"),
         ("pbx", "MARKETING_VERSION = 1.0", "MARKETING_VERSION = 2.0", "IDENTITY_VERSION_MISMATCH"),
-        ("pbx", "CURRENT_PROJECT_VERSION = 1", "CURRENT_PROJECT_VERSION = 2", "IDENTITY_BUILD_MISMATCH"),
+        ("pbx", "CURRENT_PROJECT_VERSION = 2", "CURRENT_PROJECT_VERSION = 3", "IDENTITY_BUILD_MISMATCH"),
     ],
 )
 def test_rejects_identity_mismatch_across_project_plist_and_pbx(
