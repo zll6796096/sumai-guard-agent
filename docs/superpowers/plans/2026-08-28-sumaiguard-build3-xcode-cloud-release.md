@@ -143,11 +143,11 @@ Expected: all local tests pass. This is source/test evidence only, not release-a
 
 Run `git diff --check`, inspect each scoped diff, and report any unrelated existing files separately.
 
-- [ ] **Step 2: Commit explicit paths**
+- [x] **Step 2: Commit explicit paths**
 
 Use explicit `git add` paths only, then commit the Build 3/Xcode Cloud preparation.
 
-- [ ] **Step 3: Push the current branch**
+- [x] **Step 3: Push the current branch**
 
 Push `codex/sumaiguard-build2-repair` to `origin` without force.
 
@@ -158,29 +158,110 @@ Expected: the remote branch points at the locally verified Build 3 commit.
 **Files:**
 - Add only an Apple-generated `ios/SumaiGuard.xcodeproj/xcshareddata/xcodecloud/manifest.json` if Xcode creates it.
 
-- [ ] **Step 1: Connect Xcode Cloud to the exact project and branch**
+- [x] **Step 1: Connect Xcode Cloud to the exact project and branch**
 
 In Xcode/App Store Connect, select app ID `6799968189`, `SumaiGuard.xcodeproj`, shared scheme `SumaiGuard`, and the pushed branch.
 
 Pause for the user if Apple or GitHub requests identity/authorization confirmation.
 
-- [ ] **Step 2: Configure the archive workflow**
+- [x] **Step 2: Configure the archive workflow**
 
 Select Xcode 26.6 on a production macOS 26.x image, archive the `SumaiGuard` scheme, use Apple-managed automatic signing, and distribute the archive to App Store Connect/TestFlight.
 
 Do not enable automatic App Review submission or automatic public release.
 
-- [ ] **Step 3: Preserve the Apple-generated manifest**
+- [x] **Step 3: Preserve the Apple-generated manifest**
 
 If Xcode creates a manifest, verify its IDs are Apple-generated and its only target name is `SumaiGuard`; commit and push that exact file without hand-editing IDs.
 
-- [ ] **Step 4: Start one Build 3 workflow run**
+- [x] **Step 4: Start one Build 3 workflow run**
 
 Expected: a single Xcode Cloud run begins for the exact branch commit.
 
 - [ ] **Step 5: Wait for archive and distribution completion**
 
 Expected: Xcode Cloud reports build/archive success and App Store Connect begins processing Version 1.0 Build 3.
+
+First-run evidence: Xcode Cloud Build 1 ran commit `0593a1d` with Xcode 26.6
+on macOS 26.6.2 and failed before archive because the ignored Firebase client
+configuration was absent from the clean cloud clone:
+
+```text
+Build input file cannot be found: '/Volumes/workspace/repository/ios/SumaiGuard/Resources/GoogleService-Info.plist'.
+```
+
+### Task 4A: Inject the ignored Firebase iOS configuration without committing it
+
+**Real objective:** make clean Xcode Cloud clones reproducible while keeping the
+Firebase client configuration and its API key out of Git and build logs.
+
+**First-principles rule:** fix the missing-input boundary at clone time; do not
+weaken the Xcode project, remove Firebase/App Check, or commit ignored config.
+
+**Minimal verifiable deliverable:** an executable `ios/ci_scripts/ci_post_clone.sh`
+decodes one redacted Xcode Cloud environment variable through the existing
+fail-closed Firebase validator and writes the exact expected plist with private
+permissions before `xcodebuild archive`.
+
+**Files:**
+- Modify: `scripts/install_firebase_ios_config.py`
+- Modify: `scripts/test_install_firebase_ios_config.py`
+- Add: `scripts/test_xcode_cloud_ci_scripts.py`
+- Add: `ios/ci_scripts/ci_post_clone.sh`
+- Modify: this plan
+
+**Out of scope:** committing `GoogleService-Info.plist`, creating or rotating
+Firebase credentials, changing Firebase/App Check policy, changing product code,
+or printing configuration contents.
+
+**Risks and guardrails:**
+- The configuration value must enter Xcode Cloud only as a redacted secret named
+  `FIREBASE_IOS_CONFIG_BASE64`; setting it requires action-time confirmation.
+- The secret must be read from the environment, never from command-line arguments,
+  and no failure path may echo it.
+- The decoded plist must match bundle `com.zll.sumaiguard`, the expected Firebase
+  app ID, and project ID before it replaces the ignored destination file.
+- The script must use Apple’s `CI_PRIMARY_REPOSITORY_PATH`, be executable, and fail
+  closed when the variable is missing, malformed, or identity-mismatched.
+
+- [x] **Step 1: Write failing installer and CI-script contract tests**
+
+Run:
+
+```bash
+PATH="$PWD/.venv/bin:$PATH" .venv/bin/pytest \
+  scripts/test_install_firebase_ios_config.py \
+  scripts/test_xcode_cloud_ci_scripts.py -q
+```
+
+Expected RED: environment-based installation and the Xcode Cloud post-clone script
+do not exist yet.
+
+- [x] **Step 2: Implement the minimal redacted environment injection**
+
+Add environment decoding to the existing validator and the executable post-clone
+entrypoint. Do not add the ignored plist to Git.
+
+- [x] **Step 3: Verify focused and full release controls**
+
+Run the focused tests above, `scripts/validate_ios_release.py`, the native release
+test set, `git diff --check`, and confirm the ignored plist remains untracked.
+
+Evidence: focused Firebase/Xcode Cloud tests passed (12), the native release and
+CI-focused set passed (66), `IOS_RELEASE_VALIDATION` passed, and the full
+`scripts/test_all.sh` suite completed with all checks passing (116 promotion,
+35 deployment-entrypoint, 63 native-release tests, frontend import, and Docker
+Compose validation). The Firebase plist remains ignored by `.gitignore`.
+
+- [ ] **Step 4: Configure the redacted Xcode Cloud secret**
+
+After action-time confirmation, add `FIREBASE_IOS_CONFIG_BASE64` to the existing
+workflow with redaction enabled. Never expose or log its value.
+
+- [ ] **Step 5: Push the fix and start exactly one replacement cloud build**
+
+Expected: the post-clone step reports only `firebase_ios_config=PASS`, then the
+archive proceeds beyond the missing-file boundary.
 
 ### Task 5: Verify Apple processing and associate Build 3
 

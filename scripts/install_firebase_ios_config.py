@@ -15,6 +15,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ DEFAULT_DESTINATION = (
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 APP_ID_PATTERN = re.compile(r"1:([0-9]+):ios:[0-9a-f]+")
 PROJECT_ID_PATTERN = re.compile(r"[a-z][a-z0-9-]{4,61}[a-z0-9]")
+ENVIRONMENT_VARIABLE_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,127}")
 
 
 class ConfigError(RuntimeError):
@@ -145,6 +147,40 @@ def write_config(destination: Path, payload: bytes) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+def install_from_environment(
+    *,
+    environment: Mapping[str, str],
+    variable: str,
+    project_id: str,
+    expected_app_id: str,
+    bundle_id: str,
+    destination: Path,
+) -> None:
+    if ENVIRONMENT_VARIABLE_PATTERN.fullmatch(variable) is None:
+        raise ConfigError("firebase environment variable invalid")
+    encoded = environment.get(variable)
+    maximum_encoded_bytes = ((MAX_RESPONSE_BYTES + 2) // 3) * 4
+    if (
+        not isinstance(encoded, str)
+        or not encoded
+        or len(encoded) > maximum_encoded_bytes
+    ):
+        raise ConfigError("firebase environment configuration missing")
+    try:
+        payload = base64.b64decode(encoded, validate=True)
+    except (ValueError, TypeError) as error:
+        raise ConfigError("firebase environment configuration invalid") from error
+    if len(payload) > MAX_RESPONSE_BYTES:
+        raise ConfigError("firebase environment configuration too large")
+    validated = validate_config(
+        payload,
+        bundle_id=bundle_id,
+        expected_app_id=expected_app_id,
+        project_id=project_id,
+    )
+    write_config(destination, validated)
+
+
 def access_token(project_id: str) -> str:
     try:
         result = subprocess.run(
@@ -220,18 +256,32 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--expected-app-id", required=True)
     parser.add_argument("--bundle-id", default="com.zll.sumaiguard")
     parser.add_argument("--destination", type=Path, default=DEFAULT_DESTINATION)
+    parser.add_argument(
+        "--config-base64-env",
+        help="Read base64-encoded client configuration from this environment variable",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     try:
-        install(
-            project_id=args.project,
-            expected_app_id=args.expected_app_id,
-            bundle_id=args.bundle_id,
-            destination=args.destination,
-        )
+        if args.config_base64_env:
+            install_from_environment(
+                environment=os.environ,
+                variable=args.config_base64_env,
+                project_id=args.project,
+                expected_app_id=args.expected_app_id,
+                bundle_id=args.bundle_id,
+                destination=args.destination,
+            )
+        else:
+            install(
+                project_id=args.project,
+                expected_app_id=args.expected_app_id,
+                bundle_id=args.bundle_id,
+                destination=args.destination,
+            )
     except ConfigError:
         print("firebase_ios_config=FAILED", file=sys.stderr)
         return 1

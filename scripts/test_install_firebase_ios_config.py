@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import importlib.util
 import plistlib
 import stat
@@ -83,3 +84,48 @@ def test_writes_validated_config_atomically_with_private_mode(
 
     assert destination.read_bytes() == valid_config()
     assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+
+
+def test_installs_valid_config_from_named_environment_variable(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "Resources" / "GoogleService-Info.plist"
+    variable = "FIREBASE_IOS_CONFIG_BASE64"
+
+    MODULE.install_from_environment(
+        environment={variable: base64.b64encode(valid_config()).decode("ascii")},
+        variable=variable,
+        project_id="sumai-test-project",
+        expected_app_id=APP_ID,
+        bundle_id="com.zll.sumaiguard",
+        destination=destination,
+    )
+
+    assert destination.read_bytes() == valid_config()
+    assert stat.S_IMODE(destination.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {},
+        {"FIREBASE_IOS_CONFIG_BASE64": "not-base64"},
+    ],
+)
+def test_environment_install_fails_closed_without_writing(
+    tmp_path: Path,
+    environment: dict[str, str],
+) -> None:
+    destination = tmp_path / "Resources" / "GoogleService-Info.plist"
+
+    with pytest.raises(MODULE.ConfigError):
+        MODULE.install_from_environment(
+            environment=environment,
+            variable="FIREBASE_IOS_CONFIG_BASE64",
+            project_id="sumai-test-project",
+            expected_app_id=APP_ID,
+            bundle_id="com.zll.sumaiguard",
+            destination=destination,
+        )
+
+    assert not destination.exists()
