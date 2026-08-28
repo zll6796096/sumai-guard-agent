@@ -1,52 +1,57 @@
 # SumaiGuard v1.0 App Store Release Gate
 
+## 2026-08-28 corrective update
+
+Builds 1 and 2 were automatically rejected with `ITMS-90111: Unsupported SDK
+or Xcode version`; this was binary validation, not substantive App Review.
+Both uploads were produced after this Mac moved to macOS 27 beta. Apple lists
+Xcode 26.6 as supported on production macOS 26.2–26.x, while Xcode 27 beta is
+currently accepted only for TestFlight. Local release archive and upload are
+therefore prohibited on the current boot volume.
+
+Build 3 changes only the build identity and the fail-closed signing contract.
+The app and test targets now require team `YMUG864233` with automatic signing.
+The release archive, Apple-managed signing, and App Store Connect distribution
+must run through the same stable Xcode Cloud pattern that cleared the equivalent
+LifeSnap toolchain failure. Xcode Cloud setup, archive, processing, association,
+and App Review submission remain pending at this snapshot.
+
 ## Current-truth snapshot
 
-Cloud Run control-plane and public endpoints were rechecked on 2026-08-11 JST.
-Apple distribution state below is the last verified 2026-08-10 state and was
-not refreshed during this release-chain remediation. This record separates
-local source readiness, Cloud Run release state, Apple distribution, review,
-approval, manual release, and Japan storefront visibility. A PASS at one gate
-does not imply any later gate has passed.
+This record separates source readiness, Cloud Run state, Apple binary
+processing, review submission, approval, manual release, propagation, and Japan
+storefront visibility. A PASS at one gate does not imply a later gate passed.
 
-The release application source was merged by PR #7 and is externally visible
-at exact `main` SHA `7bcdbb18321c4c31aa749170f57584024057e924`.
-Exact-head GitHub CI run `31396624070` passed both backend and iOS jobs for that
-merge commit. The candidate, real-device, promotion, signed IPA, and upload
-evidence below are bound to this same release application source.
+The original release application source remains merged through PR #7 at
+`7bcdbb18321c4c31aa749170f57584024057e924`, with its historical candidate,
+real-device, and production-promotion evidence retained below. The active
+Build 3 correction is scoped to build identity, automatic signing, validation,
+and Xcode Cloud release orchestration; it does not change product behavior.
 
-App Store Connect record `6799968189` now exists with the approved public name
-`実家あんしんチェック`, primary language Japanese, bundle ID
-`com.zll.sumaiguard`, SKU `SUMAIGUARD-IOS-1`, and unrestricted user access.
-Version 1.0 is in `提出準備中`. Screenshots, app information, age rating,
-Japan-only free availability, and the privacy-policy URL are saved. Version
-metadata still requires an App Review phone number, and the completed privacy
-answers remain unpublished pending the operator's legal attestation. Build 1
-was uploaded and was last observed in Apple processing; it was not yet attached
-to version 1.0. No review submission, review decision, release, or storefront
-visibility was verified.
-
-Apple Developer shows App Attest enabled for `com.zll.sumaiguard` and a valid
-Apple Distribution identity and App Store provisioning profile were used to
-export the validated Build 1 IPA.
+App Store Connect record `6799968189` uses the approved public name
+`実家あんしんチェック`, Japanese primary language, bundle ID
+`com.zll.sumaiguard`, SKU `SUMAIGUARD-IOS-1`, and Japan-only free availability. Review contact details,
+listing metadata, privacy answers, export compliance, and manual-release mode
+were sufficient to submit Build 2. Build 2 is now rejected by automatic binary
+validation, so Build 3 processing and association are the next Apple gates.
 
 ## Gate status
 
 | Gate | Status | Current evidence and next acceptance boundary |
 |---|---|---|
 | Local source and listing assets | PASS | Two focused commits contain the Japanese listing, privacy disclosures, review notes, public privacy/support pages, five validated 1320×2868 screenshots, and a DEBUG-only screenshot harness. |
-| Local verification | PASS | Backend: 588 passed. Release/native/script checks: 65 passed. Xcode tests: 168 passed, 0 failed, 1 physical-device-only test skipped in the simulator suite. Debug and Release simulator builds passed; the Release product contains no screenshot-harness marker. The separate physical-device test later passed. |
-| App Store Connect record | PASS | App ID `6799968189`, version 1.0 `提出準備中`; record fields match the approved name, language, bundle ID, SKU, and access scope. |
+| Local verification | PASS | Fresh Build 3 run: backend 588 passed, candidate-promotion 116 passed, deployment-entrypoint 35 passed, native release controls 60 passed, frontend import passed, and Compose validation passed. A local Xcode 26.6 simulator launch is not accepted as release evidence because the host is macOS 27 beta; Xcode Cloud must run the native build/test/archive gate. |
+| App Store Connect record | BLOCKED | App ID `6799968189`, version 1.0. Build 2 is rejected by automatic ITMS-90111 validation; Build 3 is not yet present. |
 | Apple capability and profile | PASS | App Attest is enabled; the distribution identity and App Store profile produced a validated distribution-signed Build 1 IPA. |
 | Source push | PASS | PR #7 merged the release branch to remote `main`; exact release application source is `7bcdbb18321c4c31aa749170f57584024057e924`. |
 | Exact-head CI | PASS | GitHub Actions run `31396624070` passed backend and iOS jobs for exact merged `main` SHA `7bcdbb18321c4c31aa749170f57584024057e924`. |
 | Cloud Build candidate | PASS | Regional Cloud Build `b6596ba5-d920-461a-8361-14baddddfa5b` succeeded. Agent `sumai-agent-7bcdbb1-b659` and web `sumai-web-7bcdbb1-b659-can` used the dedicated runtime accounts, passed safe probes, and were both at 0% when sanitized evidence was written with `production_traffic_changed: false`. The tracked evidence URI is redacted as `gs://<project-id>-sumai-release-evidence/candidates/7bcdbb18321c4c31aa749170f57584024057e924/b6596ba5-d920-461a-8361-14baddddfa5b.json`. |
 | Real-device App Attest | PASS | The paired physical iPhone completed the selected `AppAttestProvider` round trip against `sumai-agent-7bcdbb1-b659`: 1 test, 0 failures, HTTP 200. The sanitized device evidence SHA-256 is `f75037731da65d007687132fef7246bfd6f4245c852c5c2c31d0b083c8c69555`; it contains no token, photo, response body, or device identifier. |
 | Production promotion | PASS | The exact candidate/device dry-run passed with `validation=PASS` and `mutation=NONE`; the separately authorized apply produced promotion evidence SHA-256 `05b5de9c01b89cc6b5c645bce693ac62913f5d4340ff79761b0d160365c3899b`. Fresh inspection shows agent `sumai-agent-7bcdbb1-b659` and web `sumai-web-final-7bcdbb1-b659-58e1e1b75e` at 100%, with all required public probes passing. |
-| Archive and signing | PASS | The exact-source distribution-signed Build 1 IPA passed release, signing, entitlement, profile, and placeholder checks; its SHA-256 is `c2d191901e57f87611f1cdab1e1e4713b88680287ccc0f1f23b987934901a0f6`. |
-| IPA upload and processing | IN PROGRESS | Apple accepted the Build 1 upload and it was last observed processing. Processing completion, build attachment, TestFlight availability, and review readiness were not reverified here. |
-| Metadata and privacy answers | IN PROGRESS | Five screenshots, app information, age rating, Japan-only free availability, and privacy-policy URL are saved. Version metadata cannot be saved until an App Review phone number is supplied. Privacy answers are completed but not published because final publication is an operator attestation. |
-| App Review submission | AWAITING CHECKPOINT | Submission requires an accepted processed build, completed metadata/privacy/export answers, manual-release selection, and separate explicit confirmation. |
+| Archive and signing | IN PROGRESS | Earlier local archives are not reusable after ITMS-90111. Build 3 must be archived and signed by the stable Xcode Cloud workflow. |
+| IPA upload and processing | BLOCKED | Build 2 reached App Store Connect but was invalidated by ITMS-90111. Build 3 cloud archive, distribution, and processing have not started. |
+| Metadata and privacy answers | PASS | The Build 2 submission proved the listing, international-format review contact, privacy answers, export compliance, screenshots, Japan-only availability, and manual-release selection were saved. Reverify unchanged values before submitting Build 3. |
+| App Review submission | AWAITING CHECKPOINT | The Build 2 submission was rejected by binary validation. Build 3 requires successful cloud processing and association, followed by separate action-time confirmation. |
 | App Review approval | NOT STARTED | Approval is independent of submission and upload. |
 | Manual release | AWAITING CHECKPOINT | Manual release is selected on the unsaved version page; save it after the required review phone is supplied. The final release action still requires explicit authorization after approval. |
 | Japan storefront visibility | NOT STARTED | Record the public URL, observed version/build, Japan storefront, and observation time only after visibility is confirmed. |
@@ -89,11 +94,10 @@ export the validated Build 1 IPA.
 
 ## Current decision
 
-The release application source, exact-head CI, candidate build, real-device App
-Attest, production promotion, signed IPA, and upload transport are complete for
-exact SHA `7bcdbb18321c4c31aa749170f57584024057e924`. Public release is not yet
-complete. Build processing/attachment, metadata and privacy publication, App
-Review submission, approval, manual release, propagation, and Japan storefront
-visibility remain distinct later gates. Release-chain tooling corrections after
-this SHA require their own reviewed CI and candidate orchestration evidence;
-they do not retroactively change the Build 1 application source.
+Product/backend readiness and the earlier production-promotion evidence remain
+separate from Apple binary acceptance. Build 3 source controls are green, but
+no valid Build 3 archive or upload exists yet. The next authorized action is to
+push the scoped Build 3 source branch and configure one stable Xcode Cloud
+archive/distribution run. Apple processing, build association, App Review
+submission, approval, manual release, propagation, and Japan storefront
+visibility remain distinct later gates.

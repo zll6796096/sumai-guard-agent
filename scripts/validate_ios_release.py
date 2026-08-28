@@ -28,7 +28,8 @@ EXPECTED = {
     "display_name": "実家チェック",
     "name": "実家あんしんチェック",
     "version": "1.0",
-    "build": "2",
+    "build": "3",
+    "team": "YMUG864233",
     "deployment": "17.0",
     "device_family": "1",
     "firebase": "12.17.0",
@@ -83,6 +84,9 @@ RULES = {
     "IDENTITY_VERSION_MISMATCH": "marketing version is inconsistent",
     "IDENTITY_BUILD_MISMATCH": "build number is inconsistent",
     "IDENTITY_APPICON_MISMATCH": "AppIcon build setting is inconsistent",
+    "CLOUD_SIGNING_MISMATCH": (
+        "Xcode Cloud targets must use the release team with automatic signing"
+    ),
     "DEVICE_FAMILY_NOT_IPHONE_ONLY": "target must be iPhone only",
     "DEPLOYMENT_TARGET_TOO_LOW": "deployment target must be iOS 17 or later",
     "FIREBASE_NOT_EXACTLY_PINNED": "Firebase dependency must use exactVersion",
@@ -203,6 +207,7 @@ class Validator:
         release = self.read_text("release")
 
         self.validate_project_identity(project, info, pbx)
+        self.validate_cloud_signing(project, pbx)
         self.validate_project_entitlements_binding(project)
         self.validate_entitlements(entitlements)
         self.validate_firebase(project, pbx, resolved)
@@ -310,6 +315,51 @@ class Validator:
             self.add("DEPLOYMENT_TARGET_TOO_LOW", "pbx")
         if "productName = SumaiGuard;" not in pbx:
             self.add("IDENTITY_NAME_MISMATCH", "pbx")
+
+    def validate_cloud_signing(
+        self,
+        project: dict[str, Any] | None,
+        pbx: str | None,
+    ) -> None:
+        if project is not None:
+            targets = project.get("targets")
+            signing_valid = isinstance(targets, dict)
+            for target_name in (EXPECTED["target"], f'{EXPECTED["target"]}Tests'):
+                target = targets.get(target_name) if isinstance(targets, dict) else None
+                settings = target.get("settings") if isinstance(target, dict) else None
+                base = settings.get("base") if isinstance(settings, dict) else None
+                if not isinstance(base, dict) or (
+                    str(base.get("DEVELOPMENT_TEAM", "")) != EXPECTED["team"]
+                    or str(base.get("CODE_SIGN_STYLE", "")) != "Automatic"
+                ):
+                    signing_valid = False
+            if not signing_valid:
+                self.add("CLOUD_SIGNING_MISMATCH", "project")
+
+        if pbx is not None:
+            team_values = self.pbx_values(pbx, "DEVELOPMENT_TEAM")
+            style_values = self.pbx_values(pbx, "CODE_SIGN_STYLE")
+            target_teams = re.findall(
+                r"^\s*DevelopmentTeam\s*=\s*([^;]+);",
+                pbx,
+                flags=re.MULTILINE,
+            )
+            provisioning_styles = re.findall(
+                r"^\s*ProvisioningStyle\s*=\s*([^;]+);",
+                pbx,
+                flags=re.MULTILINE,
+            )
+            if (
+                not team_values
+                or any(value != EXPECTED["team"] for value in team_values)
+                or not style_values
+                or any(value != "Automatic" for value in style_values)
+                or len(target_teams) != 2
+                or any(value.strip() != EXPECTED["team"] for value in target_teams)
+                or len(provisioning_styles) != 2
+                or any(value.strip() != "Automatic" for value in provisioning_styles)
+            ):
+                self.add("CLOUD_SIGNING_MISMATCH", "pbx")
 
     def validate_pbx_setting(
         self,

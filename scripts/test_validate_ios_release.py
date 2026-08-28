@@ -99,10 +99,21 @@ targets:
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        CURRENT_PROJECT_VERSION: 2
+        CODE_SIGN_STYLE: Automatic
+        CURRENT_PROJECT_VERSION: 3
+        DEVELOPMENT_TEAM: YMUG864233
         MARKETING_VERSION: "1.0"
         PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard
         TARGETED_DEVICE_FAMILY: "1"
+  SumaiGuardTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    settings:
+      base:
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: YMUG864233
+        PRODUCT_BUNDLE_IDENTIFIER: com.zll.sumaiguard.tests
 """,
     )
     fixture.write_plist(
@@ -150,10 +161,22 @@ let provider = AppAttestProviderFactory()
         fixture.pbx,
         """\
 /* SumaiGuard */ = { productName = SumaiGuard; };
+TargetAttributes = {
+  APP_TARGET = {
+    DevelopmentTeam = YMUG864233;
+    ProvisioningStyle = Automatic;
+  };
+  TEST_TARGET = {
+    DevelopmentTeam = YMUG864233;
+    ProvisioningStyle = Automatic;
+  };
+};
 /* Debug */ = {
   buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-    CURRENT_PROJECT_VERSION = 2;
+    CODE_SIGN_STYLE = Automatic;
+    CURRENT_PROJECT_VERSION = 3;
+    DEVELOPMENT_TEAM = YMUG864233;
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
     MARKETING_VERSION = 1.0;
     PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
@@ -164,11 +187,29 @@ let provider = AppAttestProviderFactory()
 /* Release */ = {
   buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-    CURRENT_PROJECT_VERSION = 2;
+    CODE_SIGN_STYLE = Automatic;
+    CURRENT_PROJECT_VERSION = 3;
+    DEVELOPMENT_TEAM = YMUG864233;
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
     MARKETING_VERSION = 1.0;
     PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard;
     TARGETED_DEVICE_FAMILY = 1;
+  };
+  name = Release;
+};
+/* Test Debug */ = {
+  buildSettings = {
+    CODE_SIGN_STYLE = Automatic;
+    DEVELOPMENT_TEAM = YMUG864233;
+    PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard.tests;
+  };
+  name = Debug;
+};
+/* Test Release */ = {
+  buildSettings = {
+    CODE_SIGN_STYLE = Automatic;
+    DEVELOPMENT_TEAM = YMUG864233;
+    PRODUCT_BUNDLE_IDENTIFIER = com.zll.sumaiguard.tests;
   };
   name = Release;
 };
@@ -516,7 +557,7 @@ def test_ci_flag_never_bypasses_non_origin_gates(
         ("info", "実家チェック", "別名", "IDENTITY_DISPLAY_NAME_MISMATCH"),
         ("info", "実家あんしんチェック", "別名", "IDENTITY_NAME_MISMATCH"),
         ("pbx", "MARKETING_VERSION = 1.0", "MARKETING_VERSION = 2.0", "IDENTITY_VERSION_MISMATCH"),
-        ("pbx", "CURRENT_PROJECT_VERSION = 2", "CURRENT_PROJECT_VERSION = 3", "IDENTITY_BUILD_MISMATCH"),
+        ("pbx", "CURRENT_PROJECT_VERSION = 3", "CURRENT_PROJECT_VERSION = 4", "IDENTITY_BUILD_MISMATCH"),
     ],
 )
 def test_rejects_identity_mismatch_across_project_plist_and_pbx(
@@ -539,6 +580,30 @@ def test_rejects_identity_mismatch_across_project_plist_and_pbx(
         )
 
     assert_failed_with(run_validator(release_fixture), code)
+
+
+@pytest.mark.parametrize(
+    ("path_name", "old", "new"),
+    [
+        ("project", "DEVELOPMENT_TEAM: YMUG864233", "DEVELOPMENT_TEAM: OTHERTEAM"),
+        ("project", "CODE_SIGN_STYLE: Automatic", "CODE_SIGN_STYLE: Manual"),
+        ("pbx", "DEVELOPMENT_TEAM = YMUG864233", "DEVELOPMENT_TEAM = OTHERTEAM"),
+        ("pbx", "ProvisioningStyle = Automatic", "ProvisioningStyle = Manual"),
+    ],
+)
+def test_rejects_xcode_cloud_signing_mismatch(
+    release_fixture: ReleaseFixture,
+    path_name: str,
+    old: str,
+    new: str,
+) -> None:
+    path = getattr(release_fixture, path_name)
+    release_fixture.write_text(
+        path,
+        path.read_text(encoding="utf-8").replace(old, new, 1),
+    )
+
+    assert_failed_with(run_validator(release_fixture), "CLOUD_SIGNING_MISMATCH")
 
 
 def test_rejects_ipad_target(release_fixture: ReleaseFixture) -> None:

@@ -14,9 +14,9 @@ final class ProjectContractTests: XCTestCase {
         XCTAssertEqual(appInfo["CFBundleDisplayName"] as? String, "実家チェック")
     }
 
-    func testAppStartsAtVersionOneBuildTwo() {
+    func testAppStartsAtVersionOneBuildThree() {
         XCTAssertEqual(appInfo["CFBundleShortVersionString"] as? String, "1.0")
-        XCTAssertEqual(appInfo["CFBundleVersion"] as? String, "2")
+        XCTAssertEqual(appInfo["CFBundleVersion"] as? String, "3")
     }
 
     func testAppTargetsIPhoneOnIOS17OrLater() {
